@@ -26,20 +26,34 @@ const API_BASE = "http://localhost:8080";
 type ProjectType = "personal" | "team";
 
 type WorkspaceProject = {
-  id: string;
-  name: string;
-  language: string;
-  updatedAt: string;
+  id?: string | number;
+  name?: string;
+  language?: string;
+  updatedAt?: string;
+};
+
+type RawWorkspaceItem = {
+  // 백엔드 Workspace 엔티티 기준
+  uuid?: string;
+  name?: string;
+  description?: string | null;
+  updatedAt?: string | null;
+  type?: "PERSONAL" | "TEAM" | "personal" | "team";
+
+  // 기존 프론트/DTO 호환용
+  id?: string;
+  mode?: ProjectType;
+  teamName?: string | null;
+  projects?: WorkspaceProject[];
 };
 
 type WorkspaceItem = {
   id: string;
   name: string;
-  mode: ProjectType;
+  description: string;
+  type: ProjectType;
   updatedAt: string;
-  description?: string | null;
-  teamName?: string | null;
-  projects?: WorkspaceProject[];
+  projectCount: number;
 };
 
 type ScheduleProgressResponse = {
@@ -70,10 +84,6 @@ const FILTERS = [
 
 type FilterType = (typeof FILTERS)[number]["key"];
 
-/* =========================
-   프로젝트 메인 대시보드 경로
-   - IDE / 일정관리 / 개발일지는 dashboard.utils 함수 사용
-========================= */
 function getDashboardHref(project: DashboardCardItem) {
   return `/main/${project.id}?mode=${project.type}`;
 }
@@ -111,6 +121,32 @@ function getAuthHeaders(): HeadersInit {
 
   return {
     Authorization: `Bearer ${token}`,
+  };
+}
+
+function normalizeWorkspaceType(value?: string | null): ProjectType {
+  if (!value) return "personal";
+
+  const normalized = value.toLowerCase();
+
+  if (normalized === "team") return "team";
+  return "personal";
+}
+
+function normalizeWorkspace(workspace: RawWorkspaceItem): WorkspaceItem {
+  const id = workspace.uuid ?? workspace.id ?? "";
+  const type = normalizeWorkspaceType(workspace.type ?? workspace.mode);
+  const projectCount = Array.isArray(workspace.projects)
+    ? workspace.projects.length
+    : 0;
+
+  return {
+    id,
+    name: workspace.name?.trim() || "이름 없는 프로젝트",
+    description: workspace.description?.trim() || "설명이 없습니다.",
+    type,
+    updatedAt: workspace.updatedAt || "-",
+    projectCount,
   };
 }
 
@@ -188,15 +224,20 @@ export default function DashboardProjectSelectPage() {
         throw new Error(text || "워크스페이스 목록 조회에 실패했습니다.");
       }
 
-      const workspaces: WorkspaceItem[] = await workspaceRes.json();
-      const workspaceList = Array.isArray(workspaces) ? workspaces : [];
+      const rawWorkspaces: RawWorkspaceItem[] = await workspaceRes.json();
+
+      const workspaceList = Array.isArray(rawWorkspaces)
+        ? rawWorkspaces
+            .map(normalizeWorkspace)
+            .filter((workspace) => workspace.id)
+        : [];
 
       const progressResults = await Promise.all(
         workspaceList.map(async (workspace) => {
           try {
             const progressRes = await fetch(
               `${API_BASE}/api/schedules/progress?view=${encodeURIComponent(
-                workspace.mode,
+                workspace.type,
               )}&workspaceId=${encodeURIComponent(workspace.id)}`,
               {
                 method: "GET",
@@ -211,7 +252,7 @@ export default function DashboardProjectSelectPage() {
               return {
                 workspaceId: workspace.id,
                 workspaceName: workspace.name,
-                type: workspace.mode,
+                type: workspace.type,
                 totalCount: 0,
                 doneCount: 0,
                 progress: 0,
@@ -223,7 +264,7 @@ export default function DashboardProjectSelectPage() {
             return {
               workspaceId: workspace.id,
               workspaceName: workspace.name,
-              type: workspace.mode,
+              type: workspace.type,
               totalCount: 0,
               doneCount: 0,
               progress: 0,
@@ -239,21 +280,26 @@ export default function DashboardProjectSelectPage() {
       });
 
       const merged: DashboardCardItem[] = workspaceList.map((workspace) => {
-        const latestProject =
-          Array.isArray(workspace.projects) && workspace.projects.length > 0
-            ? workspace.projects[0]
-            : null;
-
         const progressInfo = progressMap.get(workspace.id);
 
         return {
           id: workspace.id,
-          title: latestProject?.name || workspace.name || "이름 없는 프로젝트",
-          description: workspace.description?.trim() || "설명이 없습니다.",
-          tech: latestProject?.language || "-",
-          type: workspace.mode,
+
+          // 핵심 수정:
+          // 하위 프로젝트 이름이 아니라 최상위 Workspace 이름을 카드 제목으로 사용
+          title: workspace.name,
+
+          description: workspace.description,
+
+          // language 대신 하위 프로젝트 개수만 보조 정보로 표시
+          tech: `하위 ${workspace.projectCount}개`,
+
+          type: workspace.type,
           progress: progressInfo?.progress ?? 0,
-          lastModified: workspace.updatedAt || latestProject?.updatedAt || "-",
+
+          // 하위 프로젝트 수정일이 아니라 Workspace 수정일 기준
+          lastModified: workspace.updatedAt,
+
           memberCount: undefined,
         };
       });
@@ -309,9 +355,6 @@ export default function DashboardProjectSelectPage() {
   return (
     <main className="min-h-screen bg-[#f5f6fa] px-6 py-6 text-slate-900 md:px-8">
       <div className="mx-auto flex max-w-[1480px] flex-col gap-5">
-        {/* =========================
-            상단 프로젝트 선택 패널
-        ========================= */}
         <section className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -321,8 +364,8 @@ export default function DashboardProjectSelectPage() {
                 </h1>
 
                 <p className="mt-1.5 text-sm font-medium text-slate-500">
-                  작업할 프로젝트를 선택하거나 바로 IDE, 일정관리, 개발일지로
-                  이동할 수 있습니다.
+                  작업할 최상위 프로젝트를 선택하세요. 선택 후 해당 프로젝트의
+                  메인, AIVS, 일정관리, 개발일지로 이동할 수 있습니다.
                 </p>
               </div>
 
@@ -370,7 +413,7 @@ export default function DashboardProjectSelectPage() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="프로젝트 검색"
+                  placeholder="최상위 프로젝트 검색"
                   className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 />
               </div>
@@ -521,7 +564,7 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
           <CardActionLink
             href={getAivsHref(project.id, project.type)}
             icon={<Code2 size={15} />}
-            label="IDE"
+            label="AIVS"
           />
 
           <CardActionLink
