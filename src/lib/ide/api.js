@@ -15,7 +15,8 @@ const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 const getCurrentUserId = () =>
   typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
-const authFetch = async (url, options = {}) => {
+// 💡 [핵심 수정] export를 추가하여 다른 파일(communityApi.ts)에서도 쓸 수 있게 만들었습니다!
+export const authFetch = async (url, options = {}) => {
   const token =
     typeof window !== "undefined"
       ? localStorage.getItem("token") ||
@@ -227,6 +228,7 @@ export const fetchWorkspaceProjectsApi = async (workspaceId) => {
 
   return await response.json();
 };
+
 export const getMyWorkspacesByTokenApi = async () => {
   const response = await authFetch(`${API_BASE}/me`);
 
@@ -266,7 +268,7 @@ export const createProjectApi = async ({
   return await response.text();
 };
 
-// 💡 [핵심 변경] 파라미터를 객체({}) 형태로 묶어서 안전하게 받도록 수정했습니다!
+// 파라미터를 객체({}) 형태로 묶어서 안전하게 받도록 수정
 export const createProjectInWorkspaceApi = async ({
   workspaceId,
   projectName,
@@ -667,7 +669,7 @@ export const createCodeMapComponentApi = async (
     method: "POST",
     body: JSON.stringify({ workspaceId, projectName, branchName, name, type }),
   });
-  if (!response.ok) throw new Error("컴포넌 생성 실패");
+  if (!response.ok) throw new Error("컴포넌트 생성 실패");
   return await response.text();
 };
 

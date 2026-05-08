@@ -1,3 +1,5 @@
+"use client";
+
 import PostEditor from "@/components/community/PostEditor";
 
 export default function CommunityWritePage() {
@@ -8,13 +10,14 @@ export default function CommunityWritePage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">
             글 작성
           </h1>
-
           <p className="mt-2 text-sm text-slate-500">
             질문, 코드 고민, 개발 기록을 자유롭게 공유해보세요.
           </p>
         </div>
 
-        <PostEditor />
+        {/* 💡 핵심 수정: mode="create" 속성을 반드시 넘겨주어야 합니다! */}
+        <PostEditor mode="create" />
+        
       </div>
     </main>
   );

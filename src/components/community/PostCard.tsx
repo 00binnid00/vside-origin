@@ -5,11 +5,31 @@ import { FileText, ImageIcon } from "lucide-react";
 import { CommunityPost } from "./CommunityTypes";
 
 type Props = {
-  post: CommunityPost;
+  post: any;
 };
 
 export default function PostCard({ post }: Props) {
+  // 💡 [디버깅용] 개발자 도구(F12)의 콘솔창에서 백엔드가 주는 실제 데이터를 확인해 보세요!
+  // console.log("백엔드에서 온 데이터:", post); 
+
   const preview = post.attachments?.[0];
+  const imageUrl = post.previewImageUrl || preview?.url;
+  const isImage = post.previewImageUrl || preview?.type === "image";
+
+  // 🚀 [핵심] 만능 날짜 포맷팅 함수 (배열이든 문자열이든 무조건 변환)
+  let formattedDate = "";
+  if (post.createdAt) {
+    if (typeof post.createdAt === "string") {
+      // 1. 문자열로 올 때 (예: "2026-05-08T14:30:00")
+      formattedDate = post.createdAt.split("T")[0];
+    } else if (Array.isArray(post.createdAt)) {
+      // 2. 배열로 올 때 (예: [2026, 5, 8, 14, 30])
+      const year = post.createdAt[0];
+      const month = String(post.createdAt[1]).padStart(2, "0"); // 5 -> 05
+      const day = String(post.createdAt[2]).padStart(2, "0");   // 8 -> 08
+      formattedDate = `${year}-${month}-${day}`;
+    }
+  }
 
   return (
     <Link
@@ -23,7 +43,7 @@ export default function PostCard({ post }: Props) {
               {post.category}
             </span>
 
-            {post.tags.map((tag) => (
+            {post.tags?.map((tag: string) => (
               <span key={tag} className="text-sm text-slate-500">
                 #{tag}
               </span>
@@ -35,23 +55,23 @@ export default function PostCard({ post }: Props) {
           </h2>
 
           <p className="mt-3 line-clamp-2 text-sm text-slate-500">
-            {post.content}
+            {post.contentSnippet || post.content}
           </p>
         </div>
 
-        {preview ? (
+        {imageUrl || preview ? (
           <div className="hidden h-24 w-32 shrink-0 overflow-hidden rounded-2xl border border-blue-100 bg-blue-50 md:block">
-            {preview.type === "image" ? (
+            {isImage ? (
               <img
-                src={preview.url}
-                alt={preview.name}
+                src={imageUrl}
+                alt={preview?.name || post.title}
                 className="h-full w-full object-cover"
               />
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-blue-600">
                 <FileText size={28} />
                 <span className="max-w-[110px] truncate text-xs">
-                  {preview.name}
+                  {preview?.name}
                 </span>
               </div>
             )}
@@ -65,11 +85,11 @@ export default function PostCard({ post }: Props) {
 
       <div className="mt-7 flex items-center justify-between text-sm text-slate-500">
         <span>
-          {post.authorName} · {post.createdAt}
+          {post.authorName} · {formattedDate}
         </span>
 
         <span className="text-right">
-          조회 {post.views} · 좋아요 {post.likes}
+          조회 {post.views || 0} · 좋아요 {post.likeCount ?? post.likes ?? 0}
         </span>
       </div>
     </Link>
