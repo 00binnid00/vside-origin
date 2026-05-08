@@ -35,8 +35,6 @@ import {
   formatDateKey,
   getAivsHref,
   getDevlogHref,
-  getProjectTech,
-  getProjectTitle,
   getScheduleHref,
   normalizeWorkspaceId,
   parseLastModified,
@@ -53,6 +51,24 @@ type ProjectFilter = "all" | "personal" | "team";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+/**
+ * 최상위 프로젝트 이름은 Workspace.name 기준으로 표시
+ */
+function getWorkspaceTitle(workspace?: WorkspaceListResponse | null) {
+  return workspace?.name?.trim() || "이름 없는 프로젝트";
+}
+
+/**
+ * 하위 Project 개수만 보조 정보로 표시
+ */
+function getWorkspaceSubProjectCount(workspace?: WorkspaceListResponse | null) {
+  return Array.isArray(workspace?.projects) ? workspace.projects.length : 0;
+}
+
+function getWorkspaceTechLabel(workspace?: WorkspaceListResponse | null) {
+  return `하위 ${getWorkspaceSubProjectCount(workspace)}개`;
 }
 
 export default function MainDashboard({
@@ -92,9 +108,6 @@ export default function MainDashboard({
 
   // =========================================================
   // 노션형 사이드바 상태
-  // isSidebarPinned: 고정 펼침 여부
-  // isSidebarHovered: 접힌 상태에서 마우스 hover 여부
-  // canSidebarHoverExpand: 접기 버튼 클릭 직후 바로 다시 펼쳐지는 문제 방지
   // =========================================================
   const [isSidebarPinned, setIsSidebarPinned] = useState(true);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
@@ -241,10 +254,8 @@ export default function MainDashboard({
   const selectedWorkspace = workspaces[0] ?? null;
 
   const selectedProjectName = selectedWorkspace
-    ? getProjectTitle(selectedWorkspace)
+    ? getWorkspaceTitle(selectedWorkspace)
     : "프로젝트";
-
-  const selectedWorkspaceName = selectedWorkspace?.name ?? "";
 
   const selectedProgressDetail = selectedWorkspace
     ? progressDetailMap[selectedWorkspace.id]
@@ -335,8 +346,8 @@ export default function MainDashboard({
       .map((workspace) => ({
         id: workspace.id,
         workspaceId: workspace.id,
-        title: getProjectTitle(workspace),
-        tech: getProjectTech(workspace),
+        title: getWorkspaceTitle(workspace),
+        tech: getWorkspaceTechLabel(workspace),
         type: workspace.mode,
         role: workspace.role,
         progress: progressMap[workspace.id] ?? 0,
@@ -354,14 +365,14 @@ export default function MainDashboard({
       const matchedFilter =
         projectFilter === "all" || workspace.mode === projectFilter;
 
-      const title = getProjectTitle(workspace).toLowerCase();
-      const name = workspace.name?.toLowerCase() ?? "";
-      const tech = getProjectTech(workspace).toLowerCase();
+      const title = getWorkspaceTitle(workspace).toLowerCase();
+      const workspaceName = workspace.name?.toLowerCase() ?? "";
+      const tech = getWorkspaceTechLabel(workspace).toLowerCase();
 
       const matchedKeyword =
         !keyword ||
         title.includes(keyword) ||
-        name.includes(keyword) ||
+        workspaceName.includes(keyword) ||
         tech.includes(keyword);
 
       return matchedFilter && matchedKeyword;
@@ -395,8 +406,8 @@ export default function MainDashboard({
 
   const renderWorkspaceItem = (workspace: WorkspaceListResponse) => {
     const active = String(workspace.id) === String(currentWorkspaceId);
-    const workspaceTitle = getProjectTitle(workspace);
-    const workspaceTech = getProjectTech(workspace);
+    const workspaceTitle = getWorkspaceTitle(workspace);
+    const workspaceTech = getWorkspaceTechLabel(workspace);
 
     return (
       <Link
@@ -679,9 +690,7 @@ export default function MainDashboard({
 
                   <p className="mt-1 text-sm text-gray-500">
                     {safeWorkspaceId
-                      ? selectedWorkspaceName
-                        ? `${selectedWorkspaceName} 프로젝트 메인`
-                        : "선택한 프로젝트의 일정, 개발일지, 진행률을 확인합니다."
+                      ? `${selectedProjectName} 프로젝트 메인`
                       : "프로젝트 구조 중심 협업을 위한 웹 IDE 플랫폼"}
                   </p>
                 </div>
@@ -736,7 +745,7 @@ export default function MainDashboard({
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  최근에 수정한 프로젝트만 빠르게 확인하세요.
+                  최근에 수정한 최상위 프로젝트만 빠르게 확인하세요.
                 </p>
               </div>
 
@@ -809,7 +818,7 @@ function ProjectWorkStatusSection({
   const latestDevlog = workFlowItems.find((item) => item.type === "devlog");
 
   const safeProgress = Math.min(Math.max(progress, 0), 100);
-  const projectTech = workspace ? getProjectTech(workspace) : "-";
+  const projectTech = workspace ? getWorkspaceTechLabel(workspace) : "-";
   const projectRole = workspace?.role === "owner" ? "Owner" : "Member";
   const projectMode = workspace?.mode === "team" ? "Team" : "Personal";
   const updatedAt = workspace?.updatedAt || "최근 수정일 없음";
@@ -1016,13 +1025,15 @@ function ProjectWorkStatusSection({
               </Link>
             </div>
 
-            <div className="mt-5 rounded-xl bg-gray-50 px-4 py-3">
+            <div className="mt-5 rounded-xl bg-gray-50 px-4 py-4">
               <p className="text-xs font-bold text-gray-500">이번 달 기록</p>
 
-              <p className="mt-1 text-sm text-gray-700">
+              <p className="mt-1 text-sm leading-relaxed text-gray-600">
                 개발일지{" "}
-                <span className="font-black text-[#5873F9]">{devlogCount}</span>
-                개가 작성되었습니다.
+                <span className="font-black text-[#5873F9]">
+                  {devlogCount}개
+                </span>
+                가 작성되었습니다.
               </p>
             </div>
           </div>
