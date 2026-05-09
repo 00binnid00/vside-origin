@@ -199,10 +199,33 @@ export function getProjectMainHref(project: RecentProject) {
   return `/main/${project.workspaceId}?mode=${project.type}`;
 }
 
-export function getIdeHref(project: RecentProject) {
-  return project.type === "team"
-    ? `/ide/team/${project.workspaceId}`
-    : `/ide/personal/${project.workspaceId}`;
+/*
+  IDE 작업 화면 경로를 만드는 공통 함수.
+
+  변경 전에는 RecentProject 객체를 넘겨서 IDE 경로를 만들거나,
+  각 위치에서 직접 /ide/team, /ide/personal 경로를 만들 수 있었다.
+
+  변경 후에는 workspaceId와 mode만 넘기면 IDE 경로가 생성되도록 정리했다.
+  그래서 MainDashboard, ProjectManagerList, CreateProjectModal 등에서
+  프로젝트 객체 전체가 없어도 현재 선택된 워크스페이스 기준으로 IDE 이동이 가능하다.
+*/
+export function getIdeHref(workspaceId: string, mode: WorkspaceMode) {
+  return mode === "team"
+    ? `/ide/team/${workspaceId}`
+    : `/ide/personal/${workspaceId}`;
+}
+
+/*
+  AIVS와 IDE를 같은 작업 화면 의미로 통일한 함수.
+
+  현재 서비스에서는 "AIVS에서 작업하기", "작업하러 가기", "작업 화면 열기"가
+  모두 같은 IDE 화면으로 이동해야 하므로 getAivsHref는 getIdeHref를 그대로 사용한다.
+
+  하위 프로젝트 생성 후 자동 이동할 때도 이 함수를 사용하면
+  team/personal 경로 분기를 한 곳에서만 관리할 수 있다.
+*/
+export function getAivsHref(workspaceId: string, mode: WorkspaceMode) {
+  return getIdeHref(workspaceId, mode);
 }
 
 export function getScheduleHref(workspaceId: string, mode: WorkspaceMode) {
@@ -211,12 +234,6 @@ export function getScheduleHref(workspaceId: string, mode: WorkspaceMode) {
 
 export function getDevlogHref(workspaceId: string) {
   return `/devlogs?workspaceId=${workspaceId}`;
-}
-
-export function getAivsHref(workspaceId: string, mode: WorkspaceMode) {
-  return mode === "team"
-    ? `/ide/team/${workspaceId}`
-    : `/ide/personal/${workspaceId}`;
 }
 
 export function getScheduleTitle(schedule: RawSchedule) {
