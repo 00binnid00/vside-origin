@@ -35,6 +35,7 @@ import {
   formatDateKey,
   getAivsHref,
   getDevlogHref,
+  getIdeHref,
   getScheduleHref,
   normalizeWorkspaceId,
   parseLastModified,
@@ -707,14 +708,10 @@ export default function MainDashboard({
               </Link>
 
               <Link
-                href={
-                  currentWorkspaceId
-                    ? getAivsHref(currentWorkspaceId, currentMode)
-                    : "/new/workspace"
-                }
+                href={getIdeHref(currentWorkspaceId, currentMode)}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#5873F9] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#4863E8]"
               >
-                {currentWorkspaceId ? "작업하러 가기" : "새 프로젝트 생성"}
+                작업하러 가기
                 <FolderOpen size={18} strokeWidth={2.4} />
               </Link>
             </div>
@@ -974,13 +971,12 @@ function ProjectWorkStatusSection({
                   개 · 최근 수정일{" "}
                   <span className="font-black text-gray-800">{updatedAt}</span>
                 </p>
-
                 <Link
-                  href={getAivsHref(workspaceId, mode)}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#EEF2FF] px-3 py-2 text-xs font-bold text-[#5873F9] transition hover:bg-[#E3E9FF]"
+                  href={getIdeHref(workspaceId, mode)}
+                  className="flex items-center justify-between rounded-xl bg-[#5873F9] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#4863E8]"
                 >
-                  작업 화면 열기
-                  <ArrowRight size={15} strokeWidth={2.4} />
+                  <span>AIVS에서 작업하기</span>
+                  <ArrowRight size={17} strokeWidth={2.4} />
                 </Link>
               </div>
             </div>
