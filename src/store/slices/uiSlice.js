@@ -30,14 +30,14 @@ const initialState = {
   selectedText: "",
 
   // 💡 [NEW] 보이스챗 백그라운드 연결 상태 추가
-  isVoiceConnected: false, 
-  
+  isVoiceConnected: false,
+
   // 💡 [NEW] 웹 미리보기 상태 추가
   isPreviewVisible: false,
   previewUrl: "",
 };
 
-const uiSlice = createSlice({
+export const uiSlice = createSlice({
   name: "ui",
   initialState,
   reducers: {
@@ -149,7 +149,7 @@ const uiSlice = createSlice({
     setVoiceConnected: (state, action) => {
       state.isVoiceConnected = action.payload;
     },
-    
+
     // 💡 [NEW] 미리보기 URL 및 표시 여부 설정
     setIsPreviewVisible: (state, action) => {
       state.isPreviewVisible = action.payload;
