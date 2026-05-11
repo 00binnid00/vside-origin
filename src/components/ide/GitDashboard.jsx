@@ -16,12 +16,12 @@ import {
   VscArrowDown,
   VscArrowUp,
   VscRefresh,
-  VscKey,
   VscHistory,
   VscGithubInverted,
   VscWarning,
   VscClose,
   VscTrash,
+  VscLink
 } from "react-icons/vsc";
 
 import {
@@ -66,10 +66,10 @@ export default function GitDashboard() {
   const [branchList, setBranchList] = useState([]);
   const [historyLog, setHistoryLog] = useState([]);
 
-  const [showTokenModal, setShowTokenModal] = useState(false);
+  // 💡 [수정됨] 토큰 입력 모달은 지우고, OAuth 연동 모달 상태를 추가했습니다!
+  const [showOAuthModal, setShowOAuthModal] = useState(false);
   const [showGitUrlModal, setShowGitUrlModal] = useState(false);
   const [modalAction, setModalAction] = useState("push");
-  const [githubToken, setGithubToken] = useState("");
   const [inputGitUrl, setInputGitUrl] = useState("");
 
   const authorName = "노민주";
@@ -103,21 +103,11 @@ export default function GitDashboard() {
   const getStatusIcon = (status) => {
     switch (status) {
       case "added":
-        return (
-          <VscDiffAdded className="text-green-600" size={16} title="추가됨" />
-        );
+        return <VscDiffAdded className="text-green-600" size={16} title="추가됨" />;
       case "modified":
-        return (
-          <VscDiffModified
-            className="text-yellow-600"
-            size={16}
-            title="수정됨"
-          />
-        );
+        return <VscDiffModified className="text-yellow-600" size={16} title="수정됨" />;
       case "deleted":
-        return (
-          <VscDiffRemoved className="text-red-600" size={16} title="삭제됨" />
-        );
+        return <VscDiffRemoved className="text-red-600" size={16} title="삭제됨" />;
       case "conflicted":
         return <VscWarning className="text-red-500" size={16} title="충돌됨" />;
       default:
@@ -224,12 +214,7 @@ export default function GitDashboard() {
   const handleStage = async (filePattern) => {
     try {
       setIsLoading(true);
-      await stageFilesApi(
-        workspaceId,
-        activeProject,
-        activeBranch || "master",
-        filePattern,
-      );
+      await stageFilesApi(workspaceId, activeProject, activeBranch || "master", filePattern);
       await loadGitStatus();
     } catch (error) {
       alert(error.message);
@@ -241,12 +226,7 @@ export default function GitDashboard() {
   const handleUnstage = async (filePattern) => {
     try {
       setIsLoading(true);
-      await unstageFilesApi(
-        workspaceId,
-        activeProject,
-        activeBranch || "master",
-        filePattern,
-      );
+      await unstageFilesApi(workspaceId, activeProject, activeBranch || "master", filePattern);
       await loadGitStatus();
     } catch (error) {
       alert(error.message);
@@ -256,12 +236,7 @@ export default function GitDashboard() {
   };
 
   const handleAbortMerge = async () => {
-    if (
-      !window.confirm(
-        "정말 병합을 취소하시겠습니까? 해결 중이던 충돌 내역이 모두 날아갑니다!",
-      )
-    )
-      return;
+    if (!window.confirm("정말 병합을 취소하시겠습니까? 해결 중이던 충돌 내역이 모두 날아갑니다!")) return;
     try {
       setIsLoading(true);
       await abortMergeApi(workspaceId, activeProject, activeBranch || "master");
@@ -306,6 +281,7 @@ export default function GitDashboard() {
     }
   };
 
+  // 💡 [수정됨] 토큰 모달을 띄우는 대신, 바로 API를 찌르도록 변경했습니다!
   const handleRemoteActionClick = (action) => {
     if (isMerging)
       return alert(
@@ -315,8 +291,12 @@ export default function GitDashboard() {
     const currentProj = projectList.find((p) => p.name === activeProject);
     setModalAction(action);
 
-    if (!currentProj || !currentProj.gitUrl) setShowGitUrlModal(true);
-    else setShowTokenModal(true);
+    if (!currentProj || !currentProj.gitUrl) {
+      setShowGitUrlModal(true);
+    } else {
+      // 깃허브 URL이 있다면 일단 무조건 찌릅니다! (토큰은 백엔드가 알아서 DB에서 찾음)
+      executeRemoteAction(action);
+    }
   };
 
   const handleLinkGitUrlAndProceed = async () => {
@@ -330,46 +310,37 @@ export default function GitDashboard() {
           gitUrl: inputGitUrl,
         }),
       );
-      alert(
-        "✅ Git 저장소가 성공적으로 연동되었습니다! 이어서 토큰 인증을 진행합니다.",
-      );
+      alert("✅ Git 저장소가 연동되었습니다! 이어서 작업을 진행합니다.");
       setShowGitUrlModal(false);
       setInputGitUrl("");
-      setShowTokenModal(true);
+      
+      // 연동 성공 후 곧바로 원래 하려던 작업(Push/Pull) 실행!
+      executeRemoteAction(modalAction);
     } catch (error) {
       alert("연동 실패: " + error.message);
-    } finally {
       setIsLoading(false);
     }
   };
 
-  const executeRemoteAction = async () => {
-    if (!githubToken.trim()) return alert("GitHub Token을 입력해주세요!");
-    setShowTokenModal(false);
+  // 💡 [핵심 마법] 토큰 없이 요청을 던지고, 403 에러가 오면 OAuth 창을 띄웁니다!
+  const executeRemoteAction = async (actionToExecute) => {
     try {
       setIsLoading(true);
-      if (modalAction === "push") {
-        await pushToRemoteApi(
-          workspaceId,
-          activeProject,
-          activeBranch || "master",
-          githubToken,
-        );
+      if (actionToExecute === "push") {
+        await pushToRemoteApi(workspaceId, activeProject, activeBranch || "master");
         alert("🚀 성공적으로 GitHub에 Push 되었습니다!");
-      } else if (modalAction === "pull") {
-        await pullFromRemoteApi(
-          workspaceId,
-          activeProject,
-          activeBranch || "master",
-          githubToken,
-        );
+      } else if (actionToExecute === "pull") {
+        await pullFromRemoteApi(workspaceId, activeProject, activeBranch || "master");
         alert("📥 성공적으로 GitHub에서 Pull 되었습니다!");
         await loadGitStatus();
       }
-      setGithubToken("");
     } catch (error) {
-      alert(error.message);
-      setShowTokenModal(true);
+      // api.js에서 가로챈 그 에러 코드입니다!
+      if (error.code === "GITHUB_AUTH_REQUIRED") {
+        setShowOAuthModal(true); // 연동이 필요하면 우아하게 모달 팝업 오픈!
+      } else {
+        alert(error.message); // 그 외 일반적인 충돌 등의 에러
+      }
     } finally {
       setIsLoading(false);
     }
@@ -420,7 +391,6 @@ export default function GitDashboard() {
           )
         ) {
           try {
-            // 💡 [핵심 수정] 병합 API 호출 후 백엔드가 에러를 던지지 않더라도 강제로 상태를 찔러봅니다!
             const mergeResult = await mergeCommitApi(
               workspaceId,
               activeProject,
@@ -428,25 +398,22 @@ export default function GitDashboard() {
               targetHash,
             );
 
-            // 최신 상태 바로 가져오기
             const statusData = await fetchGitStatusApi(
               workspaceId,
               activeProject,
               activeBranch || "master"
             );
 
-            // 백엔드가 넘겨준 결과 텍스트에 conflict 단어가 있거나, 상태 데이터에 충돌 파일이 있다면!
             const isConflictText = typeof mergeResult === 'string' && mergeResult.toLowerCase().includes('conflict');
             const hasConflictedFiles = statusData.conflicted && statusData.conflicted.length > 0;
 
             if (statusData.isMerging || hasConflictedFiles || isConflictText) {
               alert("⚠️ 병합 중 충돌(Conflict)이 발생했습니다!\n파일 상태(File Status) 탭에서 충돌을 해결해주세요.");
-              setActiveView("status"); // 💡 File Status 탭으로 화면 즉시 전환!
+              setActiveView("status");
             } else {
               alert("✅ 병합 완료!");
             }
           } catch (mergeError) {
-            // 진짜 500 에러 등이 터졌을 경우
             alert("⚠️ 병합 중 충돌(Conflict)이 발생했거나 오류가 있습니다.\n파일 상태(File Status) 탭에서 충돌을 해결해주세요.");
             setActiveView("status");
           }
@@ -563,13 +530,12 @@ export default function GitDashboard() {
         </div>
       )}
 
-      {/* 모달 창들 */}
+      {/* 💡 기존 Git URL 연동 모달 */}
       {showGitUrlModal && (
         <div className="absolute inset-0 bg-black/40 z-[9999] flex items-center justify-center">
           <div className="bg-white rounded-lg shadow-xl w-96 p-6 flex flex-col gap-4 animate-fade-in-up">
             <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
-              <VscGithubInverted size={20} className="text-gray-800" /> 원격
-              저장소 연동
+              <VscGithubInverted size={20} className="text-gray-800" /> 원격 저장소 연동
             </div>
             <p className="text-sm text-gray-600 leading-relaxed">
               해당 프로젝트에 연결된 GitHub 저장소가 없습니다.
@@ -605,45 +571,42 @@ export default function GitDashboard() {
         </div>
       )}
 
-      {showTokenModal && (
-        <div className="absolute inset-0 bg-black/40 z-[9999] flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-xl w-96 p-6 flex flex-col gap-4 animate-fade-in-up">
-            <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
-              <VscKey size={20} className="text-amber-500" /> GitHub Token 인증
+      {/* 🌟 [핵심] 새롭게 추가된 깔끔한 GitHub OAuth 연동 모달 */}
+      {showOAuthModal && (
+        <div className="absolute inset-0 bg-black/50 z-[9999] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-8 flex flex-col items-center text-center gap-5 animate-fade-in-up">
+            <div className="bg-gray-100 p-4 rounded-full">
+              <VscGithubInverted size={48} className="text-gray-800" />
             </div>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              {modalAction === "push"
-                ? "원격 저장소로 푸시"
-                : "원격 저장소에서 풀(Pull)"}{" "}
-              작업을 위해 PAT가 필요합니다.
-            </p>
-            <input
-              type="password"
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxx"
-              value={githubToken}
-              onChange={(e) => setGithubToken(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") executeRemoteAction();
-              }}
-              className="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:border-blue-500 font-mono"
-            />
-            <div className="flex justify-end gap-2 mt-2">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">GitHub 계정 연동</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                안전하고 빠른 Push/Pull 작업을 위해<br/>
+                <b>최초 1회 GitHub 연동</b>이 필요합니다.<br/>
+                이제 복잡한 토큰을 매번 복사/붙여넣기 할 필요가 없습니다!
+              </p>
+            </div>
+            <div className="flex w-full gap-3 mt-4">
               <button
-                onClick={() => setShowTokenModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                onClick={() => setShowOAuthModal(false)}
+                className="flex-1 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
-                취소
+                나중에 하기
               </button>
               <button
-                onClick={executeRemoteAction}
-                className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1"
+                onClick={() => {
+                  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+                  if (!clientId) return alert("프론트엔드 .env 환경변수에 NEXT_PUBLIC_GITHUB_CLIENT_ID가 설정되지 않았습니다.");
+                  
+                  // 연동 완료 후 다시 돌아올 주소 (예: http://localhost:3000/auth/github/callback)
+                  const redirectUri = encodeURIComponent(`${window.location.origin}/auth/github/callback`);
+                  
+                  // 깃허브 로그인 창으로 유저를 쏴버립니다! 🚀
+                  window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${redirectUri}`;
+                }}
+                className="flex-[2] py-2.5 text-sm font-bold text-white bg-[#24292F] hover:bg-[#000000] rounded-lg transition-colors flex items-center justify-center gap-2 shadow-md"
               >
-                {modalAction === "push" ? (
-                  <VscCloudUpload size={16} />
-                ) : (
-                  <VscCloudDownload size={16} />
-                )}{" "}
-                실행
+                <VscLink size={18} /> 연동 페이지로 이동
               </button>
             </div>
           </div>

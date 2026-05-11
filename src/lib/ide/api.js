@@ -15,7 +15,6 @@ const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 const getCurrentUserId = () =>
   typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
-// 💡 [핵심 수정] export를 추가하여 다른 파일(communityApi.ts)에서도 쓸 수 있게 만들었습니다!
 export const authFetch = async (url, options = {}) => {
   const token =
     typeof window !== "undefined"
@@ -163,7 +162,6 @@ export const fetchWorkspaceDevlogsApi = async (workspaceId) => {
   return await response.json();
 };
 
-// wizard용 workspace 생성
 export const createWorkspaceApi = async ({
   mode,
   name,
@@ -197,7 +195,6 @@ export const createWorkspaceApi = async ({
   return await response.json();
 };
 
-// 기존 바이트 스타일 호환용
 export const createWorkspaceLegacyApi = async (
   name,
   path = "",
@@ -268,7 +265,6 @@ export const createProjectApi = async ({
   return await response.text();
 };
 
-// 파라미터를 객체({}) 형태로 묶어서 안전하게 받도록 수정
 export const createProjectInWorkspaceApi = async ({
   workspaceId,
   projectName,
@@ -420,7 +416,7 @@ export const buildProjectApi = async (
 };
 
 // ============================================================================
-// GIT API
+// GIT API (마법 추가 구간 ✨)
 // ============================================================================
 
 export const fetchBranchListApi = async (workspaceId, projectName) => {
@@ -511,11 +507,12 @@ export const commitChangesApi = async (
   if (!response.ok) throw new Error("커밋 실패");
 };
 
+// 💡 [수정] 토큰이 없어도 요청을 보낼 수 있게 기본값을 ""로 변경하고, 403 에러를 가로챕니다!
 export const pushToRemoteApi = async (
   workspaceId,
   projectName,
   branchName,
-  token,
+  token = "", 
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/push`, {
     method: "POST",
@@ -524,21 +521,41 @@ export const pushToRemoteApi = async (
 
   if (!response.ok) {
     const errMsg = await response.text();
+    
+    // 🚨 백엔드에서 우리가 설계한 "연동창 띄워!" 에러 코드가 오면 특수한 에러를 던집니다.
+    if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
+      const error = new Error("깃허브 계정 연동이 필요합니다.");
+      error.code = "GITHUB_AUTH_REQUIRED";
+      throw error;
+    }
+    
     throw new Error(errMsg || "푸시 실패");
   }
 };
 
+// 💡 [수정] Pull 로직도 Push와 똑같이 방어 로직을 추가합니다!
 export const pullFromRemoteApi = async (
   workspaceId,
   projectName,
   branchName,
-  token,
+  token = "",
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/pull`, {
     method: "POST",
     body: JSON.stringify({ workspaceId, projectName, branchName, token }),
   });
-  if (!response.ok) throw new Error("Pull 실패");
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    
+    if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
+      const error = new Error("깃허브 계정 연동이 필요합니다.");
+      error.code = "GITHUB_AUTH_REQUIRED";
+      throw error;
+    }
+    
+    throw new Error(errMsg || "Pull 실패");
+  }
   return await response.text();
 };
 
