@@ -1,9 +1,10 @@
 "use client";
 
+import type React from "react";
 import { useMemo, useState } from "react";
 import {
   CalendarCheck,
-  CheckCircle2,
+  FilePenLine,
   FileText,
   Link2,
   ListTodo,
@@ -14,6 +15,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  X,
 } from "lucide-react";
 
 type ScheduleStatus = "todo" | "progress" | "done" | "delayed";
@@ -173,28 +175,54 @@ const initialDevlogs: DevlogItem[] = [
   },
 ];
 
+function getTodayDateKey() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const date = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${date}`;
+}
+
+function getProjectName(projectId: ProjectId | Exclude<ProjectId, "all">) {
+  return (
+    PROJECTS.find((project) => project.id === projectId)?.name ??
+    "프로젝트 없음"
+  );
+}
+
 export default function DevlogManagementMock() {
   const [schedules, setSchedules] =
     useState<ScheduleOption[]>(initialSchedules);
   const [devlogs, setDevlogs] = useState<DevlogItem[]>(initialDevlogs);
+
   const [selectedDevlogId, setSelectedDevlogId] = useState<string>(
     initialDevlogs[0]?.id ?? "",
   );
+
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId>("all");
   const [filter, setFilter] = useState<DevlogFilter>("all");
   const [query, setQuery] = useState("");
 
+  // =========================
+  // 왼쪽 보조 패널 상태
+  // - 일정관리처럼 프로젝트 목록은 넣지 않음
+  // - 일지 미작성 일정만 확인하는 용도
+  // =========================
+  const [isSupportPinned, setIsSupportPinned] = useState(false);
+  const [isSupportHovering, setIsSupportHovering] = useState(false);
+
+  // =========================
+  // 개발일지 작성 모달 상태
+  // =========================
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [formTitle, setFormTitle] = useState("");
   const [formContent, setFormContent] = useState("");
+  const [formDate, setFormDate] = useState(getTodayDateKey());
   const [formScheduleId, setFormScheduleId] = useState("");
   const [formStatusChange, setFormStatusChange] = useState<
     "none" | "progress" | "done"
   >("none");
-
-  // 일정관리 화면과 동일한 노션식 왼쪽 사이드바 상태
-  const [isLeftSidebarPinned, setIsLeftSidebarPinned] = useState(false);
-  const [isSidebarHovering, setIsSidebarHovering] = useState(false);
-  const isFloatingSidebarVisible = !isLeftSidebarPinned && isSidebarHovering;
 
   const selectedProject =
     PROJECTS.find((project) => project.id === selectedProjectId) ?? PROJECTS[0];
@@ -205,6 +233,17 @@ export default function DevlogManagementMock() {
       return schedule.projectId === selectedProjectId;
     });
   }, [schedules, selectedProjectId]);
+
+  // =========================
+  // 일지 미작성 일정
+  // - 현재 선택 프로젝트 기준
+  // - 해당 scheduleId로 연결된 devlog가 하나도 없는 일정
+  // =========================
+  const noDevlogSchedules = useMemo(() => {
+    return visibleSchedules.filter((schedule) => {
+      return !devlogs.some((devlog) => devlog.scheduleId === schedule.id);
+    });
+  }, [devlogs, visibleSchedules]);
 
   const filteredDevlogs = useMemo(() => {
     return devlogs.filter((item) => {
@@ -247,14 +286,53 @@ export default function DevlogManagementMock() {
     (item) => item.type === "linked" && item.status === "done",
   ).length;
 
+  const isSupportPanelVisible = isSupportPinned || isSupportHovering;
+
   const handleSelectProject = (projectId: ProjectId) => {
     setSelectedProjectId(projectId);
     setSelectedDevlogId("");
     setFormScheduleId("");
   };
 
+  const resetForm = () => {
+    setFormTitle("");
+    setFormContent("");
+    setFormDate(getTodayDateKey());
+    setFormScheduleId("");
+    setFormStatusChange("none");
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setIsCreateModalOpen(true);
+  };
+
+  const openCreateModalWithSchedule = (scheduleId: string) => {
+    resetForm();
+    setFormScheduleId(scheduleId);
+    setFormStatusChange("progress");
+    setIsCreateModalOpen(true);
+  };
+
+  const closeCreateModal = () => {
+    setIsCreateModalOpen(false);
+  };
+
   const createDevlog = () => {
-    if (!formTitle.trim() || !formContent.trim()) return;
+    if (!formTitle.trim()) {
+      alert("제목을 입력해주세요.");
+      return;
+    }
+
+    if (!formDate) {
+      alert("작업한 날짜를 선택해주세요.");
+      return;
+    }
+
+    if (!formContent.trim()) {
+      alert("내용을 입력해주세요.");
+      return;
+    }
 
     const linkedSchedule =
       schedules.find((item) => item.id === formScheduleId) ?? null;
@@ -274,15 +352,15 @@ export default function DevlogManagementMock() {
 
     const newDevlog: DevlogItem = {
       id: `d${Date.now()}`,
-      title: formTitle,
-      content: formContent,
-      date: "2026-05-01",
+      title: formTitle.trim(),
+      content: formContent.trim(),
+      date: formDate,
       type: linkedSchedule ? "linked" : "general",
       scheduleId: linkedSchedule?.id ?? null,
       scheduleTitle: linkedSchedule?.title ?? null,
       status: nextStatus,
       tags: linkedSchedule
-        ? ["Schedule", scheduleStatusLabel[nextStatus as ScheduleStatus]]
+        ? ["Schedule", nextStatus ? scheduleStatusLabel[nextStatus] : "Linked"]
         : ["General", "Memo"],
       projectId: nextProjectId,
       workspaceId: nextWorkspaceId,
@@ -301,101 +379,52 @@ export default function DevlogManagementMock() {
       );
     }
 
-    setFormTitle("");
-    setFormContent("");
-    setFormScheduleId("");
-    setFormStatusChange("none");
+    resetForm();
+    setIsCreateModalOpen(false);
   };
 
   return (
     <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
-      {/* =========================
-          7. 접힌 상태의 왼쪽 아이콘 바
-          - 접힌 상태에서는 메뉴 아이콘과 프로젝트 색상 점만 표시
-          - 검색 아이콘은 여기서 제거
-          - 메뉴 영역에 마우스를 올리면 플로팅 사이드바 표시
-          - 메뉴 아이콘 클릭 시 사이드바 고정
-      ========================= */}
-      {/* {!isLeftSidebarPinned && (
-        <div
-          className="fixed left-0 top-[58px] z-50"
-          onMouseEnter={() => setIsSidebarHovering(true)}
-          onMouseLeave={() => setIsSidebarHovering(false)}
-        >
-          <div className="flex h-[calc(100vh-50px)]">
-            <div className="w-[56px] border-r border-slate-200 bg-white">
-              <button
-                onClick={() => setIsLeftSidebarPinned(true)}
-                className="mx-auto grid h-10 w-10 place-items-center rounded-xl hover:bg-slate-100 mt-4"
-                title="사이드바 고정"
-              >
-                <Menu size={20} />
-              </button>
+      <div className="grid min-h-screen grid-cols-[56px_minmax(0,1fr)]">
+        {/* =========================
+            왼쪽 아이콘 레일
+        ========================= */}
+        <SupportRail
+          isPinned={isSupportPinned}
+          noDevlogCount={noDevlogSchedules.length}
+          onMouseEnter={() => setIsSupportHovering(true)}
+          onMouseLeave={() => setIsSupportHovering(false)}
+          onTogglePin={() => setIsSupportPinned((prev) => !prev)}
+        />
 
-              <div className="mx-auto mt-4 h-px w-8 bg-slate-200" />
-
-              <div className="mt-4 flex flex-col items-center gap-3">
-                {PROJECTS.map((project) => (
-                  <button
-                    key={project.id}
-                    onClick={() => handleSelectProject(project.id)}
-                    className={`grid h-9 w-9 place-items-center rounded-xl border ${
-                      selectedProjectId === project.id
-                        ? "border-blue-300 bg-blue-50"
-                        : "border-transparent hover:bg-slate-100"
-                    }`}
-                    title={project.name}
-                  >
-                    <span
-                      className={`h-3 w-3 rounded-full ${project.colorClass}`}
-                    />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {isFloatingSidebarVisible && (
-              <ProjectFloatingSidebar
-                projects={PROJECTS}
-                devlogs={devlogs}
-                selectedProjectId={selectedProjectId}
-                onSelectProject={handleSelectProject}
-                onPin={() => setIsLeftSidebarPinned(true)}
-              />
-            )}
-          </div>
-        </div>
-      )} */}
-
-      <div
-        className={[
-          "grid min-h-screen transition-all duration-300",
-          isLeftSidebarPinned
-            ? "grid-cols-[260px_minmax(0,1fr)]"
-            : "grid-cols-[minmax(0,1fr)]",
-        ].join(" ")}
-      >
-        {/* 고정된 왼쪽 사이드바 */}
-        {/* {isLeftSidebarPinned && (
-          <ProjectPinnedSidebar
-            projects={PROJECTS}
-            devlogs={devlogs}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={handleSelectProject}
-            onClose={() => setIsLeftSidebarPinned(false)}
+        {/* =========================
+            왼쪽 floating 보조 패널
+            - 화면 폭을 밀지 않고 위에 뜸
+        ========================= */}
+        {isSupportPanelVisible && (
+          <DevlogSupportPanel
+            isPinned={isSupportPinned}
+            noDevlogSchedules={noDevlogSchedules}
+            onCreateWithSchedule={openCreateModalWithSchedule}
+            onMouseEnter={() => setIsSupportHovering(true)}
+            onMouseLeave={() => setIsSupportHovering(false)}
+            onClose={() => {
+              setIsSupportPinned(false);
+              setIsSupportHovering(false);
+            }}
+            onPin={() => setIsSupportPinned(true)}
           />
-        )} */}
+        )}
 
-        <main className={`min-w-0 p-6 `}>
+        <main className="min-w-0 p-6">
           <div className="mx-auto flex max-w-[1480px] flex-col gap-6">
             <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
                 <div>
                   <p className="text-sm font-bold text-blue-600">Devlog</p>
-                  {/* <h1 className="mt-1 text-2xl font-bold">개발일지</h1> */}
                   <p className="mt-2 text-sm text-slate-500">
                     프로젝트:{" "}
-                    <span className="font-bold text-xl text-slate-900">
+                    <span className="text-xl font-bold text-slate-900">
                       {selectedProject.name}
                     </span>
                   </p>
@@ -407,13 +436,7 @@ export default function DevlogManagementMock() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const form = document.getElementById("devlog-write-form");
-                    form?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    });
-                  }}
+                  onClick={openCreateModal}
                   className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700"
                 >
                   <Plus size={17} />새 개발일지 작성
@@ -445,12 +468,6 @@ export default function DevlogManagementMock() {
               </div>
             </header>
 
-            {/* =========================
-                중앙 디자인 변경
-                - 기존 3열 구조 제거
-                - 상단: 목록 + 상세 2열
-                - 하단: 작성 폼을 넓게 배치
-            ========================= */}
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
@@ -513,113 +530,366 @@ export default function DevlogManagementMock() {
                 <DevlogDetailPanel selectedDevlog={selectedDevlog} />
               </div>
             </section>
+          </div>
+        </main>
+      </div>
 
-            <section
-              id="devlog-write-form"
-              className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold">개발일지 작성하기</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    선택한 프로젝트 기준으로 작성하고, 필요한 경우 일정 상태를
-                    함께 변경합니다.
-                  </p>
+      {isCreateModalOpen && (
+        <CreateDevlogModal
+          selectedProjectName={selectedProject.name}
+          visibleSchedules={visibleSchedules}
+          formTitle={formTitle}
+          formContent={formContent}
+          formDate={formDate}
+          formScheduleId={formScheduleId}
+          formStatusChange={formStatusChange}
+          onChangeTitle={setFormTitle}
+          onChangeContent={setFormContent}
+          onChangeDate={setFormDate}
+          onChangeScheduleId={setFormScheduleId}
+          onChangeStatus={setFormStatusChange}
+          onClose={closeCreateModal}
+          onSubmit={createDevlog}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =========================
+   왼쪽 아이콘 레일
+========================= */
+function SupportRail({
+  isPinned,
+  noDevlogCount,
+  onMouseEnter,
+  onMouseLeave,
+  onTogglePin,
+}: {
+  isPinned: boolean;
+  noDevlogCount: number;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onTogglePin: () => void;
+}) {
+  return (
+    <aside
+      className="sticky top-[72px] z-30 h-[calc(100vh-72px)] border-r border-slate-200 bg-white"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      <div className="flex h-full w-14 flex-col items-center gap-3 py-4">
+        <button
+          type="button"
+          onClick={onTogglePin}
+          className={`grid h-10 w-10 place-items-center rounded-xl transition ${
+            isPinned
+              ? "bg-blue-50 text-blue-700"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+          title={isPinned ? "보조 패널 접기" : "보조 패널 펼치기"}
+        >
+          <Menu size={19} />
+        </button>
+
+        <div className="h-px w-8 bg-slate-200" />
+
+        <button
+          type="button"
+          onClick={onTogglePin}
+          className="relative grid h-9 w-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"
+          title="일지 미작성 일정"
+        >
+          <ListTodo size={17} />
+
+          {noDevlogCount > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">
+              {noDevlogCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={onTogglePin}
+          className="grid h-9 w-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"
+          title="개발일지 작성"
+        >
+          <FilePenLine size={17} />
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+/* =========================
+   왼쪽 보조 패널
+   - 프로젝트 목록 없음
+   - 일지 미작성 일정만 표시
+========================= */
+function DevlogSupportPanel({
+  isPinned,
+  noDevlogSchedules,
+  onCreateWithSchedule,
+  onMouseEnter,
+  onMouseLeave,
+  onClose,
+  onPin,
+}: {
+  isPinned: boolean;
+  noDevlogSchedules: ScheduleOption[];
+  onCreateWithSchedule: (scheduleId: string) => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onClose: () => void;
+  onPin: () => void;
+}) {
+  return (
+    <aside
+      className="fixed left-14 top-[72px] z-40 h-[calc(100vh-72px)] w-[300px] border-r border-slate-200 bg-white shadow-2xl"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={isPinned ? undefined : onMouseLeave}
+    >
+      <div className="flex h-full flex-col overflow-y-auto p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-black text-slate-900">
+              일지 미작성 일정
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              아직 개발일지가 연결되지 않은 일정입니다.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={isPinned ? onClose : onPin}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"
+            title={isPinned ? "보조 패널 접기" : "보조 패널 고정"}
+          >
+            {isPinned ? (
+              <PanelLeftClose size={17} />
+            ) : (
+              <PanelLeftOpen size={17} />
+            )}
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-500">미작성 일정</p>
+            <span className="rounded-full bg-white px-2 py-1 text-xs font-black text-slate-600">
+              {noDevlogSchedules.length}개
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2">
+          {noDevlogSchedules.length === 0 ? (
+            <EmptyBox text="모든 일정에 개발일지가 작성되었습니다." />
+          ) : (
+            noDevlogSchedules.map((schedule) => (
+              <div
+                key={schedule.id}
+                className="rounded-2xl border border-slate-200 bg-white p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-sm font-bold leading-5 text-slate-900">
+                      {schedule.title}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {getProjectName(schedule.projectId)}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold ${
+                      statusStyle[schedule.status]
+                    }`}
+                  >
+                    {scheduleStatusLabel[schedule.status]}
+                  </span>
                 </div>
-                <Plus size={20} className="text-slate-400" />
+
+                <button
+                  type="button"
+                  onClick={() => onCreateWithSchedule(schedule.id)}
+                  className="mt-3 flex h-8 w-full items-center justify-center gap-1 rounded-xl bg-blue-50 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                >
+                  <FilePenLine size={14} />이 일정으로 일지 작성
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function CreateDevlogModal({
+  selectedProjectName,
+  visibleSchedules,
+  formTitle,
+  formContent,
+  formDate,
+  formScheduleId,
+  formStatusChange,
+  onChangeTitle,
+  onChangeContent,
+  onChangeDate,
+  onChangeScheduleId,
+  onChangeStatus,
+  onClose,
+  onSubmit,
+}: {
+  selectedProjectName: string;
+  visibleSchedules: ScheduleOption[];
+  formTitle: string;
+  formContent: string;
+  formDate: string;
+  formScheduleId: string;
+  formStatusChange: "none" | "progress" | "done";
+  onChangeTitle: (value: string) => void;
+  onChangeContent: (value: string) => void;
+  onChangeDate: (value: string) => void;
+  onChangeScheduleId: (value: string) => void;
+  onChangeStatus: (value: "none" | "progress" | "done") => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
+      <div className="max-h-[90vh] w-full max-w-[760px] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-blue-600">
+              New Devlog
+            </p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">
+              새 개발일지 작성
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="개발일지 작성 모달 닫기"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(90vh-136px)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div>
+                <label className="text-sm font-bold text-slate-700">
+                  프로젝트
+                </label>
+                <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+                  {selectedProjectName}
+                </div>
               </div>
 
-              <div className="mt-6 grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <div>
-                    <label className="text-sm font-bold text-slate-700">
-                      프로젝트
-                    </label>
-                    <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
-                      {selectedProject.name}
-                    </div>
-                  </div>
+              <div className="mt-5">
+                <label className="text-sm font-bold text-slate-700">
+                  작업한 날짜
+                </label>
+                <input
+                  type="date"
+                  value={formDate}
+                  onChange={(event) => onChangeDate(event.target.value)}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
 
-                  <div className="mt-5">
-                    <label className="text-sm font-bold text-slate-700">
-                      연결할 일정
-                    </label>
-                    <select
-                      value={formScheduleId}
-                      onChange={(e) => setFormScheduleId(e.target.value)}
-                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-400"
-                    >
-                      <option value="">연결 없이 일반 일지 작성</option>
-                      {visibleSchedules.map((schedule) => (
-                        <option key={schedule.id} value={schedule.id}>
-                          {schedule.title} ·{" "}
-                          {scheduleStatusLabel[schedule.status]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="mt-5">
+                <label className="text-sm font-bold text-slate-700">
+                  연결할 일정
+                </label>
+                <select
+                  value={formScheduleId}
+                  onChange={(event) => onChangeScheduleId(event.target.value)}
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-400"
+                >
+                  <option value="">연결 없이 일반 일지 작성</option>
+                  {visibleSchedules.map((schedule) => (
+                    <option key={schedule.id} value={schedule.id}>
+                      {schedule.title} · {scheduleStatusLabel[schedule.status]}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                  <div className="mt-5">
-                    <label className="text-sm font-bold text-slate-700">
-                      진행 상태 변경
-                    </label>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      <StatusOptionButton
-                        active={formStatusChange === "none"}
-                        label="변경 없음"
-                        onClick={() => setFormStatusChange("none")}
-                      />
-                      <StatusOptionButton
-                        active={formStatusChange === "progress"}
-                        label="진행 중"
-                        onClick={() => setFormStatusChange("progress")}
-                      />
-                      <StatusOptionButton
-                        active={formStatusChange === "done"}
-                        label="완료"
-                        onClick={() => setFormStatusChange("done")}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-5">
-                  <div>
-                    <label className="text-sm font-bold text-slate-700">
-                      제목
-                    </label>
-                    <input
-                      value={formTitle}
-                      onChange={(e) => setFormTitle(e.target.value)}
-                      placeholder="예: 로그인 API 오류 수정"
-                      className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none focus:border-blue-400"
-                    />
-                  </div>
-
-                  <div className="mt-5">
-                    <label className="text-sm font-bold text-slate-700">
-                      내용
-                    </label>
-                    <textarea
-                      value={formContent}
-                      onChange={(e) => setFormContent(e.target.value)}
-                      placeholder="오늘 수행한 작업, 오류 원인, 해결 방법 등을 작성하세요."
-                      className="mt-2 h-44 w-full resize-none rounded-2xl border border-slate-200 p-4 text-sm leading-6 outline-none focus:border-blue-400"
-                    />
-                  </div>
-
-                  <button
-                    onClick={createDevlog}
-                    className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-700"
-                  >
-                    <NotebookPen size={18} />
-                    개발일지 저장
-                  </button>
+              <div className="mt-5">
+                <label className="text-sm font-bold text-slate-700">
+                  진행 상태 변경
+                </label>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <StatusOptionButton
+                    active={formStatusChange === "none"}
+                    label="변경 없음"
+                    onClick={() => onChangeStatus("none")}
+                  />
+                  <StatusOptionButton
+                    active={formStatusChange === "progress"}
+                    label="진행 중"
+                    onClick={() => onChangeStatus("progress")}
+                  />
+                  <StatusOptionButton
+                    active={formStatusChange === "done"}
+                    label="완료"
+                    onClick={() => onChangeStatus("done")}
+                  />
                 </div>
               </div>
             </section>
+
+            <section className="rounded-2xl border border-slate-200 p-5">
+              <div>
+                <label className="text-sm font-bold text-slate-700">제목</label>
+                <input
+                  value={formTitle}
+                  onChange={(event) => onChangeTitle(event.target.value)}
+                  placeholder="예: 로그인 API 오류 수정"
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div className="mt-5">
+                <label className="text-sm font-bold text-slate-700">내용</label>
+                <textarea
+                  value={formContent}
+                  onChange={(event) => onChangeContent(event.target.value)}
+                  placeholder="오늘 수행한 작업, 오류 원인, 해결 방법 등을 작성하세요."
+                  className="mt-2 h-52 w-full resize-none rounded-2xl border border-slate-200 p-4 text-sm leading-6 outline-none focus:border-blue-400"
+                />
+              </div>
+            </section>
           </div>
-        </main>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-600 hover:bg-slate-100"
+          >
+            취소
+          </button>
+
+          <button
+            type="button"
+            onClick={onSubmit}
+            className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700"
+          >
+            <NotebookPen size={17} />
+            개발일지 저장
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -643,6 +913,7 @@ function DevlogListPanel({
           filteredDevlogs.map((item) => (
             <button
               key={item.id}
+              type="button"
               onClick={() => onSelectDevlog(item.id)}
               className={`rounded-2xl border p-5 text-left transition hover:border-blue-300 ${
                 selectedDevlog?.id === item.id
@@ -699,257 +970,6 @@ function DevlogListPanel({
   );
 }
 
-/* =========================
-   13. 플로팅 프로젝트 사이드바
-   - 메뉴 아이콘 hover 시 나타나는 임시 사이드바
-   - 검색 아이콘은 이 영역에만 표시
-   - 고정 버튼을 누르면 왼쪽에 고정됨
-========================= */
-function ProjectFloatingSidebar({
-  projects,
-  devlogs,
-  selectedProjectId,
-  onSelectProject,
-  onPin,
-}: {
-  projects: ProjectItem[];
-  devlogs: DevlogItem[];
-  selectedProjectId: ProjectId;
-  onSelectProject: (projectId: ProjectId) => void;
-  onPin: () => void;
-}) {
-  return (
-    <aside className="w-[300px] border-r border-slate-200 bg-white shadow-2xl">
-      <div className="h-[calc(100vh-72px)] overflow-y-auto p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-900">
-              효주 이의 워크스페이스
-            </p>
-            <p className="text-xs text-slate-400">프로젝트 개발일지</p>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              className="grid h-8 w-8 place-items-center rounded-lg hover:bg-slate-100"
-              title="프로젝트 검색"
-            >
-              <Search size={16} />
-            </button>
-
-            <button
-              onClick={onPin}
-              className="grid h-8 w-8 place-items-center rounded-lg hover:bg-slate-100"
-              title="사이드바 고정"
-            >
-              <PanelLeftOpen size={17} />
-            </button>
-          </div>
-        </div>
-
-        <SidebarProjectSections
-          projects={projects}
-          devlogs={devlogs}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-        />
-      </div>
-    </aside>
-  );
-}
-
-/* =========================
-   14. 고정 프로젝트 사이드바
-   - 메뉴 아이콘 클릭 후 고정된 사이드바
-   - 검색 아이콘은 이 영역에만 표시
-   - 닫기 버튼을 누르면 다시 접힌 아이콘 바 상태로 돌아감
-========================= */
-function ProjectPinnedSidebar({
-  projects,
-  devlogs,
-  selectedProjectId,
-  onSelectProject,
-  onClose,
-}: {
-  projects: ProjectItem[];
-  devlogs: DevlogItem[];
-  selectedProjectId: ProjectId;
-  onSelectProject: (projectId: ProjectId) => void;
-  onClose: () => void;
-}) {
-  return (
-    <aside className="border-r border-slate-200 bg-white">
-      <div className="sticky top-[72px] h-[calc(100vh-72px)] overflow-y-auto p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-900">
-              효주 이의 워크스페이스
-            </p>
-            <p className="text-xs text-slate-400">프로젝트 개발일지</p>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              className="grid h-8 w-8 place-items-center rounded-lg hover:bg-slate-100"
-              title="프로젝트 검색"
-            >
-              <Search size={16} />
-            </button>
-
-            <button
-              onClick={onClose}
-              className="grid h-8 w-8 place-items-center rounded-lg hover:bg-slate-100"
-              title="사이드바 접기"
-            >
-              <PanelLeftClose size={17} />
-            </button>
-          </div>
-        </div>
-
-        <SidebarProjectSections
-          projects={projects}
-          devlogs={devlogs}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-        />
-      </div>
-    </aside>
-  );
-}
-
-function SidebarProjectSections({
-  projects,
-  devlogs,
-  selectedProjectId,
-  onSelectProject,
-}: {
-  projects: ProjectItem[];
-  devlogs: DevlogItem[];
-  selectedProjectId: ProjectId;
-  onSelectProject: (projectId: ProjectId) => void;
-}) {
-  const allProject = projects.find((project) => project.id === "all");
-  const personalProjects = projects.filter(
-    (project) => project.mode === "personal",
-  );
-  const teamProjects = projects.filter((project) => project.mode === "team");
-
-  return (
-    <div>
-      {allProject && (
-        <div className="mb-4">
-          <SidebarProjectRow
-            project={allProject}
-            devlogs={devlogs}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={onSelectProject}
-          />
-        </div>
-      )}
-
-      <SidebarProjectGroup
-        title="개인 프로젝트"
-        projects={personalProjects}
-        devlogs={devlogs}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={onSelectProject}
-      />
-
-      <SidebarProjectGroup
-        title="팀 프로젝트"
-        projects={teamProjects}
-        devlogs={devlogs}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={onSelectProject}
-      />
-
-      <div className="mt-5 border-t border-slate-200 pt-4">
-        <SidebarAction icon={<ListTodo size={16} />} label="최근 작성 일지" />
-        <SidebarAction icon={<Plus size={16} />} label="프로젝트 추가" />
-      </div>
-    </div>
-  );
-}
-
-function SidebarProjectGroup({
-  title,
-  projects,
-  devlogs,
-  selectedProjectId,
-  onSelectProject,
-}: {
-  title: string;
-  projects: ProjectItem[];
-  devlogs: DevlogItem[];
-  selectedProjectId: ProjectId;
-  onSelectProject: (projectId: ProjectId) => void;
-}) {
-  return (
-    <section className="mb-5">
-      <p className="mb-2 px-2 text-xs font-bold text-slate-400">{title}</p>
-
-      <div className="flex flex-col gap-1">
-        {projects.map((project) => (
-          <SidebarProjectRow
-            key={project.id}
-            project={project}
-            devlogs={devlogs}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={onSelectProject}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SidebarProjectRow({
-  project,
-  devlogs,
-  selectedProjectId,
-  onSelectProject,
-}: {
-  project: ProjectItem;
-  devlogs: DevlogItem[];
-  selectedProjectId: ProjectId;
-  onSelectProject: (projectId: ProjectId) => void;
-}) {
-  const projectDevlogs =
-    project.id === "all"
-      ? devlogs
-      : devlogs.filter((item) => item.projectId === project.id);
-
-  const total = projectDevlogs.length;
-  const linked = projectDevlogs.filter((item) => item.type === "linked").length;
-  const active = selectedProjectId === project.id;
-
-  return (
-    <button
-      onClick={() => onSelectProject(project.id)}
-      className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition ${
-        active
-          ? "bg-slate-100 text-slate-900"
-          : "text-slate-600 hover:bg-slate-50"
-      }`}
-    >
-      <span className={`h-3 w-3 shrink-0 rounded ${project.colorClass}`} />
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-sm font-semibold">{project.name}</p>
-          <span className="shrink-0 text-xs font-semibold text-slate-400">
-            {total}
-          </span>
-        </div>
-
-        <p className="mt-0.5 truncate text-xs text-slate-400">
-          연결 {linked}개 · 일반 {total - linked}개
-        </p>
-      </div>
-    </button>
-  );
-}
-
 function DevlogDetailPanel({
   selectedDevlog,
 }: {
@@ -972,7 +992,9 @@ function DevlogDetailPanel({
           <h3 className="mt-1 text-xl font-black leading-8">
             {selectedDevlog.title}
           </h3>
-          <p className="mt-2 text-sm text-slate-500">{selectedDevlog.date}</p>
+          <p className="mt-2 text-sm text-slate-500">
+            작업한 날짜: {selectedDevlog.date}
+          </p>
 
           <div className="mt-5 rounded-2xl bg-white p-4">
             <p className="text-sm font-bold text-slate-700">연결 일정</p>
@@ -1012,13 +1034,6 @@ function DevlogDetailPanel({
   );
 }
 
-function getProjectName(projectId: ProjectId | Exclude<ProjectId, "all">) {
-  return (
-    PROJECTS.find((project) => project.id === projectId)?.name ??
-    "프로젝트 없음"
-  );
-}
-
 function StatCard({
   title,
   value,
@@ -1053,6 +1068,7 @@ function FilterButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`rounded-full px-4 py-2 text-sm font-bold ${
         active
@@ -1084,21 +1100,6 @@ function StatusOptionButton({
           : "bg-white text-slate-500 hover:text-slate-900"
       }`}
     >
-      {label}
-    </button>
-  );
-}
-
-function SidebarAction({
-  icon,
-  label,
-}: {
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
-      <span className="text-slate-400">{icon}</span>
       {label}
     </button>
   );
