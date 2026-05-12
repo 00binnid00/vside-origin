@@ -8,10 +8,8 @@ export type ScheduleItem = {
   description: string;
   date: string;
   status: ScheduleStatus;
-  category: string;
   hasDevlog: boolean;
 };
-
 export const scheduleStatusLabel: Record<ScheduleStatus, string> = {
   todo: "할 일",
   progress: "진행 중",
@@ -22,21 +20,21 @@ export const scheduleStatusLabel: Record<ScheduleStatus, string> = {
 export const statusBadgeStyle: Record<ScheduleStatus, string> = {
   todo: "bg-slate-100 text-slate-700 border-slate-200",
   progress: "bg-blue-50 text-blue-700 border-blue-200",
-  done: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  done: "bg-purple-50 text-purple-700 border-purple-200",
   delayed: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 export const calendarEventStyle: Record<ScheduleStatus, string> = {
   todo: "bg-slate-100 text-slate-700 border-slate-300",
   progress: "bg-blue-50 text-blue-700 border-blue-300",
-  done: "bg-emerald-50 text-emerald-700 border-emerald-300",
+  done: "bg-purple-50 text-purple-700 border-purple-300",
   delayed: "bg-rose-50 text-rose-700 border-rose-300",
 };
 
 export const boardColumnStyle: Record<ScheduleStatus, string> = {
   todo: "border-slate-200 bg-slate-50",
   progress: "border-blue-200 bg-blue-50/40",
-  done: "border-emerald-200 bg-emerald-50/40",
+  done: "border-purple-200 bg-purple-50/40",
   delayed: "border-rose-200 bg-rose-50/40",
 };
 
@@ -47,7 +45,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "JWT 기반 로그인 API와 인증 필터 구현",
     date: "2026-05-01",
     status: "done",
-    category: "Backend",
+
     hasDevlog: true,
   },
   {
@@ -56,7 +54,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "프로젝트 생성 모달과 입력 검증 개선",
     date: "2026-05-02",
     status: "progress",
-    category: "Frontend",
+
     hasDevlog: false,
   },
   {
@@ -65,7 +63,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "브랜치 목록 조회 및 선택 기능 구현",
     date: "2026-05-03",
     status: "todo",
-    category: "Git",
+
     hasDevlog: false,
   },
   {
@@ -74,7 +72,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "연결 일정, 태그, 작성 내용을 함께 표시",
     date: "2026-05-04",
     status: "todo",
-    category: "Devlog",
+
     hasDevlog: true,
   },
   {
@@ -83,7 +81,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "완료 일정 기준으로 프로젝트 진행률 계산",
     date: "2026-05-05",
     status: "delayed",
-    category: "Planning",
+
     hasDevlog: false,
   },
   {
@@ -92,7 +90,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "작업은 있지만 아직 개발일지가 없는 일정 표시",
     date: "2026-05-06",
     status: "progress",
-    category: "Devlog",
+
     hasDevlog: false,
   },
   {
@@ -101,7 +99,7 @@ export const initialSchedules: ScheduleItem[] = [
     description: "좌우 사이드바가 있는 월간 캘린더 관리 화면",
     date: "2026-05-07",
     status: "todo",
-    category: "Calendar",
+
     hasDevlog: false,
   },
 ];
