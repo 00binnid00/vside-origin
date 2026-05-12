@@ -157,42 +157,79 @@ function mapProjectsFromWorkspaces(
   workspaces: WorkspaceListResponse[],
   scheduleProgressMap: Map<string, ScheduleProgressResponse>,
 ): Project[] {
-  return workspaces.flatMap((workspace) => {
+  return workspaces.map((workspace) => {
     const workspaceRole = normalizeRole(workspace.role);
     const workspaceVisibility = workspace.mode === "team" ? "team" : "private";
     const workspaceType = workspace.mode === "team" ? "팀" : "개인";
+
     const scheduleProgress = scheduleProgressMap.get(workspace.id);
 
-    return (workspace.projects ?? []).map((project) => {
-      const status = normalizeProjectStatus(project.status);
+    // 하위 프로젝트는 카드로 펼치지 않고,
+    // 최상위 워크스페이스 카드의 보조 정보로만 사용함.
+    const childProjects = workspace.projects ?? [];
+    const firstProject = childProjects[0];
 
-      const progress =
-        typeof scheduleProgress?.progress === "number"
-          ? scheduleProgress.progress
-          : normalizeProgress(project.progress, status);
+    const progress =
+      typeof scheduleProgress?.progress === "number"
+        ? scheduleProgress.progress
+        : 0;
 
-      return {
-        id: project.id,
-        name: project.name,
-        description:
-          project.description ??
-          workspace.description ??
-          `${workspace.name} 워크스페이스의 프로젝트입니다.`,
-        type: workspaceType,
-        status,
-        progress,
-        language: project.language || "Unknown",
-        stack: normalizeStack(project),
-        updatedAt: project.updatedAt ?? workspace.updatedAt ?? undefined,
-        devlogCount: Number(project.devlogCount ?? 0),
-        doneScheduleCount: Number(scheduleProgress?.doneCount ?? 0),
-        scheduleTotalCount: Number(scheduleProgress?.totalCount ?? 0),
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        workspaceRole,
-        workspaceVisibility,
-      };
-    });
+    const status: ProjectStatus = progress >= 100 ? "completed" : "active";
+
+    const language =
+      firstProject?.language ||
+      childProjects.find((project) => project.language)?.language ||
+      "Unknown";
+
+    const stack =
+      childProjects.length > 0
+        ? Array.from(
+            new Set(
+              childProjects
+                .flatMap((project) => normalizeStack(project))
+                .filter(Boolean),
+            ),
+          )
+        : language
+          ? [language]
+          : ["언어 없음"];
+
+    const updatedAt =
+      workspace.updatedAt ??
+      childProjects
+        .map((project) => project.updatedAt)
+        .filter(Boolean)
+        .sort()
+        .reverse()[0] ??
+      undefined;
+
+    const devlogCount = childProjects.reduce(
+      (sum, project) => sum + Number(project.devlogCount ?? 0),
+      0,
+    );
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      description:
+        workspace.description ||
+        firstProject?.description ||
+        `${workspace.name} 워크스페이스입니다.`,
+      type: workspaceType,
+      status,
+      progress,
+      language,
+      stack,
+      updatedAt,
+      devlogCount,
+      doneScheduleCount: Number(scheduleProgress?.doneCount ?? 0),
+      scheduleTotalCount: Number(scheduleProgress?.totalCount ?? 0),
+
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      workspaceRole,
+      workspaceVisibility,
+    };
   });
 }
 
@@ -222,7 +259,7 @@ function getStringValue(
 function getProjectNameFromDevlog(
   devlog: Record<string, unknown>,
   workspace: WorkspaceListResponse,
-  rootResponse: WorkspaceDevlogsResponse,
+  rootResponse?: WorkspaceDevlogsResponse | null,
 ) {
   const directProjectName = getStringValue(devlog, [
     "projectName",
@@ -716,7 +753,7 @@ export default function MyPageDemo() {
 
   return (
     <main className="min-h-screen bg-[#f6f8fa] text-slate-950">
-      <div className="mx-auto max-w-[1280px] px-6 py-8">
+      <div className="mx-auto max-w-[1440px] px-6 py-8">
         <section className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm md:flex-row md:items-center">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white text-xl font-black shadow-sm">
@@ -1000,7 +1037,7 @@ function ProjectSection({
       {projects.length === 0 ? (
         <EmptyState message={emptyText} />
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="grid auto-rows-fr grid-cols-1 gap-4 xl:grid-cols-2">
           {projects.map((project) => (
             <ProjectCard
               key={`${project.workspaceId}-${project.id}`}
@@ -1017,21 +1054,46 @@ function ProjectCard({ project }: { project: Project }) {
   const isCompleted = project.status === "completed";
   const isTeam = project.type === "팀";
 
+  const statusTone = isCompleted
+    ? {
+        card: "border-violet-200 hover:border-violet-300",
+        badge: "bg-violet-50 text-violet-700",
+        title: "text-violet-700",
+        progressText: "text-violet-700",
+        progressBar: "bg-violet-500",
+      }
+    : {
+        card: "border-slate-200 hover:border-slate-300",
+        badge: "bg-blue-50 text-blue-700",
+        title: "text-slate-950",
+        progressText: "text-slate-950",
+        progressBar: "bg-slate-950",
+      };
+
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <h4 className="truncate text-base font-black text-slate-950">
+    <article
+      className={[
+        "flex h-full min-h-[300px] flex-col rounded-2xl border bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md",
+        statusTone.card,
+      ].join(" ")}
+    >
+      {/* 상단: 제목/상태/날짜 */}
+      <div className="flex min-h-[92px] items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <h4
+              className={[
+                "line-clamp-1 max-w-full text-base font-black",
+                statusTone.title,
+              ].join(" ")}
+            >
               {project.name}
             </h4>
 
             <span
               className={[
                 "rounded-full px-2 py-0.5 text-[11px] font-black",
-                isCompleted
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-blue-50 text-blue-700",
+                statusTone.badge,
               ].join(" ")}
             >
               {isCompleted ? "완료" : "진행 중"}
@@ -1049,26 +1111,28 @@ function ProjectCard({ project }: { project: Project }) {
             </span>
           </div>
 
-          <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-500">
-            {project.description}
-          </p>
-
-          <p className="mt-1 text-[11px] font-black text-slate-400">
-            {project.workspaceName}
+          <p className="line-clamp-2 min-h-[40px] text-sm font-semibold leading-5 text-slate-500">
+            {project.description || "설명이 없습니다."}
           </p>
         </div>
 
-        <span className="shrink-0 text-[11px] font-black text-slate-400">
+        <span className="shrink-0 whitespace-nowrap text-[11px] font-black text-slate-400">
           {formatDateLabel(project.updatedAt)}
         </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      {/* 워크스페이스명 */}
+      <p className="mt-1 line-clamp-1 text-[11px] font-black text-slate-400">
+        {project.workspaceName}
+      </p>
+
+      {/* 기술 태그: 높이 고정 */}
+      <div className="mt-3 flex min-h-[28px] flex-wrap content-start gap-1.5 overflow-hidden">
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-black text-slate-600">
-          {project.language}
+          {project.language || "Unknown"}
         </span>
 
-        {project.stack.map((stack) => (
+        {project.stack.slice(0, 2).map((stack) => (
           <span
             key={stack}
             className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-black text-slate-500"
@@ -1076,33 +1140,43 @@ function ProjectCard({ project }: { project: Project }) {
             {stack}
           </span>
         ))}
+
+        {project.stack.length > 2 && (
+          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-black text-slate-400">
+            +{project.stack.length - 2}
+          </span>
+        )}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-slate-50 p-2.5">
+      {/* 통계 박스: 항상 같은 높이 */}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="min-h-[68px] rounded-xl bg-slate-50 p-3">
           <p className="text-[11px] font-bold text-slate-400">개발일지</p>
-          <p className="mt-0.5 text-base font-black">{project.devlogCount}개</p>
+          <p className="mt-1 text-lg font-black text-slate-950">
+            {project.devlogCount}개
+          </p>
         </div>
 
-        <div className="rounded-xl bg-slate-50 p-2.5">
+        <div className="min-h-[68px] rounded-xl bg-slate-50 p-3">
           <p className="text-[11px] font-bold text-slate-400">완료 일정</p>
-          <p className="mt-0.5 text-base font-black">
+          <p className="mt-1 text-lg font-black text-slate-950">
             {project.doneScheduleCount}/{project.scheduleTotalCount}개
           </p>
         </div>
       </div>
 
-      <div className="mt-3">
+      {/* 진행률은 카드 하단에 고정 */}
+      <div className="mt-auto pt-4">
         <div className="mb-1.5 flex items-center justify-between text-[11px] font-black">
           <span className="text-slate-500">진행률</span>
-          <span>{project.progress}%</span>
+          <span className={statusTone.progressText}>{project.progress}%</span>
         </div>
 
         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
           <div
             className={[
-              "h-full rounded-full",
-              isCompleted ? "bg-emerald-500" : "bg-slate-950",
+              "h-full rounded-full transition-all",
+              statusTone.progressBar,
             ].join(" ")}
             style={{ width: `${project.progress}%` }}
           />

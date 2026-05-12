@@ -28,10 +28,9 @@ export async function loadMonthlyWorkFlowItems(
     workspaces.map(async (workspace) => {
       const [scheduleResult, devlogResult] = await Promise.allSettled([
         fetchMainMonthSchedulesApi({
-          view: workspace.mode,
+          workspaceId: workspace.id,
           year,
           month,
-          workspaceId: workspace.id,
         }),
         fetchWorkspaceDevlogsApi(workspace.id),
       ]);

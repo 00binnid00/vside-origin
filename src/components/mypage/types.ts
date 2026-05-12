@@ -57,3 +57,24 @@ export type ActivitySummary = {
 };
 
 export type HeatmapLevel = 0 | 1 | 2 | 3 | 4;
+
+/* =========================
+   마이페이지 설정 탭 타입
+   - SettingsTab.tsx에서 import하는 타입
+========================= */
+export type IDETheme = "light" | "dark";
+
+export type IDEKeymap = "vscode" | "vim" | "intellij";
+
+export type IDEFormatter = "prettier" | "eslint" | "none";
+
+export type IDEAutoSave = "off" | "afterDelay";
+
+export type IDEPrefs = {
+  theme: IDETheme;
+  keymap: IDEKeymap;
+  formatter: IDEFormatter;
+  aiAssistLevel: 0 | 1 | 2 | 3;
+  autoSave: IDEAutoSave;
+  autoSaveDelayMs: number;
+};
