@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Menu, X, LogOut, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -19,6 +19,16 @@ type DemoNotif = {
   unread?: boolean;
 };
 
+type WorkspaceMode = "personal" | "team";
+
+function normalizeMode(value: string | null): WorkspaceMode {
+  return value === "team" ? "team" : "personal";
+}
+
+function withModeQuery(href: string, mode: WorkspaceMode) {
+  return `${href}?mode=${mode}`;
+}
+
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -30,65 +40,121 @@ export default function TopNav() {
   const [openMobileNav, setOpenMobileNav] = useState(false);
   const [openNotif, setOpenNotif] = useState(false);
 
-  const [rememberedWorkspaceId, setRememberedWorkspaceId] = useState<
-    string | null
-  >(null);
-
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const notifRef = useRef<HTMLDivElement | null>(null);
 
-  // =========================================================
-  // 현재 URL에서 workspaceId 추출
-  // /main/abc123 -> abc123
-  // /main        -> null
-  // =========================================================
-  const workspaceIdFromPath = (() => {
+  /*
+    현재 URL path에서 workspaceId를 추출한다.
+
+    예:
+    /main/abc123
+    /projects/abc123
+    /schedules/abc123
+    /devlogs/abc123
+
+    주의:
+    여기서는 localStorage의 currentWorkspaceId를 사용하지 않는다.
+    헤더는 "현재 화면이 프로젝트 선택 상태인지"만 보고 링크를 만들어야 한다.
+    localStorage를 쓰면 프로젝트를 선택하지 않은 상태에서도 이전 프로젝트로 이동할 수 있다.
+  */
+  const workspaceIdFromPath = useMemo(() => {
     const parts = pathname?.split("/").filter(Boolean) ?? [];
 
-    if (parts[0] === "main" && parts[1]) {
+    const workspaceSections = [
+      "main",
+      "projects",
+      "schedules",
+      "schedule",
+      "devlogs",
+      "devlog",
+      "relocation",
+    ];
+
+    if (workspaceSections.includes(parts[0]) && parts[1]) {
       return parts[1];
     }
 
     return null;
-  })();
+  }, [pathname]);
 
-  // =========================================================
-  // 쿼리스트링에서 workspaceId 추출
-  // /schedules?workspaceId=abc123
-  // /devlogs?workspaceId=abc123
-  // =========================================================
+  /*
+    쿼리스트링에서 workspaceId를 추출한다.
+
+    예:
+    /schedules?view=personal&workspaceId=abc123
+    /devlogs?workspaceId=abc123
+    /relocation?workspaceId=abc123&mode=personal
+  */
   const workspaceIdFromQuery =
     searchParams.get("workspaceId") ??
     searchParams.get("workspaceid") ??
     searchParams.get("workspace");
 
-  const currentWorkspaceId =
-    workspaceIdFromPath || workspaceIdFromQuery || rememberedWorkspaceId;
+  /*
+    현재 선택된 프로젝트 ID.
 
-  const homeHref = currentWorkspaceId ? `/main/${currentWorkspaceId}` : "/main";
+    localStorage를 fallback으로 쓰지 않는다.
+    즉, 현재 URL에 workspaceId가 없으면 프로젝트가 선택되지 않은 상태로 본다.
+  */
+  const currentWorkspaceId = workspaceIdFromPath || workspaceIdFromQuery;
 
-  // =========================================================
-  // workspaceId가 URL에서 발견되면 localStorage에 저장
-  // =========================================================
+  /*
+    mode는 URL query에서 가져온다.
+    mode가 없으면 personal로 둔다.
+
+    팀 프로젝트에서 정확한 이동을 원하면
+    메인 프로젝트 선택 링크가 /main/[workspaceId]?mode=team 형태로 들어와야 한다.
+  */
+  const currentMode = normalizeMode(
+    searchParams.get("mode") ?? searchParams.get("view"),
+  );
+
+  const hasSelectedWorkspace = Boolean(currentWorkspaceId);
+
+  /*
+    프로젝트 선택이 필요한 메뉴:
+    HOME, AIVS, 설계단계, 일정관리, 개발일지
+
+    프로젝트가 선택되어 있으면 해당 프로젝트 기준 경로로 이동한다.
+    프로젝트가 선택되어 있지 않으면 /main으로 보내서 프로젝트를 먼저 선택하게 한다.
+  */
+  const homeHref = hasSelectedWorkspace
+    ? withModeQuery(`/main/${currentWorkspaceId}`, currentMode)
+    : "/main";
+
+  const aivsHref = hasSelectedWorkspace
+    ? withModeQuery(`/projects/${currentWorkspaceId}`, currentMode)
+    : "/main";
+
+  const relocationHref = hasSelectedWorkspace
+    ? `/relocation?workspaceId=${currentWorkspaceId}&mode=${currentMode}`
+    : "/main";
+
+  const schedulesHref = hasSelectedWorkspace
+    ? `/schedules?view=${currentMode}&workspaceId=${currentWorkspaceId}`
+    : "/main";
+
+  const devlogsHref = hasSelectedWorkspace
+    ? `/devlogs?workspaceId=${currentWorkspaceId}`
+    : "/main";
+
+  /*
+    프로젝트 선택 없이 접근 가능한 메뉴.
+  */
+  const communityHref = "/community";
+  const myPageHref = "/my";
+
+  /*
+    현재 URL에 workspaceId가 있을 때만 localStorage에 저장한다.
+    이 값은 IDE나 모달 등 다른 기능에서 사용할 수 있지만,
+    헤더 링크 생성에는 직접 사용하지 않는다.
+  */
   useEffect(() => {
-    const foundWorkspaceId = workspaceIdFromPath || workspaceIdFromQuery;
+    if (!currentWorkspaceId) return;
 
-    if (!foundWorkspaceId) return;
-
-    localStorage.setItem("currentWorkspaceId", foundWorkspaceId);
-    setRememberedWorkspaceId(foundWorkspaceId);
-  }, [workspaceIdFromPath, workspaceIdFromQuery]);
-
-  // =========================================================
-  // 처음 렌더링될 때 저장된 workspaceId 불러오기
-  // =========================================================
-  useEffect(() => {
-    const storedWorkspaceId = localStorage.getItem("currentWorkspaceId");
-
-    if (storedWorkspaceId) {
-      setRememberedWorkspaceId(storedWorkspaceId);
-    }
-  }, []);
+    localStorage.setItem("currentWorkspaceId", currentWorkspaceId);
+    localStorage.setItem("currentWorkspaceMode", currentMode);
+  }, [currentWorkspaceId, currentMode]);
 
   const demoNotifs: DemoNotif[] = [
     {
@@ -97,7 +163,7 @@ export default function TopNav() {
       body: "오늘 오후 3시 팀 회의가 예정되어 있습니다",
       time: "10분 전",
       unread: true,
-      href: "/schedules",
+      href: schedulesHref,
     },
     {
       id: "n2",
@@ -105,7 +171,7 @@ export default function TopNav() {
       body: "김개발님이 main 브랜치에 커밋했습니다",
       time: "30분 전",
       unread: true,
-      href: "/projects",
+      href: aivsHref,
     },
     {
       id: "n3",
@@ -113,7 +179,7 @@ export default function TopNav() {
       body: "이프로트: 코드 리뷰 부탁드립니다",
       time: "1시간 전",
       unread: false,
-      href: "/projects",
+      href: aivsHref,
     },
     {
       id: "n4",
@@ -121,15 +187,12 @@ export default function TopNav() {
       body: "빌드 프로세스에서 오류가 발생했습니다. 로그를 확인하세요",
       time: "4시간 전",
       unread: false,
-      href: "/main",
+      href: homeHref,
     },
   ];
 
   const unreadCount = demoNotifs.filter((n) => n.unread).length;
 
-  // =========================================================
-  // 바깥 클릭 시 드롭다운 닫기
-  // =========================================================
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       const target = e.target as Node;
@@ -148,9 +211,6 @@ export default function TopNav() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  // =========================================================
-  // 라우트 변경 시 메뉴 닫기
-  // =========================================================
   useEffect(() => {
     setOpenMobileNav(false);
     setOpenUserMenu(false);
@@ -168,37 +228,82 @@ export default function TopNav() {
   };
 
   const NAV_ITEMS = [
-    { href: homeHref, label: "HOME", matchPath: "/main" },
-    { href: "/projects", label: "AIVS", matchPath: "/projects" },
-    { href: "/relocation", label: "설계단계", matchPath: "/relocation" },
-    { href: "/schedules", label: "일정관리", matchPath: "/schedules" },
-    { href: "/devlogs", label: "개발일지", matchPath: "/devlogs" },
-    { href: "/community", label: "게시판", matchPath: "/community" },
-    { href: "/my", label: "마이페이지", matchPath: "/my" },
+    {
+      href: homeHref,
+      label: "HOME",
+      matchPath: "/main",
+      requiresWorkspace: true,
+    },
+    {
+      href: aivsHref,
+      label: "AIVS",
+      matchPath: "/projects",
+      requiresWorkspace: true,
+    },
+    {
+      href: relocationHref,
+      label: "설계단계",
+      matchPath: "/relocation",
+      requiresWorkspace: true,
+    },
+    {
+      href: schedulesHref,
+      label: "일정관리",
+      matchPath: "/schedules",
+      requiresWorkspace: true,
+    },
+    {
+      href: devlogsHref,
+      label: "개발일지",
+      matchPath: "/devlogs",
+      requiresWorkspace: true,
+    },
+    {
+      href: communityHref,
+      label: "게시판",
+      matchPath: "/community",
+      requiresWorkspace: false,
+    },
+    {
+      href: myPageHref,
+      label: "마이페이지",
+      matchPath: "/my",
+      requiresWorkspace: false,
+    },
   ];
 
-  // =========================================================
-  // HOME 활성화 조건
-  // /main에서는 비활성화
-  // /main/[workspaceId]에서만 활성화
-  // =========================================================
   const isNavItemActive = (item: (typeof NAV_ITEMS)[number]) => {
+    if (!pathname) return false;
+
     if (item.label === "HOME") {
-      return Boolean(workspaceIdFromPath);
+      return pathname === "/main" || pathname.startsWith("/main/");
     }
 
-    return pathname?.startsWith(item.matchPath);
+    return pathname.startsWith(item.matchPath);
+  };
+
+  const handleGuardedNavClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    item: (typeof NAV_ITEMS)[number],
+  ) => {
+    if (!item.requiresWorkspace) return;
+    if (hasSelectedWorkspace) return;
+
+    /*
+      프로젝트가 필요한 메뉴인데 아직 선택된 프로젝트가 없으면
+      실제 기능 페이지로 들어가지 않고 /main에서 프로젝트를 선택하게 한다.
+    */
+    event.preventDefault();
+    router.push("/main");
   };
 
   return (
     <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-2 text-xl">
-        {/* 로고 */}
-        <Link href="/" className="font-black tracking-tight">
+        <Link href="/main" className="font-black tracking-tight">
           WEVAIS
         </Link>
 
-        {/* 데스크톱 네비게이션 */}
         <nav className="hidden items-center gap-8 text-sm text-gray-600 md:flex">
           {NAV_ITEMS.map((item) => {
             const active = isNavItemActive(item);
@@ -207,6 +312,7 @@ export default function TopNav() {
               <Link
                 key={item.label}
                 href={item.href}
+                onClick={(event) => handleGuardedNavClick(event, item)}
                 className={cn(
                   "transition hover:text-gray-900",
                   active && "font-semibold text-gray-900",
@@ -218,9 +324,7 @@ export default function TopNav() {
           })}
         </nav>
 
-        {/* 우측 영역 */}
         <div className="flex items-center gap-3">
-          {/* 모바일 메뉴 버튼 */}
           <button
             type="button"
             className="rounded-xl p-2 text-gray-700 hover:bg-gray-100 md:hidden"
@@ -252,7 +356,6 @@ export default function TopNav() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              {/* 알림 */}
               <div className="relative" ref={notifRef}>
                 <button
                   type="button"
@@ -349,7 +452,6 @@ export default function TopNav() {
                 ) : null}
               </div>
 
-              {/* 유저 메뉴 */}
               <div className="relative" ref={userMenuRef}>
                 <button
                   type="button"
@@ -383,7 +485,7 @@ export default function TopNav() {
 
                     <div className="p-2">
                       <Link
-                        href="/my"
+                        href={myPageHref}
                         className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         onClick={() => setOpenUserMenu(false)}
                       >
@@ -408,7 +510,6 @@ export default function TopNav() {
         </div>
       </div>
 
-      {/* 모바일 네비게이션 */}
       {openMobileNav ? (
         <div className="border-t border-gray-200 bg-white md:hidden">
           <div className="flex flex-col gap-2 px-6 py-4">
@@ -419,6 +520,7 @@ export default function TopNav() {
                 <Link
                   key={item.label}
                   href={item.href}
+                  onClick={(event) => handleGuardedNavClick(event, item)}
                   className={cn(
                     "rounded-xl px-3 py-2 text-sm transition",
                     active

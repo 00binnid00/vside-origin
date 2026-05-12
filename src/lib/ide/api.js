@@ -5,15 +5,19 @@ const BASE_URL =
 
 const API_BASE = `${BASE_URL}/api/workspaces`;
 const GIT_API_BASE = `${BASE_URL}/api/git`;
+const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 const SCHEDULE_API_BASE = `${BASE_URL}/api/schedules`;
 const AUTH_API_BASE = `${BASE_URL}/api/users`;
 const SYSTEM_API_BASE = `${BASE_URL}/api/system`;
 const CODEMAP_API_BASE = `${BASE_URL}/api/codemap`;
 const AI_API_BASE = `${BASE_URL}/api/ai`;
-const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 
 const getCurrentUserId = () =>
   typeof window !== "undefined" ? localStorage.getItem("userId") : null;
+
+// ============================================================================
+// 공통 인증 fetch
+// ============================================================================
 
 export const authFetch = async (url, options = {}) => {
   const token =
@@ -82,6 +86,278 @@ export const getUserProfileApi = async (userId) => {
 };
 
 // ============================================================================
+// 일정관리 API - 신규 백엔드 연동용
+// ============================================================================
+
+const normalizeScheduleFromApi = (item) => {
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId,
+    projectName: item.projectName,
+    customProjectName: item.projectName,
+
+    title: item.title ?? "",
+    description: item.description ?? "",
+    date: item.startDate,
+    startDate: item.startDate,
+    endDate: item.endDate,
+
+    status: item.status ?? "todo",
+    category: item.category ?? "General",
+    hasDevlog: Boolean(item.hasDevlog),
+
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
+export const fetchWorkspaceSchedulesApi = async ({
+  workspaceId,
+  startDate,
+  endDate,
+}) => {
+  if (!workspaceId) {
+    throw new Error("workspaceId가 없습니다.");
+  }
+
+  const params = new URLSearchParams();
+
+  if (startDate && endDate) {
+    params.set("startDate", startDate);
+    params.set("endDate", endDate);
+  }
+
+  const queryString = params.toString();
+
+  const response = await authFetch(
+    `${API_BASE}/${encodeURIComponent(workspaceId)}/schedules${
+      queryString ? `?${queryString}` : ""
+    }`,
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "일정 목록 로드 실패");
+  }
+
+  const data = await response.json();
+
+  return Array.isArray(data) ? data.map(normalizeScheduleFromApi) : [];
+};
+
+export const createWorkspaceScheduleApi = async ({
+  workspaceId,
+  title,
+  description,
+  startDate,
+  endDate,
+  status = "todo",
+  category = "General",
+}) => {
+  if (!workspaceId) {
+    throw new Error("workspaceId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${API_BASE}/${encodeURIComponent(workspaceId)}/schedules`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title,
+        description,
+        startDate,
+        endDate,
+        status,
+        category,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "일정 생성 실패");
+  }
+
+  return normalizeScheduleFromApi(await response.json());
+};
+
+export const updateScheduleStatusApi = async ({ scheduleId, status }) => {
+  if (!scheduleId) {
+    throw new Error("scheduleId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${SCHEDULE_API_BASE}/${encodeURIComponent(scheduleId)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "일정 상태 변경 실패");
+  }
+
+  return normalizeScheduleFromApi(await response.json());
+};
+
+export const updateSchedulePeriodApi = async ({
+  scheduleId,
+  startDate,
+  endDate,
+}) => {
+  if (!scheduleId) {
+    throw new Error("scheduleId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${SCHEDULE_API_BASE}/${encodeURIComponent(scheduleId)}/period`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        startDate,
+        endDate,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "일정 날짜 변경 실패");
+  }
+
+  return normalizeScheduleFromApi(await response.json());
+};
+
+export const deleteScheduleApi = async (scheduleId) => {
+  if (!scheduleId) {
+    throw new Error("scheduleId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${SCHEDULE_API_BASE}/${encodeURIComponent(scheduleId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "일정 삭제 실패");
+  }
+
+  return true;
+};
+
+// ============================================================================
+// 일정관리 API 호환 함수
+// - 기존 메인 대시보드/일정 화면에서 쓰던 함수명을 유지하기 위한 wrapper
+// - 같은 파일 안의 fetchWorkspaceSchedulesApi를 그대로 사용함
+// ============================================================================
+
+function formatScheduleDateKey(year, month, date) {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(date).padStart(2, "0");
+
+  return `${year}-${mm}-${dd}`;
+}
+
+function getScheduleMonthRange(year, month) {
+  const startDate = formatScheduleDateKey(year, month, 1);
+  const lastDate = new Date(year, month, 0).getDate();
+  const endDate = formatScheduleDateKey(year, month, lastDate);
+
+  return {
+    startDate,
+    endDate,
+  };
+}
+
+function getScheduleWeekRange(baseDate = new Date()) {
+  const start = new Date(baseDate);
+  start.setDate(baseDate.getDate() - baseDate.getDay());
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  return {
+    startDate: formatScheduleDateKey(
+      start.getFullYear(),
+      start.getMonth() + 1,
+      start.getDate(),
+    ),
+    endDate: formatScheduleDateKey(
+      end.getFullYear(),
+      end.getMonth() + 1,
+      end.getDate(),
+    ),
+  };
+}
+
+export async function fetchMainMonthSchedulesApi({ workspaceId, year, month }) {
+  if (!workspaceId) {
+    return [];
+  }
+
+  const { startDate, endDate } = getScheduleMonthRange(year, month);
+
+  return fetchWorkspaceSchedulesApi({
+    workspaceId,
+    startDate,
+    endDate,
+  });
+}
+
+export async function fetchMainWeekSchedulesApi({
+  workspaceId,
+  startDate,
+  endDate,
+}) {
+  if (!workspaceId) {
+    return [];
+  }
+
+  if (startDate && endDate) {
+    return fetchWorkspaceSchedulesApi({
+      workspaceId,
+      startDate,
+      endDate,
+    });
+  }
+
+  const weekRange = getScheduleWeekRange();
+
+  return fetchWorkspaceSchedulesApi({
+    workspaceId,
+    startDate: weekRange.startDate,
+    endDate: weekRange.endDate,
+  });
+}
+
+export async function fetchScheduleProgressApi({ workspaceId }) {
+  if (!workspaceId) {
+    return {
+      total: 0,
+      done: 0,
+      progressRate: 0,
+    };
+  }
+
+  const schedules = await fetchWorkspaceSchedulesApi({ workspaceId });
+
+  const total = schedules.length;
+  const done = schedules.filter((item) => item.status === "done").length;
+  const progressRate = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return {
+    total,
+    done,
+    progressRate,
+  };
+}
+
+// ============================================================================
 // 워크스페이스 / 프로젝트 API
 // ============================================================================
 
@@ -91,67 +367,11 @@ export const getMyWorkspacesApi = async (userId = getCurrentUserId()) => {
   return await response.json();
 };
 
-export const fetchScheduleProgressApi = async ({ view, workspaceId }) => {
-  const response = await authFetch(
-    `${SCHEDULE_API_BASE}/progress?view=${encodeURIComponent(
-      view,
-    )}&workspaceId=${encodeURIComponent(workspaceId)}`,
-  );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "일정 진행률 로드 실패");
-  }
-
-  return await response.json();
-};
-
-export const fetchMainWeekSchedulesApi = async ({
-  view,
-  date,
-  workspaceId,
-}) => {
-  const response = await authFetch(
-    `${SCHEDULE_API_BASE}/weekly?view=${encodeURIComponent(
-      view,
-    )}&date=${encodeURIComponent(date)}&workspaceId=${encodeURIComponent(
-      workspaceId,
-    )}`,
-  );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "이번 주 일정 로드 실패");
-  }
-
-  return await response.json();
-};
-
-export const fetchMainMonthSchedulesApi = async ({
-  view,
-  year,
-  month,
-  workspaceId,
-}) => {
-  const response = await authFetch(
-    `${SCHEDULE_API_BASE}/calendar?view=${encodeURIComponent(
-      view,
-    )}&year=${encodeURIComponent(year)}&month=${encodeURIComponent(
-      month,
-    )}&workspaceId=${encodeURIComponent(workspaceId)}`,
-  );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "이번 달 일정 로드 실패");
-  }
-
-  return await response.json();
-};
-
+// 새 백엔드 기준 개발일지 조회
+// GET /api/workspaces/{workspaceId}/devlogs
 export const fetchWorkspaceDevlogsApi = async (workspaceId) => {
   const response = await authFetch(
-    `${DEVLOG_API_BASE}/workspaces/${encodeURIComponent(workspaceId)}`,
+    `${API_BASE}/${encodeURIComponent(workspaceId)}/devlogs`,
   );
 
   if (!response.ok) {
@@ -159,7 +379,122 @@ export const fetchWorkspaceDevlogsApi = async (workspaceId) => {
     throw new Error(errMsg || "개발일지 로드 실패");
   }
 
-  return await response.json();
+  const data = await response.json();
+
+  return Array.isArray(data) ? data.map(normalizeDevlogFromApi) : [];
+};
+// ============================================================================
+// 개발일지 API - 신규 백엔드 연동용
+// ============================================================================
+
+const normalizeDevlogFromApi = (item) => {
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId,
+    projectName: item.projectName,
+
+    title: item.title ?? "",
+    content: item.content ?? "",
+    date: item.workedDate,
+    workedDate: item.workedDate,
+
+    type: item.type ?? (item.scheduleId ? "linked" : "general"),
+
+    scheduleId: item.scheduleId ?? null,
+    scheduleTitle: item.scheduleTitle ?? null,
+    status: item.scheduleStatus ?? null,
+
+    tags: Array.isArray(item.tags) ? item.tags : [],
+
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
+export const createWorkspaceDevlogApi = async ({
+  workspaceId,
+  scheduleId,
+  title,
+  content,
+  workedDate,
+  scheduleStatusAfterWrite = "none",
+}) => {
+  if (!workspaceId) {
+    throw new Error("workspaceId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${API_BASE}/${encodeURIComponent(workspaceId)}/devlogs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        scheduleId: scheduleId || null,
+        title,
+        content,
+        workedDate,
+        scheduleStatusAfterWrite,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "개발일지 생성 실패");
+  }
+
+  return normalizeDevlogFromApi(await response.json());
+};
+
+export const updateDevlogApi = async ({
+  devlogId,
+  scheduleId,
+  title,
+  content,
+  workedDate,
+}) => {
+  if (!devlogId) {
+    throw new Error("devlogId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${DEVLOG_API_BASE}/${encodeURIComponent(devlogId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        scheduleId: scheduleId || null,
+        title,
+        content,
+        workedDate,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "개발일지 수정 실패");
+  }
+
+  return normalizeDevlogFromApi(await response.json());
+};
+
+export const deleteDevlogApi = async (devlogId) => {
+  if (!devlogId) {
+    throw new Error("devlogId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${DEVLOG_API_BASE}/${encodeURIComponent(devlogId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const errMsg = await response.text();
+    throw new Error(errMsg || "개발일지 삭제 실패");
+  }
+
+  return true;
 };
 
 export const createWorkspaceApi = async ({
@@ -243,7 +578,7 @@ export const createProjectApi = async ({
   language,
   description = "",
   gitUrl = "",
-  templateType = "CONSOLE", 
+  templateType = "CONSOLE",
 }) => {
   const response = await authFetch(`${API_BASE}/project`, {
     method: "POST",
@@ -253,7 +588,7 @@ export const createProjectApi = async ({
       language,
       description,
       gitUrl,
-      templateType, 
+      templateType,
     }),
   });
 
@@ -279,7 +614,7 @@ export const createProjectInWorkspaceApi = async ({
     language,
     description,
     gitUrl,
-    templateType, 
+    templateType,
   });
 };
 
@@ -512,7 +847,7 @@ export const pushToRemoteApi = async (
   workspaceId,
   projectName,
   branchName,
-  token = "", 
+  token = "",
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/push`, {
     method: "POST",
@@ -521,14 +856,14 @@ export const pushToRemoteApi = async (
 
   if (!response.ok) {
     const errMsg = await response.text();
-    
+
     // 🚨 백엔드에서 우리가 설계한 "연동창 띄워!" 에러 코드가 오면 특수한 에러를 던집니다.
     if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
       const error = new Error("깃허브 계정 연동이 필요합니다.");
       error.code = "GITHUB_AUTH_REQUIRED";
       throw error;
     }
-    
+
     throw new Error(errMsg || "푸시 실패");
   }
 };
@@ -547,13 +882,13 @@ export const pullFromRemoteApi = async (
 
   if (!response.ok) {
     const errMsg = await response.text();
-    
+
     if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
       const error = new Error("깃허브 계정 연동이 필요합니다.");
       error.code = "GITHUB_AUTH_REQUIRED";
       throw error;
     }
-    
+
     throw new Error(errMsg || "Pull 실패");
   }
   return await response.text();
@@ -866,7 +1201,7 @@ export const fetchVirtualViewsApi = async (
   try {
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
+  } catch {
     throw new Error("가상 뷰 응답 형식이 올바르지 않습니다.");
   }
 };

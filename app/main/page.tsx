@@ -64,6 +64,47 @@ type ScheduleProgressResponse = {
   doneCount: number;
   progress: number;
 };
+type RawScheduleItem = {
+  id?: string;
+  uuid?: string;
+  title?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
+function isDoneScheduleStatus(status: unknown) {
+  const normalized = String(status ?? "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    normalized === "done" ||
+    normalized === "completed" ||
+    normalized === "complete" ||
+    normalized === "완료"
+  );
+}
+
+function calculateScheduleProgress(
+  workspace: WorkspaceItem,
+  schedules: RawScheduleItem[],
+): ScheduleProgressResponse {
+  const totalCount = schedules.length;
+  const doneCount = schedules.filter((schedule) =>
+    isDoneScheduleStatus(schedule.status),
+  ).length;
+
+  return {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    type: workspace.type,
+    totalCount,
+    doneCount,
+    progress: totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100),
+  };
+}
+type ProjectStatus = "active" | "completed";
 
 type DashboardCardItem = {
   id: string;
@@ -72,6 +113,7 @@ type DashboardCardItem = {
   tech: string;
   type: ProjectType;
   progress: number;
+  status: ProjectStatus;
   memberCount?: number;
   lastModified: string;
 };
@@ -235,10 +277,10 @@ export default function DashboardProjectSelectPage() {
       const progressResults = await Promise.all(
         workspaceList.map(async (workspace) => {
           try {
-            const progressRes = await fetch(
-              `${API_BASE}/api/schedules/progress?view=${encodeURIComponent(
-                workspace.type,
-              )}&workspaceId=${encodeURIComponent(workspace.id)}`,
+            const scheduleRes = await fetch(
+              `${API_BASE}/api/workspaces/${encodeURIComponent(
+                workspace.id,
+              )}/schedules`,
               {
                 method: "GET",
                 headers: {
@@ -248,7 +290,7 @@ export default function DashboardProjectSelectPage() {
               },
             );
 
-            if (!progressRes.ok) {
+            if (!scheduleRes.ok) {
               return {
                 workspaceId: workspace.id,
                 workspaceName: workspace.name,
@@ -259,7 +301,12 @@ export default function DashboardProjectSelectPage() {
               } satisfies ScheduleProgressResponse;
             }
 
-            return (await progressRes.json()) as ScheduleProgressResponse;
+            const schedules = await scheduleRes.json();
+
+            return calculateScheduleProgress(
+              workspace,
+              Array.isArray(schedules) ? schedules : [],
+            );
           } catch {
             return {
               workspaceId: workspace.id,
@@ -281,25 +328,26 @@ export default function DashboardProjectSelectPage() {
 
       const merged: DashboardCardItem[] = workspaceList.map((workspace) => {
         const progressInfo = progressMap.get(workspace.id);
+        const progress = progressInfo?.progress ?? 0;
 
         return {
           id: workspace.id,
 
-          // 핵심 수정:
-          // 하위 프로젝트 이름이 아니라 최상위 Workspace 이름을 카드 제목으로 사용
+          // 최상위 Workspace 이름을 카드 제목으로 사용
           title: workspace.name,
 
           description: workspace.description,
 
-          // language 대신 하위 프로젝트 개수만 보조 정보로 표시
+          // 하위 프로젝트는 개수만 보조 정보로 표시
           tech: `하위 ${workspace.projectCount}개`,
 
           type: workspace.type,
-          progress: progressInfo?.progress ?? 0,
+          progress,
 
-          // 하위 프로젝트 수정일이 아니라 Workspace 수정일 기준
+          // 진행률이 100%면 완료 프로젝트로 표시
+          status: progress >= 100 ? "completed" : "active",
+
           lastModified: workspace.updatedAt,
-
           memberCount: undefined,
         };
       });
@@ -488,8 +536,16 @@ function SummaryChip({ label, value }: { label: string; value: string }) {
 }
 
 function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
+  const isCompleted = project.status === "completed";
+
   return (
-    <article className="group flex min-h-[320px] flex-col rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+    <article
+      className={`group flex min-h-[320px] flex-col rounded-[26px] border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+        isCompleted
+          ? "border-purple-200 hover:border-purple-300"
+          : "border-slate-200 hover:border-blue-200"
+      }`}
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <span
@@ -500,6 +556,12 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
             {getTypeLabel(project.type)}
           </span>
 
+          {isCompleted && (
+            <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-black text-purple-700">
+              완료
+            </span>
+          )}
+
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
             {project.tech}
           </span>
@@ -508,9 +570,11 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
         <div className="shrink-0 rounded-2xl bg-slate-50 px-3.5 py-2.5 text-right">
           <p className="text-[11px] font-bold text-slate-400">진행률</p>
           <p
-            className={`mt-0.5 text-xl font-black ${getProgressTextStyle(
-              project.type,
-            )}`}
+            className={`mt-0.5 text-xl font-black ${
+              isCompleted
+                ? "text-purple-600"
+                : getProgressTextStyle(project.type)
+            }`}
           >
             {project.progress}%
           </p>
@@ -518,7 +582,11 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
       </div>
 
       <div className="mt-5 flex-1">
-        <h3 className="line-clamp-1 text-xl font-black tracking-tight text-slate-950 group-hover:text-blue-600">
+        <h3
+          className={`mt-8 line-clamp-2 text-2xl font-black leading-tight transition ${
+            isCompleted ? "text-purple-700" : "text-slate-950"
+          }`}
+        >
           {project.title}
         </h3>
 
@@ -535,9 +603,9 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
 
         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className={`h-full rounded-full transition-all ${getProgressBarStyle(
-              project.type,
-            )}`}
+            className={`h-full rounded-full transition-all ${
+              isCompleted ? "bg-purple-500" : getProgressBarStyle(project.type)
+            }`}
             style={{ width: `${project.progress}%` }}
           />
         </div>
@@ -553,7 +621,7 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 ">
           <CardActionLink
             href={getDashboardHref(project)}
             icon={<LayoutDashboard size={15} />}
