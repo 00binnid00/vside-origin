@@ -9,6 +9,7 @@ import {
   closeFile,
   openCodeMapTab,
   clearVirtualTree,
+  setWorkspaceTree, // 💡 로컬 파일/폴더 업로드 후 사이드바 트리 갱신용
 } from "@/store/slices/fileSystemSlice";
 import {
   openProjectModal,
@@ -21,6 +22,9 @@ import {
   setCodeMapMode,
   setVoiceConnected,
   setRunning,
+  setCurrentDebugLine,
+  updateDebugVariables,
+  setActiveActivity, // 💡 보기/Git 메뉴 클릭 시 좌측 탭 즉시 전환용
 } from "@/store/slices/uiSlice";
 import { DebugSocket } from "@/lib/ide/debugSocket";
 import { RunSocket } from "@/lib/ide/runSocket";
@@ -54,9 +58,11 @@ import {
   deleteBranchApi,
   createSandboxApi,
   applySandboxApi,
+  fetchProjectFilesApi,
+  pushToRemoteApi,     // 💡 Git Push 연동 API
+  pullFromRemoteApi,   // 💡 Git Pull 연동 API
 } from "@/lib/ide/api";
 import { useAuth } from "@/lib/ide/AuthContext";
-
 import { useWebRTC } from "@/hooks/useWebRTC"; 
 
 const BASE_URL =
@@ -184,49 +190,49 @@ const VoiceChatRoom = ({ myUserId, teamMembers, onClose }) => {
   const amISpeaking = speakingUsers.has(String(safeUserId));
 
   return (
-    <div className="flex flex-col h-[520px]">
-      <div className="px-6 py-4 flex justify-between items-center border-b border-[#1E1F22]/50 bg-[#2B2D31]">
-        <div className="flex items-center gap-2">
-          <div className="flex relative w-3 h-3">
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-50 ${isVoiceConnected ? "bg-emerald-400" : "bg-gray-500"}`}></span>
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isVoiceConnected ? "bg-emerald-500" : "bg-gray-500"}`}></span>
+    <div className="flex flex-col h-[560px] bg-[#2B2D31] text-gray-200">
+      <div className="px-6 py-5 flex justify-between items-center border-b border-[#1E1F22] bg-[#232428] shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-3.5 w-3.5">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${isVoiceConnected ? "bg-emerald-400" : "bg-gray-500"}`}></span>
+            <span className={`relative inline-flex rounded-full h-3.5 w-3.5 ${isVoiceConnected ? "bg-emerald-500" : "bg-gray-500"}`}></span>
           </div>
-          <span className="text-xs font-bold text-gray-200">
-            {isVoiceConnected ? "음성 서버 연결됨" : "연결이 끊겨있습니다"}
+          <span className="text-sm font-extrabold text-white tracking-wide">
+            {isVoiceConnected ? "보이스 채널 연결됨" : "채널 오프라인"}
           </span>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" title="창 숨기기">
+        <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-[#383A40] hover:text-white rounded-full transition-colors" title="창 숨기기 (연결 유지)">
           <VscClose size={20} />
         </button>
       </div>
       
-      <div className="flex-1 p-6 overflow-y-auto custom-scrollbar grid grid-cols-3 gap-6 content-start">
+      <div className="flex-1 p-6 overflow-y-auto custom-scrollbar grid grid-cols-3 gap-y-8 gap-x-4 content-start">
         <div className="flex flex-col items-center gap-2 w-full">
-          <div className={`relative w-16 h-16 rounded-full flex items-center justify-center text-xl font-black text-white shadow-lg transition-all duration-200 
-            ${isMuted || !isVoiceConnected ? "bg-gray-600 opacity-60" : "bg-indigo-500"}
-            ${amISpeaking ? "ring-4 ring-green-400 ring-offset-2 ring-offset-[#2B2D31]" : ""}
+          <div className={`relative w-20 h-20 rounded-full flex items-center justify-center text-3xl font-black text-white shadow-xl transition-all duration-300 
+            ${isMuted || !isVoiceConnected ? "bg-[#4E5058] opacity-80" : "bg-indigo-500"}
+            ${amISpeaking ? "ring-[5px] ring-emerald-500 ring-offset-4 ring-offset-[#2B2D31] shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105" : "scale-100"}
           `}>
             {myNickname[0]}
             {(isMuted || !isVoiceConnected) && (
-              <div className="absolute -bottom-1 -right-1 bg-red-500 rounded-full p-1 border-2 border-[#2B2D31]">
-                <VscMute size={12} className="text-white" />
+              <div className="absolute -bottom-1 -right-1 bg-rose-500 rounded-full p-1.5 border-[3px] border-[#2B2D31]">
+                <VscMute size={14} className="text-white" />
               </div>
             )}
           </div>
-          <span className="text-[12px] font-bold text-gray-300 bg-[#1E1F22] px-2 py-0.5 rounded-md truncate max-w-full">
+          <span className="text-[13px] font-extrabold text-white bg-[#1E1F22] px-3 py-1 rounded-md truncate max-w-[120px] shadow-sm">
             {myNickname} (나)
           </span>
           {isVoiceConnected && (
-            <div className="flex flex-col items-center w-full mt-1 px-1">
+            <div className="flex flex-col items-center w-[90%] mt-2">
               <input
                 type="range"
-                min="0.1" max="15.0" step="0.5"
+                min="0.1" max="5.0" step="0.1"
                 value={micVolume || 1.0}
                 onChange={(e) => changeMicVolume(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-[#1E1F22] rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                title="내 마이크 증폭 (최대 1500%)"
+                className="w-full h-1.5 bg-[#1E1F22] rounded-full appearance-none cursor-pointer accent-indigo-400 outline-none hover:h-2 transition-all"
+                title="내 마이크 증폭"
               />
-              <span className="text-[9px] text-gray-500 font-bold mt-1 tracking-wider">
+              <span className="text-[10px] text-gray-400 font-bold mt-1 tracking-wide">
                 마이크 {Math.round((micVolume || 1) * 100)}%
               </span>
             </div>
@@ -236,7 +242,7 @@ const VoiceChatRoom = ({ myUserId, teamMembers, onClose }) => {
         {isVoiceConnected &&
           Object.entries(peers).map(([peerId, stream]) => {
             const member = teamMembers.find((m) => String(m.userId) === String(peerId));
-            const nickname = member ? member.nickname : `팀원${peerId}`;
+            const nickname = member ? member.nickname : `User-${peerId.substring(0, 4)}`;
             const isSpeaking = speakingUsers.has(String(peerId));
             const vol = peerVolumes[peerId] ?? 1.0;
 
@@ -244,25 +250,25 @@ const VoiceChatRoom = ({ myUserId, teamMembers, onClose }) => {
               <div key={peerId} className="flex flex-col items-center gap-2 animate-fade-in w-full">
                 <PeerAudio stream={stream} volume={vol} />
 
-                <div className={`w-16 h-16 bg-gray-500 rounded-full flex items-center justify-center text-xl font-black text-white shadow-lg transition-all duration-200
-                  ${isSpeaking ? "ring-4 ring-green-400 ring-offset-2 ring-offset-[#2B2D31]" : ""}
+                <div className={`relative w-20 h-20 bg-[#4E5058] rounded-full flex items-center justify-center text-3xl font-black text-white shadow-xl transition-all duration-300
+                  ${isSpeaking ? "ring-[5px] ring-emerald-500 ring-offset-4 ring-offset-[#2B2D31] shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-105 bg-blue-500" : "scale-100"}
                 `}>
                   {nickname[0]}
                 </div>
-                <span className="text-[12px] font-bold text-gray-300 bg-[#1E1F22] px-2 py-0.5 rounded-md truncate max-w-full">
+                <span className="text-[13px] font-extrabold text-white bg-[#1E1F22] px-3 py-1 rounded-md truncate max-w-[120px] shadow-sm">
                   {nickname}
                 </span>
                 
-                <div className="flex flex-col items-center w-full mt-1 px-1">
+                <div className="flex flex-col items-center w-[90%] mt-2">
                   <input
                     type="range"
-                    min="0" max="10.0" step="0.5"
+                    min="0" max="5.0" step="0.1"
                     value={vol}
                     onChange={(e) => handlePeerVolume(peerId, parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-[#1E1F22] rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                    title="상대방 소리 조절 (최대 1000%)"
+                    className="w-full h-1.5 bg-[#1E1F22] rounded-full appearance-none cursor-pointer accent-emerald-400 outline-none hover:h-2 transition-all"
+                    title="상대방 볼륨 조절"
                   />
-                  <span className="text-[9px] text-gray-500 font-bold mt-1 tracking-wider">
+                  <span className="text-[10px] text-gray-400 font-bold mt-1 tracking-wide">
                     소리 {Math.round(vol * 100)}%
                   </span>
                 </div>
@@ -271,20 +277,25 @@ const VoiceChatRoom = ({ myUserId, teamMembers, onClose }) => {
           })}
       </div>
       
-      <div className="bg-[#232428] px-6 py-5 flex justify-center items-center gap-6 rounded-b-2xl">
+      <div className="bg-[#232428] px-8 py-6 flex justify-center items-center gap-8 rounded-b-2xl border-t border-[#1E1F22]">
         <button
           onClick={toggleMute}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 ${isMuted ? "bg-red-500 text-white" : "bg-[#383A40] hover:bg-[#474A52] text-gray-200"}`}
+          disabled={!isVoiceConnected}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+            ${isMuted ? "bg-white text-gray-900" : "bg-[#383A40] hover:bg-[#474A52] text-white"}
+          `}
           title={isMuted ? "마이크 켜기" : "마이크 끄기"}
         >
           {isMuted ? <VscMute size={24} /> : <VscMicFilled size={24} />}
         </button>
         <button
           onClick={handleConnectToggle}
-          className={`w-14 h-14 rounded-full text-white flex items-center justify-center transition-all shadow-md active:scale-90 ${isVoiceConnected ? "bg-red-500 hover:bg-red-600" : "bg-emerald-500 hover:bg-emerald-600"}`}
-          title={isVoiceConnected ? "연결 끊기" : "채널 접속하기"}
+          className={`w-16 h-16 rounded-full text-white flex items-center justify-center transition-all shadow-lg active:scale-95 
+            ${isVoiceConnected ? "bg-rose-500 hover:bg-rose-600" : "bg-emerald-500 hover:bg-emerald-600"}
+          `}
+          title={isVoiceConnected ? "통화 종료" : "음성 연결하기"}
         >
-          {isVoiceConnected ? <VscCallOutgoing size={24} /> : <VscMicFilled size={24} />}
+          {isVoiceConnected ? <VscCallOutgoing size={28} /> : <VscMicFilled size={28} />}
         </button>
       </div>
     </div>
@@ -341,6 +352,10 @@ export default function MenuBar({ mode = "personal" }) {
 
   const menuRef = useRef(null);
   const branchRef = useRef(null);
+
+  // 💡 로컬 파일/폴더 업로드용 hidden input 레퍼런스
+  const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
 
   const isRelocationPage =
     pathname?.includes("/relocation") || pathname?.includes("/rearrange");
@@ -519,7 +534,6 @@ export default function MenuBar({ mode = "personal" }) {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // 💡 [핵심 수정] 객체 형태({ workspaceId, email })로 제대로 감싸서 보냅니다!
   const handleSendInvite = async () => {
     if (!inviteEmail.trim()) return alert("초대할 이메일 주소를 입력해주세요.");
     try {
@@ -666,6 +680,7 @@ export default function MenuBar({ mode = "personal" }) {
     const currentFileBreakpoints = breakpoints
       .filter((bp) => bp.path === activeFileId)
       .map((bp) => ({ line: bp.line }));
+      
     DebugSocket.connect(
       `${WS_BASE}/ws/debug`,
       () => {
@@ -677,69 +692,178 @@ export default function MenuBar({ mode = "personal" }) {
           currentFileBreakpoints,
         );
       },
-      (message) => {
-        dispatch(writeToTerminal(message));
+      (msg) => {
+        try {
+          const data = JSON.parse(msg);
+          if (data.type === "SUSPENDED") {
+            dispatch(setCurrentDebugLine({ line: data.line, path: data.path }));
+            dispatch(updateDebugVariables(data.variables || {}));
+          } else if (data.type === "OUTPUT" || data.type === "ERROR") {
+            dispatch(writeToTerminal((data.data || "") + "\n"));
+            if (data.data && data.data.includes("Debugging Finished")) {
+              dispatch(setDebugMode(false));
+              dispatch(setCurrentDebugLine(null));
+              dispatch(updateDebugVariables({}));
+            }
+          }
+        } catch {
+          dispatch(writeToTerminal(msg + "\n"));
+        }
       },
       () => {
         dispatch(
           writeToTerminal("\r\n[System] 디버깅 세션이 종료되었습니다.\r\n"),
         );
         dispatch(setDebugMode(false));
+        dispatch(setCurrentDebugLine(null));
+        dispatch(updateDebugVariables({}));
       },
     );
   };
 
+  // 💡 로컬 파일 직접 열기 핸들러
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !workspaceId || !activeProject) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target.result;
+      try {
+        await saveFileApi(workspaceId, activeProject, activeBranch || "master", file.name, content);
+        dispatch(writeToTerminal(`\r\n[System] ✅ 로컬 파일이 업로드 되었습니다: ${file.name}\r\n`));
+        const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
+        dispatch(setWorkspaceTree(treeData));
+      } catch (error) {
+        dispatch(writeToTerminal(`\r\n[Error] ❌ 파일 업로드 실패: ${error.message}\r\n`));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; 
+  };
+
+  // 💡 로컬 폴더 통째로 열기 핸들러
+  const handleFolderUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0 || !workspaceId || !activeProject) return;
+
+    dispatch(writeToTerminal(`\r\n[System] 📂 ${files.length}개의 파일을 포함한 폴더 업로드를 시작합니다...\r\n`));
+    
+    try {
+      const uploadPromises = files.map(file => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            try {
+              const path = file.webkitRelativePath || file.name;
+              await saveFileApi(workspaceId, activeProject, activeBranch || "master", path, event.target.result);
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+      });
+
+      await Promise.all(uploadPromises);
+      dispatch(writeToTerminal(`[System] ✅ 폴더 및 하위 파일 업로드가 모두 완료되었습니다.\r\n`));
+      const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
+      dispatch(setWorkspaceTree(treeData));
+    } catch (error) {
+      dispatch(writeToTerminal(`[Error] ❌ 폴더 업로드 중 에러 발생: ${error.message}\r\n`));
+    }
+    e.target.value = ""; 
+  };
+
+  // 🚀 [핵심] 10개 카테고리의 모든 하위 메뉴를 완벽하게 연결
   const handleMenuItemClick = async (menuName, itemName) => {
-    setActiveMenu(null);
+    setActiveMenu(null); 
+
     switch (itemName) {
+      // ----------------- 📁 1. 파일 메뉴 -----------------
       case "새 파일":
-        if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal("[System] 새 파일을 생성합니다.\n"));
-        break;
-      case "파일 열기...":
-      case "폴더 열기...":
-      case "탐색기":
-        dispatch(toggleSidebar());
-        break;
-      case "저장":
-        if (!activeFileId || !workspaceId || !activeProject)
-          return alert("저장할 파일이나 프로젝트가 선택되지 않았습니다.");
-        try {
-          const content = fileContents[activeFileId] || "";
-          await saveFileApi(
-            workspaceId,
-            activeProject,
-            activeBranch || "master",
-            activeFileId,
-            content,
-          );
-          if (!isTerminalVisible) dispatch(toggleTerminal());
-          dispatch(writeToTerminal(`[System] Saved: ${activeFileId}\n`));
-        } catch (error) {
-          if (!isTerminalVisible) dispatch(toggleTerminal());
-          dispatch(writeToTerminal(`[Error] Save failed: ${error.message}\n`));
+        if (!workspaceId || !activeProject) return alert("새 파일을 생성할 프로젝트를 선택해주세요.");
+        const fileName = window.prompt("생성할 파일의 이름을 확장자와 함께 입력하세요 (예: index.js):");
+        if (fileName) {
+          try {
+            await saveFileApi(workspaceId, activeProject, activeBranch || "master", fileName, "");
+            dispatch(writeToTerminal(`[System] ✅ 새 파일 생성 성공: ${fileName}\n`));
+            const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
+            dispatch(setWorkspaceTree(treeData));
+          } catch (e) {
+            dispatch(writeToTerminal(`[Error] ❌ 새 파일 생성 실패: ${e.message}\n`));
+          }
         }
         break;
-
+      case "파일 열기...":
+        if (!workspaceId || !activeProject) return alert("파일을 업로드할 프로젝트를 선택해주세요.");
+        if (fileInputRef.current) fileInputRef.current.click();
+        break;
+      case "폴더 열기...":
+        if (!workspaceId || !activeProject) return alert("폴더를 업로드할 프로젝트를 선택해주세요.");
+        if (folderInputRef.current) folderInputRef.current.click();
+        break;
+      case "저장":
+        if (!activeFileId || !workspaceId || !activeProject) return alert("에디터에 저장할 파일이 열려있지 않습니다.");
+        try {
+          const content = fileContents[activeFileId] || "";
+          await saveFileApi(workspaceId, activeProject, activeBranch || "master", activeFileId, content);
+          if (!isTerminalVisible) dispatch(toggleTerminal());
+          dispatch(writeToTerminal(`[System] ✅ 파일 저장 완료: ${activeFileId}\n`));
+        } catch (error) {
+          if (!isTerminalVisible) dispatch(toggleTerminal());
+          dispatch(writeToTerminal(`[Error] ❌ 저장 실패: ${error.message}\n`));
+        }
+        break;
       case "다른 이름으로...":
+        if (!activeFileId || !workspaceId || !activeProject) return alert("현재 에디터에 열려있는 파일이 없습니다.");
+        const newName = window.prompt("새로운 파일 이름을 입력하세요:", activeFileId);
+        if (newName && newName !== activeFileId) {
+          try {
+            const content = fileContents[activeFileId] || "";
+            await saveFileApi(workspaceId, activeProject, activeBranch || "master", newName, content);
+            dispatch(writeToTerminal(`[System] ✅ 다른 이름으로 파일 복제 저장 완료: ${newName}\n`));
+            const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
+            dispatch(setWorkspaceTree(treeData));
+          } catch (error) {
+            dispatch(writeToTerminal(`[Error] ❌ 복제 실패: ${error.message}\n`));
+          }
+        }
+        break;
       case "모두 저장":
+        if (!workspaceId || !activeProject) return alert("저장할 프로젝트가 없습니다.");
+        dispatch(writeToTerminal("[System] 열려있는 모든 파일을 저장합니다...\n"));
+        try {
+          const savePromises = Object.entries(fileContents || {}).map(([path, content]) =>
+            saveFileApi(workspaceId, activeProject, activeBranch || "master", path, content)
+          );
+          await Promise.all(savePromises);
+          if (!isTerminalVisible) dispatch(toggleTerminal());
+          dispatch(writeToTerminal("[System] ✅ 모든 파일이 성공적으로 저장되었습니다!\n"));
+        } catch(e) {
+          if (!isTerminalVisible) dispatch(toggleTerminal());
+          dispatch(writeToTerminal(`[Error] ❌ 모두 저장 실패: ${e.message}\n`));
+        }
+        break;
       case "내보내기":
-      case "검색":
-      case "소스 제어":
-      case "실행 및 디버그":
-      case "확장":
-      case "정보":
-      case "문서":
-      case "키보드 단축키":
-      case "Commit & Merge":
-      case "Repository Settings":
-        if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal(`[System] ${itemName} 기능 준비 중입니다.\n`));
+        if (!activeFileId) return alert("내보낼(다운로드할) 파일을 에디터에 먼저 열어주세요.");
+        const fileContent = fileContents[activeFileId] || "";
+        const blob = new Blob([fileContent], { type: "text/plain" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = activeFileId.split('/').pop() || "export.txt";
+        a.click();
+        window.URL.revokeObjectURL(url);
+        dispatch(writeToTerminal(`[System] ✅ ${activeFileId} 파일이 로컬 PC로 내보내기 되었습니다.\n`));
+        break;
+      case "닫기":
+        if (activeFileId) dispatch(closeFile(activeFileId));
         break;
 
-      case "닫기":
-        dispatch(closeFile(activeFileId));
-        break;
+      // ----------------- ✏️ 2. 편집 메뉴 -----------------
       case "실행 취소":
         dispatch(triggerEditorCmd("undo"));
         break;
@@ -756,25 +880,47 @@ export default function MenuBar({ mode = "personal" }) {
         dispatch(triggerEditorCmd("paste"));
         break;
       case "찾기":
+        dispatch(setActiveActivity("editor"));
         dispatch(triggerEditorCmd("find"));
         break;
       case "바꾸기":
+        dispatch(setActiveActivity("editor"));
         dispatch(triggerEditorCmd("replace"));
         break;
 
+      // ----------------- 👁️ 3. 보기 메뉴 -----------------
+      case "탐색기":
+        dispatch(setActiveActivity("editor"));
+        break;
+      case "검색":
+        dispatch(setActiveActivity("editor"));
+        dispatch(triggerEditorCmd("find"));
+        break;
+      case "소스 제어":
+        dispatch(setActiveActivity("git")); 
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(writeToTerminal("[System] 🔄 좌측의 Git 대시보드를 열었습니다.\n"));
+        break;
+      case "실행 및 디버그":
+        dispatch(setActiveActivity("editor"));
+        dispatch(setDebugMode(true));
+        break;
+      case "확장":
+        alert("💡 Cloud Web IDE 에서는 Java, Python, JavaScript 컴파일러 및 자동완성 확장이 이미 클라우드에 내장되어 있습니다.");
+        break;
       case "출력":
         if (!isTerminalVisible) dispatch(toggleTerminal());
         dispatch(setActiveBottomTab("output"));
         break;
       case "디버그 콘솔":
+        dispatch(setDebugMode(true));
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(setActiveBottomTab("output"));
+        break;
       case "터미널":
-      case "새 터미널":
-      case "터미널 분할":
         if (!isTerminalVisible) dispatch(toggleTerminal());
         dispatch(setActiveBottomTab("terminal"));
-        dispatch(writeToTerminal(`[System] ${itemName} 세션을 엽니다.\n$ `));
         break;
-
       case "확대":
         dispatch(triggerEditorCmd("zoom_in"));
         break;
@@ -782,83 +928,61 @@ export default function MenuBar({ mode = "personal" }) {
         dispatch(triggerEditorCmd("zoom_out"));
         break;
 
+      // ----------------- 🚶 4. 이동 메뉴 -----------------
       case "정의로 이동":
         dispatch(triggerEditorCmd("go_to_definition"));
         break;
       case "참조로 이동":
-        if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal("[System] 참조로 이동 기능 준비 중입니다.\n"));
+        dispatch(triggerEditorCmd("go_to_references")); 
         break;
       case "줄로 이동...":
         dispatch(triggerEditorCmd("go_to_line"));
         break;
 
+      // ----------------- 🐛 5. 디버그 메뉴 -----------------
       case "디버깅 시작":
         await startDebugSession();
         break;
-
       case "디버깅 없이 실행":
         await handleQuickRun();
         break;
       case "디버깅 중지":
         handleQuickStop();
         break;
-
-      case "한 단계씩 코드 실행":
-        if (DebugSocket && typeof DebugSocket.stepOver === "function")
-          DebugSocket.stepOver();
-        break;
-      case "프로시저 단위 실행":
-        if (DebugSocket && typeof DebugSocket.stepInto === "function")
-          DebugSocket.stepInto();
-        break;
       case "중단점 설정/해제":
         dispatch(triggerEditorCmd("toggle_breakpoint"));
         break;
+      case "한 단계씩 코드 실행":
+        if (DebugSocket && typeof DebugSocket.stepOver === "function") DebugSocket.stepOver();
+        break;
+      case "프로시저 단위 실행":
+        if (DebugSocket && typeof DebugSocket.stepInto === "function") DebugSocket.stepInto();
+        break;
 
+      // ----------------- 🔨 6. 빌드 메뉴 -----------------
       case "프로젝트 빌드":
       case "다시 빌드":
-        if (!workspaceId || !activeProject)
-          return alert("빌드할 프로젝트를 탐색기에서 선택해주세요!");
+        if (!workspaceId || !activeProject) return alert("빌드할 프로젝트를 탐색기에서 먼저 선택해주세요!");
         if (!isTerminalVisible) dispatch(toggleTerminal());
         dispatch(setActiveBottomTab("output"));
-        dispatch(
-          writeToTerminal(
-            `\r\n[System] 🔨 ${activeProject} 프로젝트 빌드를 시작합니다...\r\n`,
-          ),
-        );
+        dispatch(writeToTerminal(`\r\n[System] 🔨 ${activeProject} 프로젝트 서버 빌드를 시작합니다...\r\n`));
         fetch(`${BASE_URL}/api/workspaces/build`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workspaceId,
-            projectName: activeProject,
-            branchName: activeBranch || "master",
-          }),
+          body: JSON.stringify({ workspaceId, projectName: activeProject, branchName: activeBranch || "master" }),
         })
           .then(async (res) => {
-            if (!res.ok)
-              throw new Error(
-                (await res.text()) || "서버에서 빌드 중 에러가 발생했습니다.",
-              );
+            if (!res.ok) throw new Error((await res.text()) || "서버 컴파일/빌드 에러");
             let defaultExtension =
-              getLanguageFromPath(activeFileId) === "JAVA"
-                ? ".jar"
-                : getLanguageFromPath(activeFileId) === "C" ||
-                  getLanguageFromPath(activeFileId) === "CPP"
-                  ? ".exe"
-                  : "";
+              getLanguageFromPath(activeFileId) === "JAVA" ? ".jar" : 
+              getLanguageFromPath(activeFileId) === "C" || getLanguageFromPath(activeFileId) === "CPP" ? ".exe" : "";
             let filename = `${activeProject}_build_result${defaultExtension}`;
             const disposition = res.headers.get("Content-Disposition");
             if (disposition && disposition.includes("filename=")) {
-              const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(
-                disposition,
-              );
+              const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
               if (matches != null && matches[1]) {
                 filename = matches[1].replace(/['"]/g, "");
-                try {
-                  filename = decodeURIComponent(filename);
-                } catch {}
+                try { filename = decodeURIComponent(filename); } catch {}
               }
             }
             return { blob: await res.blob(), filename };
@@ -871,24 +995,39 @@ export default function MenuBar({ mode = "personal" }) {
             document.body.appendChild(a);
             a.click();
             a.remove();
-            window.URL.revokeObjectURL(url);
-            dispatch(
-              writeToTerminal(
-                `[System] ✅ 빌드 성공! 파일(${filename})이 정상적으로 다운로드되었습니다.\r\n`,
-              ),
-            );
+            dispatch(writeToTerminal(`[System] ✅ 빌드 성공! 파일(${filename}) 다운로드 완료.\r\n`));
           })
-          .catch((err) =>
-            dispatch(
-              writeToTerminal(`[Error] ❌ 빌드 실패: ${err.message}\r\n`),
-            ),
-          );
+          .catch((err) => dispatch(writeToTerminal(`[Error] ❌ 빌드 실패: ${err.message}\r\n`)));
         break;
-
       case "빌드 취소":
         if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal("[System] 빌드를 취소했습니다.\n"));
+        dispatch(writeToTerminal("[System] 🛑 진행 중인 서버 빌드/컴파일 취소를 요청했습니다.\n"));
         break;
+
+      // ----------------- 💻 7. 터미널 메뉴 -----------------
+      case "새 터미널":
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(setActiveBottomTab("terminal"));
+        dispatch(writeToTerminal(`\r\n[System] 새로운 가상 터미널 세션을 엽니다.\r\n$ `));
+        break;
+      case "터미널 분할":
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(setActiveBottomTab("terminal"));
+        dispatch(writeToTerminal(`\r\n[System] 터미널 분할 기능은 곧 업데이트될 예정입니다.\r\n`));
+        break;
+
+      // ----------------- ℹ️ 8. 도움말 메뉴 -----------------
+      case "정보":
+        alert("💻 Cloud Web IDE v1.0.0\nReact 기반의 모던 웹 에디터입니다.\n제작 및 지원: Team IDE");
+        break;
+      case "문서":
+        window.open("https://github.com/TeamIDE", "_blank");
+        break;
+      case "키보드 단축키":
+        alert("📌 핵심 단축키 가이드\n\nCtrl+S : 현재 파일 저장\nCtrl+Shift+S : 모두 저장\nCtrl+` : 터미널 열기/닫기\nCtrl+F : 파일 내 코드 검색\nF5 : 디버깅 시작\nCtrl+Shift+E : 파일 탐색기 열기");
+        break;
+
+      // ----------------- 🗺️ 9. 코드맵 메뉴 -----------------
       case "전체 화면":
         dispatch(setCodeMapMode("full"));
         dispatch(openCodeMapTab());
@@ -897,6 +1036,39 @@ export default function MenuBar({ mode = "personal" }) {
         dispatch(setCodeMapMode("split"));
         dispatch(openCodeMapTab());
         break;
+
+      // ----------------- 🔀 10. Git 메뉴 -----------------
+      case "Commit & Merge":
+      case "Repository Settings":
+        dispatch(setActiveActivity("git"));
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(writeToTerminal(`[Git] 🔄 Git 대시보드를 엽니다.\n`));
+        break;
+      case "Pull from Remote":
+        if (!workspaceId || !activeProject) return alert("프로젝트를 먼저 선택해주세요.");
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(writeToTerminal(`[Git] ⬇️ 원격 저장소에서 ${activeBranch || "master"} 브랜치를 Pull 합니다...\n`));
+        try {
+          await pullFromRemoteApi(workspaceId, activeProject, activeBranch || "master");
+          dispatch(writeToTerminal(`[Git] ✅ Pull 성공! 최신 코드가 반영되었습니다.\n`));
+          const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
+          dispatch(setWorkspaceTree(treeData));
+        } catch(e) {
+          dispatch(writeToTerminal(`[Git] ❌ Pull 실패: ${e.message}\n`));
+        }
+        break;
+      case "Push to Remote":
+        if (!workspaceId || !activeProject) return alert("프로젝트를 먼저 선택해주세요.");
+        if (!isTerminalVisible) dispatch(toggleTerminal());
+        dispatch(writeToTerminal(`[Git] ⬆️ 원격 저장소로 ${activeBranch || "master"} 브랜치를 Push 합니다...\n`));
+        try {
+          await pushToRemoteApi(workspaceId, activeProject, activeBranch || "master");
+          dispatch(writeToTerminal(`[Git] ✅ Push 성공! 로컬 커밋이 원격 서버에 반영되었습니다.\n`));
+        } catch(e) {
+          dispatch(writeToTerminal(`[Git] ❌ Push 실패: ${e.message}\n`));
+        }
+        break;
+
       default:
         break;
     }
@@ -906,7 +1078,11 @@ export default function MenuBar({ mode = "personal" }) {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        handleMenuItemClick(null, "저장");
+        if (e.shiftKey) {
+            handleMenuItemClick(null, "모두 저장");
+        } else {
+            handleMenuItemClick(null, "저장");
+        }
       } else if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "~")) {
         e.preventDefault();
         handleMenuItemClick(null, "새 터미널");
@@ -936,7 +1112,7 @@ export default function MenuBar({ mode = "personal" }) {
         { label: "폴더 열기...", shortcut: "Ctrl+Shift+O" },
         { label: "저장", shortcut: "Ctrl+S" },
         { label: "다른 이름으로...", shortcut: "Ctrl+Shift+S" },
-        { label: "모두 저장", shortcut: "Ctrl+K S" },
+        { label: "모두 저장", shortcut: "Ctrl+Shift+S" },
         { label: "내보내기" },
         { label: "닫기", shortcut: "Ctrl+W" },
       ],
@@ -1013,7 +1189,12 @@ export default function MenuBar({ mode = "personal" }) {
     { name: "코드맵", items: [{ label: "전체 화면" }, { label: "분할 화면" }] },
     {
       name: "Git",
-      items: [{ label: "Commit & Merge" }, { label: "Repository Settings" }],
+      items: [
+        { label: "Commit & Merge", shortcut: "Ctrl+Shift+G" },
+        { label: "Pull from Remote", shortcut: "Ctrl+Shift+P" },
+        { label: "Push to Remote", shortcut: "Ctrl+Shift+U" },
+        { label: "Repository Settings" }
+      ],
     },
   ];
 
@@ -1028,6 +1209,10 @@ export default function MenuBar({ mode = "personal" }) {
 
   return (
     <>
+      {/* 💡 사용자가 메뉴를 클릭했을 때 로컬 파일/폴더를 가져오기 위한 숨겨진 인풋 */}
+      <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
+      <input type="file" ref={folderInputRef} webkitdirectory="true" directory="true" style={{ display: 'none' }} onChange={handleFolderUpload} />
+
       <div>
         {!isRelocationPage && (
           <div
@@ -1650,16 +1835,16 @@ export default function MenuBar({ mode = "personal" }) {
         onClick={() => setIsVoiceChatModalOpen(false)}
       >
         <div
-          className={`bg-[#2B2D31] rounded-2xl shadow-[0_0_40px_rgba(0,0,0,0.5)] w-[600px] overflow-hidden flex flex-col transition-transform duration-300 ${
+          className={`bg-[#2B2D31] rounded-2xl shadow-[0_0_40px_rgba(0,0,0,0.5)] w-[680px] overflow-hidden flex flex-col transition-transform duration-300 ${
             isVoiceChatModalOpen ? "scale-100" : "scale-95"
           }`}
           onClick={(e) => e.stopPropagation()}
         >
-          <VoiceChatRoom
+          {mode === "team" && <VoiceChatRoom
             myUserId={user?.id}
             teamMembers={teamMembers}
             onClose={() => setIsVoiceChatModalOpen(false)}
-          />
+          />}
         </div>
       </div>
     </>
