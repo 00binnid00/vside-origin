@@ -8,6 +8,9 @@ const initialState = {
   isProjectModalVisible: false,
   isCommandPaletteVisible: false,
 
+  // 💡 [추가됨] 오른쪽 패널 (팀채팅 & AI) 접힘 상태 관리
+  isRightPanelVisible: true,
+
   codeMapMode: null,
 
   activeBottomTab: "terminal",
@@ -29,10 +32,8 @@ const initialState = {
   agentMessages: [],
   selectedText: "",
 
-  // 💡 [NEW] 보이스챗 백그라운드 연결 상태 추가
   isVoiceConnected: false,
 
-  // 💡 [NEW] 웹 미리보기 상태 추가
   isPreviewVisible: false,
   previewUrl: "",
 };
@@ -43,6 +44,10 @@ export const uiSlice = createSlice({
   reducers: {
     toggleSidebar: (state) => {
       state.isSidebarVisible = !state.isSidebarVisible;
+    },
+    // 💡 [추가됨] 우측 패널 토글 리듀서
+    toggleRightPanel: (state) => {
+      state.isRightPanelVisible = !state.isRightPanelVisible;
     },
     toggleTerminal: (state) => {
       state.isTerminalVisible = !state.isTerminalVisible;
@@ -150,7 +155,6 @@ export const uiSlice = createSlice({
       state.isVoiceConnected = action.payload;
     },
 
-    // 💡 [NEW] 미리보기 URL 및 표시 여부 설정
     setIsPreviewVisible: (state, action) => {
       state.isPreviewVisible = action.payload;
     },
@@ -162,6 +166,7 @@ export const uiSlice = createSlice({
 
 export const {
   toggleSidebar,
+  toggleRightPanel, // 💡 export 추가
   toggleTerminal,
   toggleAgent,
   toggleAbout,
@@ -189,7 +194,6 @@ export const {
   clearAgentMessages,
   setSelectedText,
   setVoiceConnected,
-  // 💡 [NEW] export 추가
   setIsPreviewVisible,
   setPreviewUrl,
 } = uiSlice.actions;

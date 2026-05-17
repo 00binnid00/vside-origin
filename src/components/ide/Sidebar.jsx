@@ -8,6 +8,7 @@ import {
   VscEdit,
   VscChevronDown,
   VscChevronRight,
+  VscChevronLeft, // 💡 탐색기 닫기 아이콘 추가
   VscFile,
   VscFolder,
   VscNewFile,
@@ -17,7 +18,6 @@ import {
   VscRocket,
   VscSparkle,
   VscTrash,
-  VscWand,
   VscSymbolClass,
   VscSymbolMisc,
 } from "react-icons/vsc";
@@ -37,14 +37,15 @@ import {
   setWorkspaceTree,
   mergeProjectFiles,
   clearVirtualTree,
+  collapseAllFolders,
 } from "@/store/slices/fileSystemSlice";
 import {
   startCreation,
   endCreation,
   writeToTerminal,
+  toggleSidebar, // 💡 탐색기 닫기 액션 추가
 } from "@/store/slices/uiSlice";
 
-// 💡 [추가] saveFileApi를 import 목록에 추가했습니다!
 import {
   createFileApi,
   fetchProjectFilesApi,
@@ -88,11 +89,13 @@ const FileTreeItem = ({
   handleInputKeyDown,
   confirmInput,
 }) => {
-  const { activeFileId, activeProject } = useSelector(
+  const { activeFileId, activeProject, expandedFolders } = useSelector(
     (state) => state.fileSystem,
   );
-  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const isExpanded = expandedFolders.includes(node.id || node.realPath);
   const inlineInputRef = useRef(null);
+  const dispatch = useDispatch();
 
   const currentProjectName = node.type === "project" ? node.name : projectName;
   const nodeType = (node.type || "file").toLowerCase();
@@ -106,9 +109,11 @@ const FileTreeItem = ({
   useEffect(() => {
     if (isCreatingHere && inlineInputRef.current) {
       inlineInputRef.current.focus();
-      if (!isExpanded && (isFolder || isProject)) setIsExpanded(true);
+      if (!isExpanded && (isFolder || isProject)) {
+        dispatch({ type: "fileSystem/toggleFolder", payload: node.id || node.realPath });
+      }
     }
-  }, [isCreatingHere]);
+  }, [isCreatingHere, isExpanded, isFolder, isProject, node.id, node.realPath, dispatch]);
 
   const getIcon = () => {
     if (isProject) return <VscRepo className="text-blue-600" />;
@@ -123,9 +128,9 @@ const FileTreeItem = ({
       if (!isExpanded && (!node.children || node.children.length === 0)) {
         await onExpandProject(node.name);
       }
-      setIsExpanded(!isExpanded);
+      dispatch({ type: "fileSystem/toggleFolder", payload: node.id || node.realPath });
     } else if (isFolder) {
-      setIsExpanded(!isExpanded);
+      dispatch({ type: "fileSystem/toggleFolder", payload: node.id || node.realPath });
     } else {
       onFileClick(node, currentProjectName);
     }
@@ -135,15 +140,15 @@ const FileTreeItem = ({
   const isStartupProject = isProject && activeProject === node.name;
 
   return (
-    <div className="select-none font-sans">
+    <div className="select-none font-sans mt-[1px]">
       <div
-        className={`flex items-center justify-between py-[4px] px-3 cursor-pointer text-[13px] border-l-2 transition-colors
+        className={`flex items-center justify-between py-1.5 px-3 cursor-pointer text-[13px] transition-all duration-200 border-l-[3px] 
           ${
             isSelected
-              ? "bg-blue-100 text-blue-800 border-blue-500 font-medium"
-              : "border-transparent text-gray-700 hover:bg-gray-200"
+              ? "bg-blue-50 text-blue-700 border-blue-500 font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.02)]"
+              : "border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 font-medium"
           }
-          ${isStartupProject ? "bg-blue-50/50" : ""}
+          ${isStartupProject && !isSelected ? "bg-slate-50 border-slate-200" : ""}
         `}
         style={{ paddingLeft: `${depth * 12 + 10}px` }}
         onClick={handleClick}
@@ -160,10 +165,10 @@ const FileTreeItem = ({
             {isFile && <span className="w-[14px] inline-block" />}
           </span>
 
-          <span className="mr-1.5 shrink-0">{getIcon()}</span>
+          <span className="mr-2 shrink-0">{getIcon()}</span>
 
           <span
-            className={`truncate ${
+            className={`truncate tracking-wide ${
               node.name.startsWith(".") ? "opacity-50" : ""
             } ${isStartupProject ? "font-bold text-blue-700" : ""}`}
           >
@@ -178,7 +183,7 @@ const FileTreeItem = ({
         </div>
 
         {isStartupProject && (
-          <span className="shrink-0 ml-2 text-[9px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200">
+          <span className="shrink-0 ml-2 text-[9px] font-black text-blue-500 bg-blue-100/50 px-1.5 py-0.5 rounded border border-blue-100">
             시작 프로젝트
           </span>
         )}
@@ -188,7 +193,7 @@ const FileTreeItem = ({
         <div className="py-1 pr-4" style={{ paddingLeft: `${(depth + 1) * 12 + 28}px` }}>
           <input
             ref={inlineInputRef}
-            className="bg-white text-gray-800 border border-blue-400 focus:border-blue-600 outline-none w-full h-7 px-2 text-xs rounded shadow-sm transition-colors"
+            className="bg-white text-gray-800 border-2 border-blue-400 focus:border-blue-600 outline-none w-full h-8 px-2 text-xs font-bold rounded shadow-sm transition-colors"
             onKeyDown={(e) => handleInputKeyDown(e, pendingCreation.parentId)}
             onBlur={(e) => confirmInput(e.target.value.trim(), pendingCreation.parentId)}
             placeholder={
@@ -372,7 +377,6 @@ export default function Sidebar() {
         path = parentId + "/" + finalName;
       }
 
-      // 1. 빈 파일 생성
       await createFileApi(
         workspaceId,
         activeProject,
@@ -389,15 +393,11 @@ export default function Sidebar() {
         handleExpandProject(activeProject);
       }
 
-      // 2. 파일 열기 및 뼈대 코드 자동 저장 처리
       if (apiType === "file") {
         dispatch(openFile({ id: path, name: finalName, type: "file" }));
         
         if (skeletonCode) {
-          // 프론트엔드 에디터 화면에 즉시 주입
           dispatch(updateFileContent({ filePath: path, content: skeletonCode }));
-          
-          // 💡 [핵심] 백엔드에도 즉시 자동 저장 요청!
           try {
             await saveFileApi(workspaceId, activeProject, activeBranch, path, skeletonCode);
             dispatch(writeToTerminal(`[System] ${finalName} 템플릿 생성 및 자동 저장 완료!\n`));
@@ -501,64 +501,70 @@ export default function Sidebar() {
     : tree?.children || [];
 
   return (
-    <div className="h-full w-full bg-[#f8f9fa] flex flex-col font-sans shadow-[inset_-1px_0_0_rgba(0,0,0,0.05)]">
-      <div className="flex items-center justify-between px-4 h-9 border-b border-gray-200 shrink-0 bg-white">
-        <span className="text-[11px] font-extrabold text-gray-700 uppercase tracking-wider">
+    <div className="h-full w-full bg-white flex flex-col font-sans">
+      
+      <div className="flex items-center justify-between px-4 h-[44px] border-b border-gray-100 shrink-0 bg-white">
+        <span className="text-[12px] font-black text-gray-800 tracking-wider">
           탐색기
         </span>
 
-        <div className="flex items-center gap-2 text-gray-500">
+        <div className="flex items-center gap-1 text-gray-500">
           {!isVirtualMode && (
             <>
-              <VscRefresh
-                className="cursor-pointer hover:text-black transition-colors"
-                onClick={refreshWorkspace}
+              <button 
+                className="p-1.5 hover:bg-gray-100 rounded-md transition-all text-gray-400 hover:text-blue-600" 
+                onClick={refreshWorkspace} 
                 title="새로고침"
-              />
-              <VscNewFile
-                className="cursor-pointer hover:text-black transition-colors"
+              >
+                <VscRefresh size={15} />
+              </button>
+              <button 
+                className="p-1.5 hover:bg-gray-100 rounded-md transition-all text-gray-400 hover:text-blue-600" 
                 onClick={(e) => {
                   e.stopPropagation();
-                  dispatch(
-                    startCreation({
-                      type: "file",
-                      parentId: activeProject ? "" : "root-folder",
-                    }),
-                  );
-                }}
+                  dispatch(startCreation({ type: "file", parentId: activeProject ? "" : "root-folder" }));
+                }} 
                 title="새 파일"
-              />
-              <VscNewFolder
-                className="cursor-pointer hover:text-black transition-colors"
+              >
+                <VscNewFile size={15} />
+              </button>
+              <button 
+                className="p-1.5 hover:bg-gray-100 rounded-md transition-all text-gray-400 hover:text-blue-600" 
                 onClick={(e) => {
                   e.stopPropagation();
-                  dispatch(
-                    startCreation({
-                      type: "folder",
-                      parentId: activeProject ? "" : "root-folder",
-                    }),
-                  );
-                }}
+                  dispatch(startCreation({ type: "folder", parentId: activeProject ? "" : "root-folder" }));
+                }} 
                 title="새 폴더"
-              />
-              <div className="w-[1px] h-3 bg-gray-300 mx-0.5"></div>
-              <VscWand
-                className="cursor-pointer text-indigo-500 hover:text-indigo-700 transition-colors"
-                onClick={() => router.push("/rearrange")}
-                title="재배치 매니저로 뷰 켜기"
-              />
+              >
+                <VscNewFolder size={15} />
+              </button>
+              
+              <div className="w-[1px] h-3 bg-gray-200 mx-1"></div>
             </>
           )}
 
-          <VscCollapseAll
-            className="cursor-pointer hover:text-black transition-colors"
-            title="모두 접기"
-          />
+          {/* 💡 모두 접기 버튼 활성화 */}
+          <button 
+            onClick={() => dispatch(collapseAllFolders())}
+            className="p-1.5 hover:bg-gray-100 rounded-md transition-all text-gray-400 hover:text-gray-800" 
+            title="폴더 모두 접기"
+          >
+            <VscCollapseAll size={15} />
+          </button>
+
+          {/* 💡 [NEW] 탐색기 닫기 버튼을 헤더 안으로 이동 */}
+          <button 
+            onClick={() => dispatch(toggleSidebar())}
+            className="p-1.5 hover:bg-gray-100 rounded-md transition-all text-gray-400 hover:text-gray-800 ml-0.5" 
+            title="탐색기 닫기"
+          >
+            <VscChevronLeft size={16} />
+          </button>
         </div>
       </div>
 
       {isVirtualMode && (
-        <div className="flex flex-col px-4 py-2 bg-indigo-50 border-b border-indigo-100 shrink-0 gap-1.5">
+        <div className="flex flex-col px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 shrink-0 gap-2 shadow-inner">
           <div className="flex items-center justify-between">
             <span className="text-[12px] font-extrabold text-indigo-700 flex items-center gap-1.5">
               <VscSparkle size={14} className="animate-pulse" />
@@ -566,22 +572,18 @@ export default function Sidebar() {
             </span>
             <button
               onClick={handleDeactivateVirtualView}
-              className="text-[10px] font-bold bg-white text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
+              className="text-[10px] font-bold bg-white text-indigo-600 border border-indigo-200 px-2.5 py-1 rounded-md hover:bg-indigo-600 hover:text-white transition-all shadow-sm active:scale-95"
             >
               원본 복구
             </button>
           </div>
-
-          <span
-            className="text-[10px] text-indigo-400 font-bold truncate"
-            title={virtualTree.name}
-          >
+          <span className="text-[11px] text-indigo-500 font-bold truncate" title={virtualTree.name}>
             적용된 뷰: {virtualTree.name}
           </span>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto py-2 custom-scrollbar bg-[#fafafa]">
         {displayTreeChildren.length > 0 ? (
           displayTreeChildren.map((node, idx) => (
             <FileTreeItem
@@ -598,7 +600,7 @@ export default function Sidebar() {
             />
           ))
         ) : (
-          <div className="p-4 text-xs text-gray-400 text-center mt-4 border border-dashed border-gray-300 mx-4 rounded-xl">
+          <div className="p-4 text-xs font-bold text-gray-400 text-center mt-4 border-2 border-dashed border-gray-200 bg-white mx-4 rounded-xl">
             {isVirtualMode
               ? "가상 뷰에 파일이 없습니다."
               : "프로젝트가 없습니다. 상단에서 생성해주세요."}
@@ -606,11 +608,11 @@ export default function Sidebar() {
         )}
 
         {pendingCreation && pendingCreation.parentId === "root-folder" && (
-          <div className="pl-6 pr-4 py-1.5 mt-1">
+          <div className="pl-6 pr-4 py-1.5 mt-2">
             <input
               ref={inputRef}
               autoFocus
-              className="bg-white text-gray-800 border border-blue-400 focus:border-blue-600 outline-none w-full h-7 px-2 text-xs rounded shadow-sm transition-colors"
+              className="bg-white text-gray-800 border-2 border-blue-400 focus:border-blue-600 outline-none w-full h-8 px-2 text-xs font-bold rounded shadow-sm transition-colors"
               onKeyDown={(e) => handleInputKeyDown(e, pendingCreation.parentId)}
               onBlur={(e) =>
                 confirmInput(e.target.value.trim(), pendingCreation.parentId)
@@ -623,67 +625,67 @@ export default function Sidebar() {
 
       {contextMenu && !isVirtualMode && (
         <div
-          className="fixed bg-white border border-gray-200 shadow-[0_4px_12px_rgba(0,0,0,0.1)] rounded-md py-1.5 w-56 z-[9999]"
+          className="fixed bg-white border border-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.15)] rounded-xl py-2 w-56 z-[9999]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           {contextMenu.isJavaEnv ? (
             <>
               <div
-                className="px-4 py-1.5 hover:bg-gray-100 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 transition-colors"
+                className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
                 onClick={() => handleContextMenuNew("java")}
               >
-                <VscSymbolClass size={14} className="text-orange-500" /> Java 클래스 (Class)
+                <VscSymbolClass size={16} className="text-orange-500" /> Java 클래스 (Class)
               </div>
               <div
-                className="px-4 py-1.5 hover:bg-gray-100 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 transition-colors"
+                className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
                 onClick={() => handleContextMenuNew("package")}
               >
-                <VscSymbolMisc size={14} className="text-yellow-600" /> 패키지 (Package)
+                <VscSymbolMisc size={16} className="text-yellow-600" /> 패키지 (Package)
               </div>
             </>
           ) : (
             <>
               <div
-                className="px-4 py-1.5 hover:bg-gray-100 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 transition-colors"
+                className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
                 onClick={() => handleContextMenuNew("file")}
               >
-                <VscNewFile size={14} className="text-gray-500" /> 새 파일 (New File)
+                <VscNewFile size={16} className="text-gray-500" /> 새 파일 (New File)
               </div>
               <div
-                className="px-4 py-1.5 hover:bg-gray-100 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 transition-colors"
+                className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
                 onClick={() => handleContextMenuNew("folder")}
               >
-                <VscNewFolder size={14} className="text-gray-500" /> 새 폴더 (New Folder)
+                <VscNewFolder size={16} className="text-gray-500" /> 새 폴더 (New Folder)
               </div>
             </>
           )}
 
-          <div className="h-[1px] bg-gray-100 my-1 mx-2" />
+          <div className="h-[1px] bg-gray-100 my-1.5 mx-3" />
 
           {contextMenu.isRoot && (
             <>
               <div
-                className="px-4 py-1.5 hover:bg-blue-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
+                className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-[13px] flex items-center gap-2 text-blue-700 font-black transition-colors"
                 onClick={handleSetStartup}
               >
-                <VscRocket size={14} className="text-blue-600" /> 시작 프로젝트로 설정
+                <VscRocket size={16} className="text-blue-500" /> 시작 프로젝트로 설정
               </div>
-              <div className="h-[1px] bg-gray-100 my-1 mx-2" />
+              <div className="h-[1px] bg-gray-100 my-1.5 mx-3" />
             </>
           )}
 
           <div
-            className="px-4 py-1.5 hover:bg-gray-100 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 transition-colors"
+            className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] flex items-center gap-2 text-gray-700 font-bold transition-colors"
             onClick={startRename}
           >
-            <VscEdit size={14} className="text-gray-500" /> Rename
+            <VscEdit size={16} className="text-gray-500" /> 이름 변경
           </div>
 
           <div
-            className="px-4 py-1.5 hover:bg-red-50 cursor-pointer text-[13px] flex items-center gap-2 text-red-600 transition-colors"
+            className="px-4 py-2 hover:bg-red-50 cursor-pointer text-[13px] flex items-center gap-2 text-red-600 font-bold transition-colors"
             onClick={handleDelete}
           >
-            <VscTrash size={14} /> Delete
+            <VscTrash size={16} /> 삭제하기
           </div>
         </div>
       )}

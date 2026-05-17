@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useParams } from "next/navigation";
+import { VscChevronLeft, VscChevronRight } from "react-icons/vsc";
 
 import MenuBar from "@/components/ide/MenuBar";
 import ActivityBar from "@/components/ide/ActivityBar";
@@ -33,6 +34,7 @@ import {
   closeAllFiles,
 } from "@/store/slices/fileSystemSlice";
 import MyPageShell from "../mypage/MyPageShell";
+import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
 export default function IdeMain() {
   const params = useParams();
@@ -44,6 +46,7 @@ export default function IdeMain() {
     activeActivity,
     isTerminalVisible,
     isSidebarVisible,
+    isRightPanelVisible, 
     isAgentVisible,
     isDebugMode,
   } = useSelector((state) => state.ui);
@@ -150,14 +153,34 @@ export default function IdeMain() {
       case "editor":
       default:
         return (
-          <div className="flex-1 flex overflow-hidden">
-            {isSidebarVisible && (
-              <div className="w-[260px] shrink-0 border-r border-gray-200 flex flex-col bg-[#f8f9fa]">
+          // 💡 화사한 배경색 (Light Theme)
+          <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2">
+            
+            {/* 왼쪽 탐색기 패널 */}
+            <div
+              className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col shrink-0 border-gray-200
+              ${isSidebarVisible ? "w-[260px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+            >
+              <div className="w-[260px] h-full flex flex-col shrink-0">
                 <Sidebar />
+              </div>
+            </div>
+
+            {/* 💡 탐색기 닫혀있을 때만 띄우는 열기 화살표 버튼 */}
+            {!isSidebarVisible && (
+              <div className="relative flex items-center justify-center -ml-4 z-10 w-0">
+                <button
+                  onClick={() => dispatch(toggleSidebar())}
+                  className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center shadow-md text-gray-500 hover:text-blue-600 hover:scale-110 transition-all z-20"
+                  title="탐색기 열기"
+                >
+                  <VscChevronRight size={14} />
+                </button>
               </div>
             )}
 
-            <div className="flex-1 flex flex-col min-w-0 bg-white">
+            {/* 중앙 에디터 영역 */}
+            <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 z-0 relative">
               <FileTabs />
               <div className="flex-1 flex relative overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 relative">
@@ -173,9 +196,44 @@ export default function IdeMain() {
               )}
             </div>
 
+            {/* 💡 오른쪽 패널이 닫혀있을 때만 띄우는 AI 어시스트 열기 플로팅 버튼 */}
+            {(isAgentVisible || isDebugMode) && !isRightPanelVisible && (
+              <div className="relative flex items-center justify-center -mr-4 z-10 w-0">
+                <button
+                  onClick={() => dispatch(toggleRightPanel())}
+                  className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center shadow-md text-gray-500 hover:text-blue-600 hover:scale-110 transition-all z-20"
+                  title="AI 어시스트 열기"
+                >
+                  <VscChevronLeft size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* 오른쪽 AI 패널 */}
             {(isAgentVisible || isDebugMode) && (
-              <div className="w-[320px] shrink-0 border-l border-gray-200 flex flex-col bg-[#f8f9fa] z-[600]">
-                {isDebugMode ? <DebugPanel /> : <AgentPanel />}
+              <div
+                className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col z-[600] shrink-0 border-gray-200
+                ${isRightPanelVisible ? "w-[320px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+              >
+                <div className="w-[320px] h-full flex flex-col shrink-0">
+                  <div className="flex items-center justify-between h-11 border-b border-gray-200 shrink-0 px-2 pt-1 bg-[#f8f9fa]">
+                    <div className="flex-1 h-full flex items-center justify-center text-[13px] font-bold border-t-2 border-t-blue-500 bg-white text-blue-600 shadow-sm rounded-t-lg select-none cursor-default">
+                      {isDebugMode ? "디버깅 모드" : "AI 어시스트"}
+                    </div>
+                    {/* 💡 오른쪽 닫기 버튼 */}
+                    <button
+                      onClick={() => dispatch(toggleRightPanel())}
+                      className="mb-1 ml-2 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-all"
+                      title="AI 어시스트 닫기"
+                    >
+                      <VscChevronRight size={18} />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-hidden relative bg-white">
+                    {isDebugMode ? <DebugPanel /> : <AgentPanel />}
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -103,6 +103,11 @@ const fileSystemSlice = createSlice({
       }
     },
 
+    // 💡 [추가됨] 탐색기의 열려있는 모든 폴더를 접습니다.
+    collapseAllFolders: (state) => {
+      state.expandedFolders = [];
+    },
+
     setActiveFile: (state, action) => {
       const fileId = action.payload;
       state.activeFileId = fileId;
@@ -199,6 +204,7 @@ export const {
   closeAllFiles,
   updateFileContent,
   toggleFolder,
+  collapseAllFolders, // 💡 export 추가
   mergeProjectFiles,
   openFile,
   setActiveGitView,

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useParams } from "next/navigation";
-import { VscSend } from "react-icons/vsc";
+import { VscSend, VscChevronLeft, VscChevronRight } from "react-icons/vsc";
 
 import MenuBar from "@/components/ide/MenuBar";
 import ActivityBar from "@/components/ide/ActivityBar";
@@ -36,6 +36,7 @@ import {
   setProjectList,
   closeAllFiles,
 } from "@/store/slices/fileSystemSlice";
+import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
 const MyPagePanel = () => (
   <div className="flex-1 flex items-center justify-center text-gray-500 font-bold">
@@ -284,6 +285,7 @@ export default function TeamIdeMain() {
     isSidebarVisible,
     isAgentVisible,
     isDebugMode,
+    isRightPanelVisible, 
   } = useSelector((state) => state.ui);
 
   const { workspaceId, activeBranch } = useSelector(
@@ -323,20 +325,35 @@ export default function TeamIdeMain() {
       case "editor":
       default:
         return (
-          <div className="flex-1 flex overflow-hidden">
-            {isSidebarVisible && (
-              <div
-                className={`w-[260px] shrink-0 border-r flex flex-col transition-colors duration-700 ${
-                  isSandboxMode
-                    ? "bg-slate-900 border-indigo-900/50"
-                    : "bg-[#f8f9fa] border-gray-200"
-                }`}
-              >
+          // 💡 전체 배경을 부드럽고 화사한 라이트 그레이 톤으로 변경
+          <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2">
+            
+            {/* 왼쪽 탐색기 패널 */}
+            <div
+              className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden flex flex-col shrink-0
+              ${isSandboxMode ? "bg-slate-900 border border-indigo-900/50" : "bg-white border border-gray-200"}
+              ${isSidebarVisible ? "w-[260px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+            >
+              <div className="w-[260px] h-full flex flex-col shrink-0">
                 <Sidebar />
+              </div>
+            </div>
+
+            {/* 💡 탐색기가 닫혀 있을 때만 띄우는 열기 화살표 버튼 */}
+            {!isSidebarVisible && (
+              <div className="relative flex items-center justify-center -ml-4 z-10 w-0">
+                <button
+                  onClick={() => dispatch(toggleSidebar())}
+                  className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center shadow-md text-gray-500 hover:text-blue-600 hover:scale-110 transition-all z-20"
+                  title="탐색기 열기"
+                >
+                  <VscChevronRight size={14} />
+                </button>
               </div>
             )}
 
-            <div className="flex-1 flex flex-col min-w-0 bg-white">
+            {/* 중앙 에디터 영역 (모서리 둥글게, 카드형 UI) */}
+            <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 z-0 relative">
               <FileTabs />
               <div className="flex-1 flex relative overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 relative">
@@ -351,69 +368,88 @@ export default function TeamIdeMain() {
               )}
             </div>
 
+            {/* 💡 우측 패널이 닫혀 있을 때만 띄우는 열기 화살표 버튼 */}
+            {(isAgentVisible || isDebugMode) && !isRightPanelVisible && (
+              <div className="relative flex items-center justify-center -mr-4 z-10 w-0">
+                <button
+                  onClick={() => dispatch(toggleRightPanel())}
+                  className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center shadow-md text-gray-500 hover:text-blue-600 hover:scale-110 transition-all z-20"
+                  title="AI/채팅창 열기"
+                >
+                  <VscChevronLeft size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* 오른쪽 AI/채팅 패널 */}
             {(isAgentVisible || isDebugMode) && (
               <div
-                className={`w-[320px] shrink-0 border-l flex flex-col z-[600] transition-colors duration-700 ${
-                  isSandboxMode
-                    ? "bg-slate-900 border-indigo-900/50"
-                    : "bg-[#f8f9fa] border-gray-200"
-                }`}
+                className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden flex flex-col z-[600] shrink-0
+                ${isSandboxMode ? "bg-slate-900 border border-indigo-900/50" : "bg-white border border-gray-200"}
+                ${isRightPanelVisible ? "w-[320px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
               >
-                {isDebugMode ? (
-                  <DebugPanel />
-                ) : (
-                  <div className="flex flex-col h-full">
-                    <div
-                      className={`flex items-center h-10 border-b shrink-0 transition-colors duration-700 ${
-                        isSandboxMode
-                          ? "bg-slate-900 border-indigo-900/50"
-                          : "bg-[#f8f9fa] border-gray-200"
-                      }`}
-                    >
-                      <button
-                        onClick={() => setRightTab("ai")}
-                        className={`flex-1 h-full text-[12px] font-bold transition-colors ${
-                          rightTab === "ai"
-                            ? isSandboxMode
-                              ? "text-indigo-400 bg-white border-t-2 border-t-indigo-500"
-                              : "text-blue-600 bg-white border-t-2 border-t-blue-600"
-                            : "text-gray-500 hover:bg-gray-100"
+                <div className="w-[320px] h-full flex flex-col shrink-0 bg-white">
+                  {isDebugMode ? (
+                    <DebugPanel />
+                  ) : (
+                    <div className="flex flex-col h-full">
+                      {/* 상단 탭 + 우측 닫기 버튼 */}
+                      <div
+                        className={`flex items-center justify-between h-11 border-b shrink-0 transition-colors duration-700 px-2 pt-1 ${
+                          isSandboxMode ? "bg-slate-900 border-indigo-900/50" : "bg-[#f8f9fa] border-gray-200"
                         }`}
                       >
-                        AI 어시스트
-                      </button>
-                      <button
-                        onClick={() => setRightTab("chat")}
-                        className={`flex-1 h-full text-[12px] font-bold transition-colors ${
-                          rightTab === "chat"
-                            ? isSandboxMode
-                              ? "text-indigo-400 bg-white border-t-2 border-t-indigo-500"
-                              : "text-green-600 bg-white border-t-2 border-t-green-600"
-                            : "text-gray-500 hover:bg-gray-100"
-                        }`}
-                      >
-                        팀 채팅
-                      </button>
-                    </div>
+                        <div className="flex h-full flex-1">
+                          <button
+                            onClick={() => setRightTab("ai")}
+                            className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
+                              rightTab === "ai"
+                                ? isSandboxMode ? "text-indigo-400 bg-white shadow-sm" : "text-blue-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                : "text-gray-500 hover:bg-gray-100"
+                            }`}
+                          >
+                            AI 어시스트
+                          </button>
+                          <button
+                            onClick={() => setRightTab("chat")}
+                            className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
+                              rightTab === "chat"
+                                ? isSandboxMode ? "text-indigo-400 bg-white shadow-sm" : "text-green-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                : "text-gray-500 hover:bg-gray-100"
+                            }`}
+                          >
+                            팀 채팅
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => dispatch(toggleRightPanel())}
+                          className="mb-1 ml-2 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-all"
+                          title="패널 닫기"
+                        >
+                          <VscChevronRight size={18} />
+                        </button>
+                      </div>
 
-                    <div className="flex-1 overflow-hidden relative bg-white">
-                      <div
-                        className={`absolute inset-0 ${
-                          rightTab === "ai" ? "block" : "hidden"
-                        }`}
-                      >
-                        <AgentPanel />
-                      </div>
-                      <div
-                        className={`absolute inset-0 ${
-                          rightTab === "chat" ? "block" : "hidden"
-                        }`}
-                      >
-                        <CollaborationPanel workspaceId={workspaceId} />
+                      {/* 패널 내용 */}
+                      <div className="flex-1 overflow-hidden relative bg-white">
+                        <div
+                          className={`absolute inset-0 ${
+                            rightTab === "ai" ? "block" : "hidden"
+                          }`}
+                        >
+                          <AgentPanel />
+                        </div>
+                        <div
+                          className={`absolute inset-0 ${
+                            rightTab === "chat" ? "block" : "hidden"
+                          }`}
+                        >
+                          <CollaborationPanel workspaceId={workspaceId} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>
