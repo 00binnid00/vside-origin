@@ -2,24 +2,21 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle,
   CalendarDays,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   FilePenLine,
-  LayoutGrid,
+  FolderOpen,
   ListTodo,
   Loader2,
   Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   RefreshCw,
   Search,
+  UserRound,
+  UsersRound,
   X,
 } from "lucide-react";
 
@@ -47,6 +44,9 @@ import {
 import { getMyWorkspacesByTokenApi } from "@/lib/ide/api";
 
 type ScheduleViewMode = "calendar" | "month" | "board" | "list";
+type WorkspaceMode = "personal" | "team";
+type ProjectFilter = "all" | WorkspaceMode;
+type SidebarPanelMode = "projects" | "today" | "devlog";
 
 type ProjectScheduleItem = ScheduleItem & {
   workspaceId: string;
@@ -73,6 +73,21 @@ type WorkspaceLike = {
   name?: string;
   title?: string;
   projectName?: string;
+  mode?: WorkspaceMode;
+  type?: WorkspaceMode;
+  role?: string;
+  childCount?: number;
+  subProjectCount?: number;
+  childrenCount?: number;
+  children?: unknown[];
+};
+
+type WorkspaceSidebarItem = {
+  id: string;
+  name: string;
+  mode: WorkspaceMode;
+  role?: string;
+  childCount: number;
 };
 
 function getTodayLocalDate() {
@@ -116,6 +131,25 @@ function extractWorkspaceList(value: unknown): WorkspaceLike[] {
   return [];
 }
 
+function mapWorkspaceFromApi(item: WorkspaceLike): WorkspaceSidebarItem | null {
+  const id = item.uuid || item.id || item.workspaceId;
+  if (!id) return null;
+
+  const mode = item.mode || item.type || "personal";
+
+  return {
+    id,
+    name: item.name || item.title || item.projectName || "이름 없는 프로젝트",
+    mode,
+    role: item.role,
+    childCount:
+      item.childCount ??
+      item.subProjectCount ??
+      item.childrenCount ??
+      (Array.isArray(item.children) ? item.children.length : 0),
+  };
+}
+
 function mapScheduleFromApi(item: ScheduleApiItem): ProjectScheduleItem {
   return {
     id: item.id,
@@ -128,7 +162,6 @@ function mapScheduleFromApi(item: ScheduleApiItem): ProjectScheduleItem {
     startDate: item.startDate,
     endDate: item.endDate,
     status: item.status,
-
     hasDevlog: item.hasDevlog,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -174,6 +207,8 @@ function getProjectName(schedule: ProjectScheduleItem | null) {
 }
 
 export default function ScheduleManagementPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const workspaceId = normalizeWorkspaceId(
@@ -183,10 +218,14 @@ export default function ScheduleManagementPage() {
   const today = useMemo(() => getTodayLocalDate(), []);
   const todayDate = useMemo(() => getDateKeyFromDate(today), [today]);
 
-  const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSidebarItem[]>([]);
   const [workspaceName, setWorkspaceName] = useState("프로젝트");
+
+  const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [workspaceErrorMessage, setWorkspaceErrorMessage] = useState("");
 
   const [viewMode, setViewMode] = useState<ScheduleViewMode>("calendar");
   const [query, setQuery] = useState("");
@@ -202,8 +241,10 @@ export default function ScheduleManagementPage() {
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
 
-  const [isSupportPinned, setIsSupportPinned] = useState(false);
-  const [isSupportHovering, setIsSupportHovering] = useState(false);
+  const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(true);
+  const [sidebarPanelMode, setSidebarPanelMode] =
+    useState<SidebarPanelMode>("projects");
+
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(true);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -217,32 +258,40 @@ export default function ScheduleManagementPage() {
     description: "",
   });
 
-  const loadWorkspaceName = async () => {
-    if (!workspaceId) {
-      setWorkspaceName("프로젝트");
-      return;
-    }
-
+  const loadWorkspaces = async () => {
     try {
+      setWorkspaceLoading(true);
+      setWorkspaceErrorMessage("");
+
       const response = await getMyWorkspacesByTokenApi();
-      const workspaces = extractWorkspaceList(response);
+      const mapped = extractWorkspaceList(response)
+        .map(mapWorkspaceFromApi)
+        .filter((item): item is WorkspaceSidebarItem => Boolean(item));
 
-      const matchedWorkspace = workspaces.find((workspace) => {
-        return (
-          workspace.uuid === workspaceId ||
-          workspace.id === workspaceId ||
-          workspace.workspaceId === workspaceId
-        );
-      });
+      setWorkspaces(mapped);
 
-      const name =
-        matchedWorkspace?.name ||
-        matchedWorkspace?.title ||
-        matchedWorkspace?.projectName;
+      const matchedWorkspace = mapped.find(
+        (workspace) => workspace.id === workspaceId,
+      );
 
-      setWorkspaceName(name?.trim() || "프로젝트");
+      if (matchedWorkspace) {
+        setWorkspaceName(matchedWorkspace.name);
+        return;
+      }
+
+      if (!workspaceId && mapped[0]) {
+        const params = new URLSearchParams(searchParams.toString());
+
+        params.set("workspaceId", mapped[0].id);
+        params.set("mode", mapped[0].mode);
+
+        setWorkspaceName(mapped[0].name);
+        router.replace(`${pathname}?${params.toString()}`);
+      }
     } catch {
-      setWorkspaceName("프로젝트");
+      setWorkspaceErrorMessage("프로젝트 목록을 불러오지 못했습니다.");
+    } finally {
+      setWorkspaceLoading(false);
     }
   };
 
@@ -250,7 +299,7 @@ export default function ScheduleManagementPage() {
     if (!workspaceId) {
       setLoading(false);
       setErrorMessage(
-        "workspaceId가 없습니다. 메인에서 프로젝트를 다시 선택해주세요.",
+        "workspaceId가 없습니다. 왼쪽 프로젝트 목록에서 프로젝트를 선택해주세요.",
       );
       return;
     }
@@ -263,6 +312,13 @@ export default function ScheduleManagementPage() {
       const mapped = data.map(mapScheduleFromApi);
 
       setSchedules(mapped);
+
+      const currentProjectName =
+        mapped[0]?.customProjectName || mapped[0]?.projectName;
+
+      if (currentProjectName) {
+        setWorkspaceName(currentProjectName);
+      }
 
       setSelectedScheduleId((prev) => {
         if (prev && mapped.some((item) => item.id === prev)) return prev;
@@ -280,12 +336,22 @@ export default function ScheduleManagementPage() {
   };
 
   useEffect(() => {
-    void loadWorkspaceName();
+    void loadWorkspaces();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const matchedWorkspace = workspaces.find(
+      (workspace) => workspace.id === workspaceId,
+    );
+
+    if (matchedWorkspace) {
+      setWorkspaceName(matchedWorkspace.name);
+    }
+
     void loadSchedules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
-
-  const isSupportPanelVisible = isSupportPinned || isSupportHovering;
 
   const filteredSchedules = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -339,6 +405,15 @@ export default function ScheduleManagementPage() {
   const weekDays = getWeekDays(baseWeekDate);
   const weekStart = weekDays[0];
   const weekEnd = weekDays[6];
+
+  const handleSelectWorkspace = (workspace: WorkspaceSidebarItem) => {
+    const params = new URLSearchParams(searchParams.toString());
+
+    params.set("workspaceId", workspace.id);
+    params.set("mode", workspace.mode);
+
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   const updateScheduleInState = (updated: ProjectScheduleItem) => {
     setSchedules((prev) =>
@@ -429,7 +504,9 @@ export default function ScheduleManagementPage() {
 
   const createSchedule = async () => {
     if (!workspaceId) {
-      alert("workspaceId가 없습니다. 메인에서 프로젝트를 다시 선택해주세요.");
+      alert(
+        "workspaceId가 없습니다. 왼쪽 프로젝트 목록에서 프로젝트를 선택해주세요.",
+      );
       return;
     }
 
@@ -514,34 +591,33 @@ export default function ScheduleManagementPage() {
       <div
         className={[
           "grid min-h-[calc(100vh-72px)] transition-all duration-300",
-          shouldShowDetailSidebar
-            ? "grid-cols-[56px_minmax(0,1fr)_340px]"
-            : "grid-cols-[56px_minmax(0,1fr)]",
+          isProjectSidebarOpen && shouldShowDetailSidebar
+            ? "grid-cols-[300px_minmax(0,1fr)_320px]"
+            : isProjectSidebarOpen
+              ? "grid-cols-[300px_minmax(0,1fr)]"
+              : shouldShowDetailSidebar
+                ? "grid-cols-[84px_minmax(0,1fr)_320px]"
+                : "grid-cols-[84px_minmax(0,1fr)]",
         ].join(" ")}
       >
-        <SupportRail
-          isPinned={isSupportPinned}
-          onMouseEnter={() => setIsSupportHovering(true)}
-          onMouseLeave={() => setIsSupportHovering(false)}
-          onTogglePin={() => setIsSupportPinned((prev) => !prev)}
+        <ScheduleProjectSidebar
+          isOpen={isProjectSidebarOpen}
+          panelMode={sidebarPanelMode}
+          workspaces={workspaces}
+          selectedWorkspaceId={workspaceId}
+          workspaceLoading={workspaceLoading}
+          workspaceErrorMessage={workspaceErrorMessage}
+          todayTodos={todayTodos}
+          noDevlogSchedules={noDevlogSchedules}
+          onToggleOpen={() => setIsProjectSidebarOpen((prev) => !prev)}
+          onChangePanelMode={(mode) => {
+            setSidebarPanelMode(mode);
+            setIsProjectSidebarOpen(true);
+          }}
+          onSelectWorkspace={handleSelectWorkspace}
+          onSelectSchedule={openScheduleDetail}
+          onMarkDevlogWritten={markDevlogWritten}
         />
-
-        {isSupportPanelVisible && (
-          <SupportFloatingPanel
-            todayTodos={todayTodos}
-            noDevlogSchedules={noDevlogSchedules}
-            isPinned={isSupportPinned}
-            onSelectSchedule={openScheduleDetail}
-            onMarkDevlogWritten={markDevlogWritten}
-            onMouseEnter={() => setIsSupportHovering(true)}
-            onMouseLeave={() => setIsSupportHovering(false)}
-            onClose={() => {
-              setIsSupportPinned(false);
-              setIsSupportHovering(false);
-            }}
-            onPin={() => setIsSupportPinned(true)}
-          />
-        )}
 
         {viewMode === "month" ? (
           <MonthlySchedulePageView
@@ -581,11 +657,8 @@ export default function ScheduleManagementPage() {
             todayDate={todayDate}
             loading={loading}
             errorMessage={errorMessage}
-            onReload={loadSchedules}
             onOpenMonth={() => setViewMode("month")}
             onCreateSchedule={openCreateModal}
-            onToggleDetail={() => setIsDetailSidebarOpen((prev) => !prev)}
-            hasSelectedSchedule={!!selectedSchedule}
             onMoveWeek={moveWeek}
             onGoToday={goToday}
             onSelectSchedule={openScheduleDetail}
@@ -614,6 +687,456 @@ export default function ScheduleManagementPage() {
           onSubmit={createSchedule}
         />
       )}
+    </div>
+  );
+}
+
+function ScheduleProjectSidebar({
+  isOpen,
+  panelMode,
+  workspaces,
+  selectedWorkspaceId,
+  workspaceLoading,
+  workspaceErrorMessage,
+  todayTodos,
+  noDevlogSchedules,
+  onToggleOpen,
+  onChangePanelMode,
+  onSelectWorkspace,
+  onSelectSchedule,
+  onMarkDevlogWritten,
+}: {
+  isOpen: boolean;
+  panelMode: SidebarPanelMode;
+  workspaces: WorkspaceSidebarItem[];
+  selectedWorkspaceId: string;
+  workspaceLoading: boolean;
+  workspaceErrorMessage: string;
+  todayTodos: ProjectScheduleItem[];
+  noDevlogSchedules: ProjectScheduleItem[];
+  onToggleOpen: () => void;
+  onChangePanelMode: (mode: SidebarPanelMode) => void;
+  onSelectWorkspace: (workspace: WorkspaceSidebarItem) => void;
+  onSelectSchedule: (id: string) => void;
+  onMarkDevlogWritten: () => void;
+}) {
+  if (!isOpen) {
+    return (
+      <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
+        <div className="flex h-full w-[60px] flex-col items-center gap-3 rounded-[24px] border border-slate-200 bg-white py-4 shadow-sm">
+          <button
+            type="button"
+            onClick={onToggleOpen}
+            className="grid h-10 w-10 place-items-center rounded-2xl text-slate-600 hover:bg-slate-100"
+            title="프로젝트 사이드바 펼치기"
+          >
+            <Menu size={19} />
+          </button>
+
+          <div className="h-px w-8 bg-slate-200" />
+
+          <CollapsedSidebarButton
+            active={panelMode === "projects"}
+            icon={<FolderOpen size={18} />}
+            title="프로젝트 목록"
+            onClick={() => onChangePanelMode("projects")}
+          />
+
+          <CollapsedSidebarButton
+            active={panelMode === "today"}
+            icon={<ListTodo size={18} />}
+            title="오늘 할 일"
+            count={todayTodos.length}
+            onClick={() => onChangePanelMode("today")}
+          />
+
+          <CollapsedSidebarButton
+            active={panelMode === "devlog"}
+            icon={<FilePenLine size={18} />}
+            title="일지 미작성 일정"
+            count={noDevlogSchedules.length}
+            onClick={() => onChangePanelMode("devlog")}
+          />
+        </div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
+      <div className="flex h-full overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="flex w-[52px] shrink-0 flex-col items-center gap-3 border-r border-slate-100 bg-white py-4">
+          <button
+            type="button"
+            onClick={onToggleOpen}
+            className="grid h-9 w-9 place-items-center rounded-xl text-slate-600 hover:bg-slate-100"
+            title="프로젝트 사이드바 접기"
+          >
+            <Menu size={18} />
+          </button>
+
+          <div className="h-px w-7 bg-slate-200" />
+
+          <CollapsedSidebarButton
+            active={panelMode === "projects"}
+            icon={<FolderOpen size={17} />}
+            title="프로젝트 목록"
+            onClick={() => onChangePanelMode("projects")}
+          />
+
+          <CollapsedSidebarButton
+            active={panelMode === "today"}
+            icon={<ListTodo size={17} />}
+            title="오늘 할 일"
+            count={todayTodos.length}
+            onClick={() => onChangePanelMode("today")}
+          />
+
+          <CollapsedSidebarButton
+            active={panelMode === "devlog"}
+            icon={<FilePenLine size={17} />}
+            title="일지 미작성 일정"
+            count={noDevlogSchedules.length}
+            onClick={() => onChangePanelMode("devlog")}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          {panelMode === "projects" && (
+            <MainStyleProjectListPanel
+              workspaces={workspaces}
+              selectedWorkspaceId={selectedWorkspaceId}
+              loading={workspaceLoading}
+              errorMessage={workspaceErrorMessage}
+              onSelectWorkspace={onSelectWorkspace}
+              onClose={onToggleOpen}
+            />
+          )}
+
+          {panelMode === "today" && (
+            <ScheduleSideTaskPanel
+              label="TODAY"
+              title="오늘 할 일"
+              description="오늘 날짜에 남아 있는 일정입니다."
+              schedules={todayTodos}
+              emptyText="오늘 남은 일정 없음"
+              onSelectSchedule={onSelectSchedule}
+            />
+          )}
+
+          {panelMode === "devlog" && (
+            <ScheduleSideTaskPanel
+              label="DEVLOG"
+              title="일지 미작성 일정"
+              description="작업은 있지만 수행 기록이 없는 일정입니다."
+              schedules={noDevlogSchedules}
+              emptyText="모든 일정에 일지가 작성됨"
+              onSelectSchedule={onSelectSchedule}
+              onMarkDevlogWritten={onMarkDevlogWritten}
+            />
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function CollapsedSidebarButton({
+  active,
+  icon,
+  title,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  title: string;
+  count?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`relative grid h-9 w-9 place-items-center rounded-xl transition ${
+        active
+          ? "bg-blue-50 text-blue-700"
+          : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+      }`}
+    >
+      {icon}
+
+      {typeof count === "number" && count > 0 && (
+        <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white">
+          {count > 9 ? "9+" : count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function MainStyleProjectListPanel({
+  workspaces,
+  selectedWorkspaceId,
+  loading,
+  errorMessage,
+  onSelectWorkspace,
+  onClose,
+}: {
+  workspaces: WorkspaceSidebarItem[];
+  selectedWorkspaceId: string;
+  loading: boolean;
+  errorMessage: string;
+  onSelectWorkspace: (workspace: WorkspaceSidebarItem) => void;
+  onClose: () => void;
+}) {
+  const [projectQuery, setProjectQuery] = useState("");
+  const [filter, setFilter] = useState<ProjectFilter>("all");
+
+  const totalCount = workspaces.length;
+  const personalCount = workspaces.filter(
+    (workspace) => workspace.mode === "personal",
+  ).length;
+  const teamCount = workspaces.filter(
+    (workspace) => workspace.mode === "team",
+  ).length;
+
+  const filteredWorkspaces = useMemo(() => {
+    const keyword = projectQuery.trim().toLowerCase();
+
+    return workspaces.filter((workspace) => {
+      const matchFilter = filter === "all" || workspace.mode === filter;
+      const matchKeyword =
+        !keyword ||
+        workspace.name.toLowerCase().includes(keyword) ||
+        workspace.mode.toLowerCase().includes(keyword) ||
+        workspace.role?.toLowerCase().includes(keyword);
+
+      return matchFilter && matchKeyword;
+    });
+  }, [workspaces, projectQuery, filter]);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-slate-100 p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-black text-slate-950">프로젝트</h2>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              전체 {totalCount}개 · 개인 {personalCount}개 · 팀 {teamCount}개
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="프로젝트 사이드바 접기"
+          >
+            <ChevronLeft size={16} />
+          </button>
+        </div>
+
+        <div className="relative">
+          <Search
+            size={17}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            value={projectQuery}
+            onChange={(event) => setProjectQuery(event.target.value)}
+            placeholder="프로젝트 검색"
+            className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 rounded-2xl bg-slate-100 p-1">
+          <ProjectFilterButton
+            active={filter === "all"}
+            label="전체"
+            onClick={() => setFilter("all")}
+          />
+          <ProjectFilterButton
+            active={filter === "personal"}
+            label="개인"
+            onClick={() => setFilter("personal")}
+          />
+          <ProjectFilterButton
+            active={filter === "team"}
+            label="팀"
+            onClick={() => setFilter("team")}
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {loading ? (
+          <div className="grid h-40 place-items-center text-sm font-bold text-slate-400">
+            <div className="flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin" />
+              프로젝트 불러오는 중
+            </div>
+          </div>
+        ) : errorMessage ? (
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold leading-5 text-rose-700">
+            {errorMessage}
+          </div>
+        ) : filteredWorkspaces.length === 0 ? (
+          <EmptyBox text="조건에 맞는 프로젝트가 없습니다." />
+        ) : (
+          <div className="flex flex-col gap-1">
+            {filteredWorkspaces.map((workspace) => {
+              const selected = workspace.id === selectedWorkspaceId;
+
+              return (
+                <button
+                  key={workspace.id}
+                  type="button"
+                  onClick={() => onSelectWorkspace(workspace)}
+                  className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                    selected
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
+                      selected
+                        ? "bg-white text-blue-700"
+                        : "bg-slate-100 text-blue-600"
+                    }`}
+                  >
+                    {workspace.mode === "team" ? (
+                      <UsersRound size={17} />
+                    ) : (
+                      <UserRound size={17} />
+                    )}
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-black">
+                      {workspace.name}
+                    </span>
+                    <span className="mt-1 block truncate text-xs font-medium text-slate-400">
+                      {workspace.mode === "team" ? "팀" : "개인"} · 하위{" "}
+                      {workspace.childCount}개
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectFilterButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-8 rounded-xl text-xs font-black transition ${
+        active
+          ? "bg-white text-slate-950 shadow-sm"
+          : "text-slate-500 hover:text-slate-900"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ScheduleSideTaskPanel({
+  label,
+  title,
+  description,
+  schedules,
+  emptyText,
+  onSelectSchedule,
+  onMarkDevlogWritten,
+}: {
+  label: string;
+  title: string;
+  description: string;
+  schedules: ProjectScheduleItem[];
+  emptyText: string;
+  onSelectSchedule: (id: string) => void;
+  onMarkDevlogWritten?: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-slate-100 p-4">
+        <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">
+          {label}
+        </p>
+        <h2 className="mt-1 text-sm font-black text-slate-950">{title}</h2>
+        <p className="mt-2 text-xs leading-5 text-slate-500">{description}</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {schedules.length === 0 ? (
+          <EmptyBox text={emptyText} />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {schedules.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectSchedule(item.id)}
+                  className="block w-full text-left"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-black leading-5 text-slate-900">
+                      {item.title}
+                    </p>
+
+                    <span
+                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                        statusBadgeStyle[item.status]
+                      }`}
+                    >
+                      {scheduleStatusLabel[item.status]}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-xs font-medium text-slate-500">
+                    {getSchedulePeriodText(item)}
+                  </p>
+
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">
+                    {item.description || "등록된 상세 내용이 없습니다."}
+                  </p>
+                </button>
+
+                {onMarkDevlogWritten && !item.hasDevlog && (
+                  <button
+                    type="button"
+                    onClick={onMarkDevlogWritten}
+                    className="mt-3 flex h-8 w-full items-center justify-center gap-1 rounded-xl bg-blue-50 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                  >
+                    <FilePenLine size={14} />
+                    개발일지에서 작성
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -650,7 +1173,7 @@ function MonthlySchedulePageView({
   onMoveScheduleDate: (id: string, nextDate: string) => void;
 }) {
   return (
-    <main className="min-w-0 bg-[#f5f6fa] px-6 py-7">
+    <main className="min-w-0 bg-[#f5f6fa] p-6">
       <section className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
         <div className="mb-7 flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
@@ -748,11 +1271,8 @@ function WeeklySchedulePageView({
   todayDate,
   loading,
   errorMessage,
-  onReload,
   onOpenMonth,
   onCreateSchedule,
-  onToggleDetail,
-  hasSelectedSchedule,
   onMoveWeek,
   onGoToday,
   onSelectSchedule,
@@ -778,11 +1298,8 @@ function WeeklySchedulePageView({
   todayDate: string;
   loading: boolean;
   errorMessage: string;
-  onReload: () => void;
   onOpenMonth: () => void;
   onCreateSchedule: () => void;
-  onToggleDetail: () => void;
-  hasSelectedSchedule: boolean;
   onMoveWeek: (amount: number) => void;
   onGoToday: () => void;
   onSelectSchedule: (id: string) => void;
@@ -790,24 +1307,24 @@ function WeeklySchedulePageView({
   onChangeStatus: (id: string, status: ScheduleStatus) => void;
 }) {
   return (
-    <main className="min-w-0 bg-[#f5f6fa] p-6">
-      <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-          <div>
+    <main className="min-w-0 bg-[#f5f6fa] p-4 xl:p-5">
+      <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-blue-600">Schedule</p>
-            <p className="mt-2 text-sm text-slate-500">
-              현재 보기:{" "}
-              <span className="text-xl font-bold text-slate-900">
-                {selectedProjectName}
-              </span>
+            <h1 className="mt-1 line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
+              {selectedProjectName}
+            </h1>
+            <p className="mt-1 truncate text-sm text-slate-500">
+              현재 선택된 프로젝트의 일정 현황입니다.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
             <button
               type="button"
               onClick={onOpenMonth}
-              className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               <CalendarDays size={17} />
               월간 캘린더
@@ -816,70 +1333,46 @@ function WeeklySchedulePageView({
             <button
               type="button"
               onClick={onCreateSchedule}
-              className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
             >
               <Plus size={17} />새 일정 추가
             </button>
-
-            <button
-              type="button"
-              onClick={onReload}
-              className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              title="새로고침"
-            >
-              <RefreshCw size={17} />
-            </button>
-
-            {hasSelectedSchedule && (
-              <button
-                type="button"
-                onClick={onToggleDetail}
-                className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                title="상세 패널 접기/펼치기"
-              >
-                <X size={18} />
-              </button>
-            )}
           </div>
         </div>
 
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(132px,1fr))]">
-          <StatCard
-            title="전체 일정"
-            value={`${totalCount}개`}
-            icon={<ListTodo size={20} />}
-          />
-          <StatCard
-            title="진행 중"
-            value={`${progressCount}개`}
-            icon={<Clock size={20} />}
-          />
-          <StatCard
-            title="완료"
-            value={`${doneCount}개`}
-            icon={<CheckCircle2 size={20} />}
-          />
-          <StatCard
-            title="지연"
-            value={`${delayedCount}개`}
-            icon={<AlertTriangle size={20} />}
-          />
-          <StatCard
-            title="진행률"
-            value={`${progressRate}%`}
-            icon={<LayoutGrid size={20} />}
-            subText={`완료 ${doneCount} / 전체 ${totalCount}`}
-          />
-        </div>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-slate-500">
+              <span>
+                전체 <strong className="text-slate-950">{totalCount}개</strong>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span>
+                진행 중{" "}
+                <strong className="text-slate-950">{progressCount}개</strong>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span>
+                완료 <strong className="text-slate-950">{doneCount}개</strong>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span>
+                지연{" "}
+                <strong className="text-slate-950">{delayedCount}개</strong>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span>
+                진행률{" "}
+                <strong className="text-blue-600">{progressRate}%</strong>
+              </span>
+            </div>
 
-        <div className="mt-6">
-          <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>{selectedProjectName} 진행률</span>
-            <span>
-              완료된 일정 {doneCount}개 / 전체 일정 {totalCount}개
+            <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-600">
+              완료 {doneCount}개 / 전체 {totalCount}개
             </span>
           </div>
-          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-blue-600 transition-all"
               style={{ width: `${progressRate}%` }}
@@ -888,8 +1381,8 @@ function WeeklySchedulePageView({
         </div>
       </section>
 
-      <section className="mt-6 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <section className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+        <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex rounded-2xl bg-slate-100 p-1">
               <ViewButton
@@ -1029,193 +1522,6 @@ function DataState({
   }
 
   return <>{children}</>;
-}
-
-function SupportRail({
-  isPinned,
-  onMouseEnter,
-  onMouseLeave,
-  onTogglePin,
-}: {
-  isPinned: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onTogglePin: () => void;
-}) {
-  return (
-    <aside
-      className="sticky top-[60px] z-30 h-[calc(100vh-60px)] border-r border-slate-200 bg-white"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <div className="flex h-full w-14 flex-col items-center gap-3 py-4">
-        <button
-          type="button"
-          onClick={onTogglePin}
-          className={`grid h-10 w-10 place-items-center rounded-xl transition ${
-            isPinned
-              ? "bg-blue-50 text-blue-700"
-              : "text-slate-600 hover:bg-slate-100"
-          }`}
-          title={isPinned ? "보조 패널 접기" : "보조 패널 펼치기"}
-        >
-          <Menu size={19} />
-        </button>
-
-        <div className="h-px w-8 bg-slate-200" />
-
-        <button
-          type="button"
-          onClick={onTogglePin}
-          className="grid h-9 w-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"
-          title="일지 미작성 일정 확인"
-        >
-          <FilePenLine size={17} />
-        </button>
-
-        <button
-          type="button"
-          onClick={onTogglePin}
-          className="grid h-9 w-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"
-          title="오늘 할 일 확인"
-        >
-          <ListTodo size={17} />
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-function SupportFloatingPanel({
-  todayTodos,
-  noDevlogSchedules,
-  isPinned,
-  onSelectSchedule,
-  onMarkDevlogWritten,
-  onMouseEnter,
-  onMouseLeave,
-  onClose,
-  onPin,
-}: {
-  todayTodos: ProjectScheduleItem[];
-  noDevlogSchedules: ProjectScheduleItem[];
-  isPinned: boolean;
-  onSelectSchedule: (id: string) => void;
-  onMarkDevlogWritten: () => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onClose: () => void;
-  onPin: () => void;
-}) {
-  return (
-    <aside
-      className="fixed left-14 top-[60px] z-40 h-[calc(100vh-60px)] w-[280px] border-r border-slate-200 bg-white"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={isPinned ? undefined : onMouseLeave}
-    >
-      <div className="flex h-full flex-col overflow-y-auto p-4">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-black text-slate-900">보조 패널</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              오늘 할 일과 일지 미작성 일정만 빠르게 확인합니다.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={isPinned ? onClose : onPin}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"
-          >
-            {isPinned ? (
-              <PanelLeftClose size={17} />
-            ) : (
-              <PanelLeftOpen size={17} />
-            )}
-          </button>
-        </div>
-
-        <SupportScheduleSection
-          title="오늘 할 일"
-          description="오늘 날짜에 남아 있는 일정입니다."
-          schedules={todayTodos}
-          emptyText="오늘 남은 일정 없음"
-          onSelectSchedule={onSelectSchedule}
-        />
-
-        <SupportScheduleSection
-          title="일지 미작성 일정"
-          description="작업은 있지만 수행 기록이 없는 일정입니다."
-          schedules={noDevlogSchedules}
-          emptyText="모든 일정에 일지가 작성됨"
-          onSelectSchedule={onSelectSchedule}
-          onMarkDevlogWritten={onMarkDevlogWritten}
-        />
-      </div>
-    </aside>
-  );
-}
-
-function SupportScheduleSection({
-  title,
-  description,
-  schedules,
-  emptyText,
-  onSelectSchedule,
-  onMarkDevlogWritten,
-}: {
-  title: string;
-  description: string;
-  schedules: ProjectScheduleItem[];
-  emptyText: string;
-  onSelectSchedule: (id: string) => void;
-  onMarkDevlogWritten?: () => void;
-}) {
-  return (
-    <section className="mb-4">
-      <div className="mb-3">
-        <h2 className="text-sm font-black text-slate-900">{title}</h2>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        {schedules.length === 0 ? (
-          <EmptyBox text={emptyText} compact />
-        ) : (
-          schedules.slice(0, 4).map((item) => (
-            <div
-              key={item.id}
-              className="rounded-2xl border border-slate-200 p-3"
-            >
-              <button
-                type="button"
-                onClick={() => onSelectSchedule(item.id)}
-                className="block w-full text-left"
-              >
-                <p className="line-clamp-2 text-sm font-bold leading-5 text-slate-900">
-                  {item.title}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {getSchedulePeriodText(item)}
-                </p>
-              </button>
-
-              {onMarkDevlogWritten && !item.hasDevlog && (
-                <button
-                  type="button"
-                  onClick={onMarkDevlogWritten}
-                  className="mt-3 flex h-8 w-full items-center justify-center gap-1 rounded-xl bg-blue-50 text-xs font-bold text-blue-700 hover:bg-blue-100"
-                >
-                  <FilePenLine size={14} />
-                  개발일지에서 작성
-                </button>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
 }
 
 function WeeklyCalendarBarView({
@@ -1606,7 +1912,7 @@ function ScheduleDetailAside({
   return (
     <aside className="min-w-0 border-l border-slate-200 bg-white">
       <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-hidden">
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-3">
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">
               Selected Schedule
@@ -1625,7 +1931,7 @@ function ScheduleDetailAside({
           </button>
         </div>
 
-        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <h3 className="min-w-0 text-lg font-black leading-snug text-slate-900">
@@ -1765,7 +2071,6 @@ function CreateScheduleModal({
     }));
   };
 
-  // 모달이 열려 있는 동안 배경 화면 스크롤 방지
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
     const originalPaddingRight = document.body.style.paddingRight;
@@ -1787,12 +2092,7 @@ function CreateScheduleModal({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/35 p-4">
-      {/* 
-        바깥 overlay에는 overflow-y-auto를 주지 않음.
-        스크롤은 아래 모달 본문 영역에서만 발생.
-      */}
       <div className="flex max-h-[calc(100vh-32px)] w-full max-w-[620px] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
-        {/* 모달 상단 */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-blue-600">
@@ -1814,7 +2114,6 @@ function CreateScheduleModal({
           </button>
         </div>
 
-        {/* 모달 본문만 스크롤 */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-4">
             <div>
@@ -1914,7 +2213,6 @@ function CreateScheduleModal({
           </div>
         </div>
 
-        {/* 하단 버튼은 항상 보이게 고정 */}
         <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           <button
             type="button"
@@ -2025,29 +2323,6 @@ function ProgressRulePanel({
         </div>
       </div>
     </section>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  icon,
-  subText,
-}: {
-  title: string;
-  value: string;
-  icon: React.ReactNode;
-  subText?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-500">{title}</p>
-        <div className="text-slate-500">{icon}</div>
-      </div>
-      <p className="mt-3 text-2xl font-bold">{value}</p>
-      {subText && <p className="mt-1 text-xs text-slate-500">{subText}</p>}
-    </div>
   );
 }
 
