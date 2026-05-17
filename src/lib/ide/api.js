@@ -5,6 +5,7 @@ const BASE_URL =
 
 const API_BASE = `${BASE_URL}/api/workspaces`;
 const GIT_API_BASE = `${BASE_URL}/api/git`;
+
 const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 const SCHEDULE_API_BASE = `${BASE_URL}/api/schedules`;
 const AUTH_API_BASE = `${BASE_URL}/api/users`;

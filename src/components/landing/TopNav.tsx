@@ -126,8 +126,8 @@ export default function TopNav() {
     ? withModeQuery(`/projects/${currentWorkspaceId}`, currentMode)
     : "/main";
 
-  const relocationHref = hasSelectedWorkspace
-    ? `/relocation?workspaceId=${currentWorkspaceId}&mode=${currentMode}`
+  const designHref = hasSelectedWorkspace
+    ? `/design?workspaceId=${currentWorkspaceId}&mode=${currentMode}`
     : "/main";
 
   const schedulesHref = hasSelectedWorkspace
@@ -241,9 +241,9 @@ export default function TopNav() {
       requiresWorkspace: true,
     },
     {
-      href: relocationHref,
-      label: "설계단계",
-      matchPath: "/relocation",
+      href: designHref,
+      label: "설계관리",
+      matchPath: "/design",
       requiresWorkspace: true,
     },
     {
