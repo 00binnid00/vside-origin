@@ -1,233 +1,548 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useSelector } from "react-redux";
 import {
   VscAdd,
-  VscRefresh,
-  VscChevronLeft,
-  VscEdit,
-  VscTrash,
   VscCalendar,
+  VscChevronLeft,
+  VscClose,
+  VscEdit,
+  VscRefresh,
+  VscTrash,
 } from "react-icons/vsc";
 
 import {
-  fetchWorkspaceDevlogs,
-  createDevlog,
-  updateDevlog,
-  deleteDevlog,
-} from "@/lib/devlog/api";
+  createWorkspaceDevlogApi,
+  deleteDevlogApi,
+  fetchMainMonthSchedulesApi,
+  fetchWorkspaceDevlogsApi,
+  updateDevlogApi,
+} from "@/lib/ide/api";
 
-import { DevlogFormModal } from "@/components/devlog/DevlogFormModal";
+const scheduleStatusLabel = {
+  todo: "할 일",
+  progress: "진행 중",
+  done: "완료",
+  delayed: "지연",
+};
 
-import { fetchDevlogMonthSchedules } from "@/lib/devlog/devlogScheduleApi";
+const scheduleStatusStyle = {
+  todo: "bg-slate-100 text-slate-600 border-slate-200",
+  progress: "bg-blue-50 text-blue-700 border-blue-200",
+  done: "bg-purple-50 text-purple-700 border-purple-200",
+  delayed: "bg-rose-50 text-rose-700 border-rose-200",
+};
 
-import {
-  mapApiScheduleToCalendarEvent,
-  dedupeEvents,
-} from "@/components/schedule/schedule.utils";
-
-import {
-  STAGE_BADGE_COLORS,
-  STAGE_LABELS,
-} from "@/components/schedule/schedule.colors";
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const defaultForm = {
-  projectId: "",
+const emptyForm = {
   scheduleId: "",
   title: "",
-  summary: "",
   content: "",
-  date: new Date().toISOString().split("T")[0],
-  tagsText: "",
-  stage: "implementation",
-  goal: "",
-  design: "",
-  issue: "",
-  solution: "",
-  nextPlan: "",
-  commitHash: "",
-  progress: "0",
+  workedDate: getTodayDateKey(),
+  scheduleStatusAfterWrite: "none",
 };
+
+function getTodayDateKey() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const date = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${date}`;
+}
 
 function getCurrentYearMonth() {
   const now = new Date();
+
   return {
     year: now.getFullYear(),
     month: now.getMonth() + 1,
   };
 }
 
-function toDateValue(value) {
+function normalizeDate(value) {
   if (!value) return "";
   return String(value).slice(0, 10);
 }
 
-function getScheduleStatus(event) {
-  const today = new Date();
-  const todayISO = today.toISOString().split("T")[0];
-
-  const start = event.startDateISO;
-  const end = event.endDateISO || event.startDateISO;
-
-  if (end < todayISO) return "done";
-  if (start > todayISO) return "todo";
-  return "doing";
+function normalizeScheduleStatus(value) {
+  if (!value) return "todo";
+  if (value === "doing") return "progress";
+  return value;
 }
 
-function ScheduleStatusBadge({ status }) {
-  const config = {
-    todo: "bg-slate-100 text-slate-600",
-    doing: "bg-blue-50 text-blue-600",
-    done: "bg-emerald-50 text-emerald-600",
-  };
+function normalizeSchedule(item) {
+  const startDate =
+    item.startDate ||
+    item.startDateISO ||
+    item.date ||
+    item.startedAt ||
+    getTodayDateKey();
 
-  const label = {
-    todo: "예정",
-    doing: "진행중",
-    done: "완료",
+  const endDate = item.endDate || item.endDateISO || startDate;
+
+  return {
+    id: String(item.id ?? item.scheduleId ?? ""),
+    workspaceId: String(item.workspaceId ?? ""),
+    projectName: item.projectName ?? item.customProjectName ?? "워크스페이스",
+    title: item.title ?? "",
+    description: item.description ?? "",
+    startDate: normalizeDate(startDate),
+    endDate: normalizeDate(endDate),
+    status: normalizeScheduleStatus(item.status),
+    category: item.category ?? "General",
+    hasDevlog: Boolean(item.hasDevlog),
   };
+}
+
+function normalizeDevlog(item) {
+  return {
+    id: String(item.id ?? item.devlogId ?? ""),
+    workspaceId: String(item.workspaceId ?? ""),
+    projectName: item.projectName ?? "워크스페이스",
+    title: item.title ?? "",
+    content: item.content ?? "",
+    workedDate: normalizeDate(item.workedDate ?? item.date),
+    date: normalizeDate(item.workedDate ?? item.date),
+    type: item.type ?? (item.scheduleId ? "linked" : "general"),
+    scheduleId:
+      item.scheduleId === undefined || item.scheduleId === null
+        ? null
+        : String(item.scheduleId),
+    scheduleTitle: item.scheduleTitle ?? null,
+    status: normalizeScheduleStatus(item.scheduleStatus ?? item.status),
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function getWorkspaceNameFromState(fileSystem) {
+  return (
+    fileSystem?.workspaceName ||
+    fileSystem?.activeWorkspace?.name ||
+    fileSystem?.activeProject ||
+    "워크스페이스"
+  );
+}
+
+function DevlogTypeBadge({ type }) {
+  const isLinked = type === "linked";
 
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${config[status]}`}
+      className={
+        isLinked
+          ? "rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700"
+          : "rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600"
+      }
     >
-      {label[status]}
+      {isLinked ? "일정 연결" : "일반 일지"}
     </span>
   );
 }
 
-export default function DevlogPanel() {
-  const { workspaceId, activeProject } = useSelector(
-    (state) => state.fileSystem,
+function ScheduleStatusBadge({ status }) {
+  const normalized = normalizeScheduleStatus(status);
+
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+        scheduleStatusStyle[normalized] || scheduleStatusStyle.todo
+      }`}
+    >
+      {scheduleStatusLabel[normalized] || "할 일"}
+    </span>
   );
+}
+
+function DevlogFormModal({
+  open,
+  mode,
+  form,
+  schedules,
+  selectedSchedule,
+  onChange,
+  onClose,
+  onSubmit,
+  isSubmitting,
+}) {
+  if (!open) return null;
+
+  const isLinked = Boolean(form.scheduleId);
+  const selectedScheduleTitle =
+    selectedSchedule?.title ||
+    schedules.find((schedule) => String(schedule.id) === String(form.scheduleId))
+      ?.title ||
+    "";
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
+      <div className="flex max-h-[88vh] w-full max-w-9xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-6">
+          <div>
+            <h3 className="text-[18px] font-extrabold text-slate-950">
+              {mode === "edit" ? "개발일지 수정" : "새 개발일지 작성"}
+            </h3>
+            <p className="mt-0.5 text-[12px] font-medium text-slate-400">
+              {isLinked
+                ? "선택한 일정과 연결된 개발일지입니다."
+                : "일정과 연결하지 않는 일반 개발일지입니다."}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            <VscClose size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="space-y-5">
+            <div>
+              <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                일지 유형
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      scheduleId: "",
+                      scheduleStatusAfterWrite: "none",
+                    })
+                  }
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    !form.scheduleId
+                      ? "border-slate-900 bg-slate-950 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <p className="text-[13px] font-extrabold">일반 일지</p>
+                  <p
+                    className={`mt-1 text-[11px] ${
+                      !form.scheduleId ? "text-slate-300" : "text-slate-400"
+                    }`}
+                  >
+                    일정 연결 없이 작성
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstSchedule = schedules[0];
+
+                    if (!firstSchedule) {
+                      alert("연결할 수 있는 일정이 없습니다.");
+                      return;
+                    }
+
+                    onChange({
+                      scheduleId: String(firstSchedule.id),
+                      title:
+                        form.title.trim() || `${firstSchedule.title} 개발일지`,
+                      workedDate: firstSchedule.startDate || getTodayDateKey(),
+                      scheduleStatusAfterWrite: "none",
+                    });
+                  }}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    form.scheduleId
+                      ? "border-slate-900 bg-slate-950 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <p className="text-[13px] font-extrabold">일정 연결 일지</p>
+                  <p
+                    className={`mt-1 text-[11px] ${
+                      form.scheduleId ? "text-slate-300" : "text-slate-400"
+                    }`}
+                  >
+                    선택한 일정에 기록 연결
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {form.scheduleId ? (
+              <div>
+                <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                  연결 일정
+                </label>
+
+                <select
+                  value={form.scheduleId}
+                  onChange={(event) => {
+                    const schedule = schedules.find(
+                      (item) => String(item.id) === String(event.target.value),
+                    );
+
+                    onChange({
+                      scheduleId: event.target.value,
+                      title:
+                        form.title.trim() ||
+                        (schedule ? `${schedule.title} 개발일지` : ""),
+                      workedDate:
+                        schedule?.startDate || form.workedDate || getTodayDateKey(),
+                    });
+                  }}
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+                >
+                  {schedules.map((schedule) => (
+                    <option key={schedule.id} value={schedule.id}>
+                      {schedule.title} · {schedule.startDate}
+                    </option>
+                  ))}
+                </select>
+
+                {selectedScheduleTitle ? (
+                  <p className="mt-2 text-[12px] font-medium text-blue-600">
+                    현재 연결된 일정: {selectedScheduleTitle}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div>
+              <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                제목
+              </label>
+
+              <input
+                value={form.title}
+                onChange={(event) => onChange({ title: event.target.value })}
+                placeholder="예: 로그인 토큰 저장 로직 수정"
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                작업 날짜
+              </label>
+
+              <input
+                type="date"
+                value={form.workedDate}
+                onChange={(event) =>
+                  onChange({ workedDate: event.target.value })
+                }
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                내용
+              </label>
+
+              <textarea
+                value={form.content}
+                onChange={(event) => onChange({ content: event.target.value })}
+                placeholder={`오늘 작업한 내용을 작성해주세요.
+
+예)
+- 개발일지 화면을 새 API 기준으로 분리
+- 일정 연결 일지와 일반 일지 작성 흐름 구성
+- 기존 개발일지 API 충돌 제거`}
+                className="min-h-[220px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[14px] leading-7 text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-slate-900"
+              />
+            </div>
+
+            {form.scheduleId ? (
+              <div>
+                <label className="mb-2 block text-[13px] font-extrabold text-slate-800">
+                  작성 후 일정 상태 변경
+                </label>
+
+                <select
+                  value={form.scheduleStatusAfterWrite}
+                  onChange={(event) =>
+                    onChange({ scheduleStatusAfterWrite: event.target.value })
+                  }
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+                >
+                  <option value="none">변경하지 않음</option>
+                  <option value="todo">할 일</option>
+                  <option value="progress">진행 중</option>
+                  <option value="done">완료</option>
+                  <option value="delayed">지연</option>
+                </select>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex h-16 shrink-0 items-center justify-end gap-2 border-t border-slate-100 px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-xl border border-slate-200 px-4 text-[13px] font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+          >
+            취소
+          </button>
+
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isSubmitting}
+            className="h-10 rounded-xl bg-slate-950 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? "저장 중..." : mode === "edit" ? "수정 완료" : "저장"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function DevlogPanel() {
+  const fileSystem = useSelector((state) => state.fileSystem);
+  const { workspaceId } = fileSystem || {};
 
   const pathname = usePathname();
-  const scheduleView = useMemo(() => {
-    if (pathname?.includes("/ide/team/")) return "team";
-    if (pathname?.includes("/ide/personal/")) return "personal";
-    return "all";
-  }, [pathname]);
 
-  const [view, setView] = useState("list");
+  const workspaceName = useMemo(
+    () => getWorkspaceNameFromState(fileSystem),
+    [fileSystem],
+  );
+
   const [logs, setLogs] = useState([]);
   const [schedules, setSchedules] = useState([]);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [isScheduleLoading, setIsScheduleLoading] = useState(false);
-
   const [selectedLog, setSelectedLog] = useState(null);
+  const [filter, setFilter] = useState("all");
 
-  const [workspaceName, setWorkspaceName] = useState("워크스페이스");
-  const [defaultProjectId, setDefaultProjectId] = useState("");
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingTarget, setEditingTarget] = useState(null);
-  const [form, setForm] = useState(defaultForm);
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState("create");
+  const [editingLog, setEditingLog] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+
+  const isIdePage = useMemo(() => pathname?.includes("/ide/"), [pathname]);
+
+  const filteredLogs = useMemo(() => {
+    if (filter === "linked") {
+      return logs.filter((log) => log.scheduleId);
+    }
+
+    if (filter === "general") {
+      return logs.filter((log) => !log.scheduleId);
+    }
+
+    if (filter === "progress") {
+      return logs.filter((log) => log.status === "progress");
+    }
+
+    if (filter === "done") {
+      return logs.filter((log) => log.status === "done");
+    }
+
+    return logs;
+  }, [filter, logs]);
+
+  const selectedSchedule = useMemo(() => {
+    if (!form.scheduleId) return null;
+
+    return schedules.find(
+      (schedule) => String(schedule.id) === String(form.scheduleId),
+    );
+  }, [form.scheduleId, schedules]);
+
+  const linkedCount = useMemo(
+    () => logs.filter((log) => log.scheduleId).length,
+    [logs],
+  );
+
+  const generalCount = useMemo(
+    () => logs.filter((log) => !log.scheduleId).length,
+    [logs],
+  );
 
   const loadLogs = useCallback(async () => {
     if (!workspaceId) return;
 
-    setIsLoading(true);
+    setIsLoadingLogs(true);
 
     try {
-      const data = await fetchWorkspaceDevlogs(workspaceId);
+      const data = await fetchWorkspaceDevlogsApi(workspaceId);
+      const normalized = Array.isArray(data) ? data.map(normalizeDevlog) : [];
 
-      setWorkspaceName(data.name || "워크스페이스");
-
-      let targetId = "";
-
-      if (data.projects && data.projects.length > 0) {
-        const matched = data.projects.find(
-          (p) => p.name === activeProject || p.projectTitle === activeProject,
+      normalized.sort((a, b) => {
+        const dateCompare = String(b.workedDate).localeCompare(
+          String(a.workedDate),
         );
 
-        targetId = matched
-          ? matched.projectId || matched.id
-          : data.projects[0].projectId || data.projects[0].id;
-      }
+        if (dateCompare !== 0) return dateCompare;
 
-      setDefaultProjectId(String(targetId || ""));
-
-      let allLogs = [];
-
-      data.projects?.forEach((p) => {
-        const pLogs = p.posts || p.devlogs || [];
-        allLogs = [...allLogs, ...pLogs];
+        return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
       });
 
-      allLogs.sort((a, b) => new Date(b.date) - new Date(a.date));
-      setLogs(allLogs);
+      setLogs(normalized);
+
+      setSelectedLog((current) => {
+        if (!current) return normalized[0] || null;
+        return (
+          normalized.find((item) => String(item.id) === String(current.id)) ||
+          normalized[0] ||
+          null
+        );
+      });
     } catch (error) {
       console.error("개발일지 로드 실패:", error);
+      alert(error?.message || "개발일지 목록을 불러오지 못했습니다.");
+      setLogs([]);
+      setSelectedLog(null);
     } finally {
-      setIsLoading(false);
+      setIsLoadingLogs(false);
     }
-  }, [workspaceId, activeProject]);
+  }, [workspaceId]);
 
   const loadSchedules = useCallback(async () => {
     if (!workspaceId) return;
 
-    setIsScheduleLoading(true);
+    setIsLoadingSchedules(true);
 
     try {
       const { year, month } = getCurrentYearMonth();
 
-      const numericYear = Number(year);
-      const numericMonth = Number(month);
-
-      if (!workspaceId || !numericYear || !numericMonth) {
-        console.warn("일정 요청값이 올바르지 않습니다.", {
-          workspaceId,
-          year,
-          month,
-          view: scheduleView,
-        });
-        setSchedules([]);
-        return;
-      }
-
-      console.log("IDE 개발일지 일정 요청값:", {
-        view: scheduleView,
+      const data = await fetchMainMonthSchedulesApi({
         workspaceId,
-        year: numericYear,
-        month: numericMonth,
+        year,
+        month,
       });
 
-      const data = await fetchDevlogMonthSchedules(
-        scheduleView,
-        workspaceId,
-        numericYear,
-        numericMonth,
-      );
+      const normalized = Array.isArray(data) ? data.map(normalizeSchedule) : [];
 
-      const rawSchedules = Array.isArray(data)
-        ? data
-        : data.schedules || data.events || data.data || [];
+      normalized.sort((a, b) => {
+        const dateCompare = String(a.startDate).localeCompare(
+          String(b.startDate),
+        );
 
-      const mapped = rawSchedules.map(mapApiScheduleToCalendarEvent);
-      const unique = dedupeEvents(mapped);
+        if (dateCompare !== 0) return dateCompare;
 
-      unique.sort((a, b) => {
-        const aDate = a.startDateISO || "";
-        const bDate = b.startDateISO || "";
-        return aDate.localeCompare(bDate);
+        return String(a.title).localeCompare(String(b.title));
       });
 
-      setSchedules(unique);
+      setSchedules(normalized);
     } catch (error) {
       console.error("일정 로드 실패:", error);
       setSchedules([]);
     } finally {
-      setIsScheduleLoading(false);
+      setIsLoadingSchedules(false);
     }
-  }, [workspaceId, scheduleView]);
+  }, [workspaceId]);
 
   const reloadAll = useCallback(async () => {
-    await loadLogs();
-    await loadSchedules();
+    await Promise.all([loadLogs(), loadSchedules()]);
   }, [loadLogs, loadSchedules]);
 
   useEffect(() => {
@@ -235,575 +550,555 @@ export default function DevlogPanel() {
     reloadAll();
   }, [workspaceId, reloadAll]);
 
-  const handleOpenCreate = () => {
-    if (!defaultProjectId) {
-      alert("데이터를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-
-    setEditingTarget(null);
-
-    setForm({
-      ...defaultForm,
-      projectId: defaultProjectId,
-      scheduleId: "",
-      stage: "implementation",
-      date: new Date().toISOString().split("T")[0],
-      progress: "0",
-    });
-
-    setIsFormOpen(true);
+  const updateForm = (patch) => {
+    setForm((prev) => ({
+      ...prev,
+      ...patch,
+    }));
   };
 
-  const handleOpenCreateFromSchedule = (event) => {
-    if (!defaultProjectId) {
-      alert("데이터를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-
-    setEditingTarget(null);
-
+  const openCreateGeneral = () => {
+    setFormMode("create");
+    setEditingLog(null);
     setForm({
-      ...defaultForm,
-      projectId: defaultProjectId,
+      ...emptyForm,
+      workedDate: getTodayDateKey(),
+    });
+    setFormOpen(true);
+  };
 
-      // 백엔드에서 일정과 개발일지를 연결할 때 필요한 값
-      // 백엔드 필드명이 scheduleId가 아니라면 이 이름만 맞춰주면 됨
-      scheduleId: String(event.id || event.scheduleId || ""),
-
-      title: `${event.title} 개발일지`,
-      summary: "",
+  const openCreateFromSchedule = (schedule) => {
+    setFormMode("create");
+    setEditingLog(null);
+    setForm({
+      scheduleId: String(schedule.id),
+      title: `${schedule.title} 개발일지`,
       content: "",
-      date: toDateValue(event.startDateISO) || defaultForm.date,
-
-      tagsText: event.category ? String(event.category) : "",
-
-      // 일정 단계와 일지 단계가 같은 enum이면 event.stage 사용 가능
-      // 다르면 "implementation" 고정 유지
-      stage: event.stage || "implementation",
-
-      goal: event.description || "",
-      design: "",
-      issue: "",
-      solution: "",
-      nextPlan: "",
-      commitHash: "",
-
-      // 진행률을 사용자가 모달에서 입력하게 할 값
-      progress: "0",
+      workedDate: schedule.startDate || getTodayDateKey(),
+      scheduleStatusAfterWrite: "none",
     });
-
-    setIsFormOpen(true);
+    setFormOpen(true);
   };
 
-  const handleOpenEdit = (log) => {
-    setEditingTarget(log);
+  const openEdit = (log) => {
+    if (!log) return;
 
+    setFormMode("edit");
+    setEditingLog(log);
     setForm({
-      projectId: String(log.projectId || defaultProjectId),
-      scheduleId: String(log.scheduleId || ""),
+      scheduleId: log.scheduleId ? String(log.scheduleId) : "",
       title: log.title || "",
-      summary: log.summary || "",
       content: log.content || "",
-      date: log.date || defaultForm.date,
-      tagsText: log.tags
-        ? Array.isArray(log.tags)
-          ? log.tags.join(", ")
-          : log.tags
-        : "",
-      stage: log.stage || "implementation",
-      goal: log.goal || "",
-      design: log.design || "",
-      issue: log.issue || "",
-      solution: log.solution || "",
-      nextPlan: log.nextPlan || "",
-      commitHash: log.commitHash || "",
-      progress: String(log.progress || 0),
+      workedDate: log.workedDate || getTodayDateKey(),
+      scheduleStatusAfterWrite: "none",
     });
-
-    setIsFormOpen(true);
+    setFormOpen(true);
   };
 
-  const handleDelete = async (logId, logProjectId) => {
-    if (!window.confirm("정말 이 개발일지를 삭제하시겠습니까?")) return;
+  const closeForm = () => {
+    if (isSubmitting) return;
 
-    try {
-      await deleteDevlog(
-        logId,
-        workspaceId,
-        Number(logProjectId || defaultProjectId),
-      );
-      await reloadAll();
-      setView("list");
-    } catch (e) {
-      alert(e.message);
-    }
+    setFormOpen(false);
+    setEditingLog(null);
+    setForm(emptyForm);
   };
 
   const handleSubmit = async () => {
+    if (!workspaceId) {
+      alert("워크스페이스 정보를 찾을 수 없습니다.");
+      return;
+    }
+
     if (!form.title.trim()) {
       alert("제목을 입력해주세요.");
       return;
     }
 
-    const payload = {
-      ...form,
-      projectId: Number(form.projectId),
-      scheduleId: form.scheduleId ? Number(form.scheduleId) : null,
-      progress: Number(form.progress || 0),
-      stage: form.stage || "implementation",
-    };
+    if (!form.content.trim()) {
+      alert("내용을 입력해주세요.");
+      return;
+    }
+
+    if (!form.workedDate) {
+      alert("작업 날짜를 선택해주세요.");
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
-      if (editingTarget) {
-        await updateDevlog(Number(editingTarget.id), workspaceId, payload);
+      if (formMode === "edit" && editingLog) {
+        await updateDevlogApi({
+          devlogId: editingLog.id,
+          scheduleId: form.scheduleId || null,
+          title: form.title.trim(),
+          content: form.content.trim(),
+          workedDate: form.workedDate,
+        });
       } else {
-        await createDevlog(workspaceId, payload);
+        await createWorkspaceDevlogApi({
+          workspaceId,
+          scheduleId: form.scheduleId || null,
+          title: form.title.trim(),
+          content: form.content.trim(),
+          workedDate: form.workedDate,
+          scheduleStatusAfterWrite: form.scheduleId
+            ? form.scheduleStatusAfterWrite
+            : "none",
+        });
       }
 
-      setIsFormOpen(false);
+      setFormOpen(false);
+      setEditingLog(null);
 
-      await sleep(300);
-      await loadLogs();
-
-      await sleep(300);
-      await loadSchedules();
-
-      if (view === "detail") {
-        setView("list");
-      }
+      await reloadAll();
     } catch (error) {
-      alert(error.message || "개발일지 저장 중 오류가 발생했습니다.");
+      console.error("개발일지 저장 실패:", error);
+      alert(error?.message || "개발일지 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const scheduleCount = useMemo(() => schedules.length, [schedules]);
+  const handleDelete = async (log) => {
+    if (!log) return;
+
+    const confirmed = window.confirm("이 개발일지를 삭제하시겠습니까?");
+    if (!confirmed) return;
+
+    try {
+      await deleteDevlogApi(log.id);
+      await reloadAll();
+    } catch (error) {
+      console.error("개발일지 삭제 실패:", error);
+      alert(error?.message || "개발일지 삭제 중 오류가 발생했습니다.");
+    }
+  };
 
   if (!workspaceId) {
     return (
-      <div className="flex-1 w-full flex flex-col h-full items-center justify-center bg-[#f8fafc] text-slate-400 text-sm">
-        <p>워크스페이스 정보를 불러올 수 없습니다.</p>
-      </div>
-    );
-  }
-
-  if (view === "list") {
-    return (
-      <div className="flex-1 w-full h-full bg-[#f8fafc] font-sans p-6 overflow-y-auto custom-scrollbar">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6 h-full">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex items-center justify-between shrink-0">
-            <div>
-              <div className="flex gap-2 items-center mb-3">
-                <span className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
-                  개발일지
-                </span>
-              </div>
-
-              <h2 className="text-[24px] font-extrabold text-slate-900 leading-tight">
-                {workspaceName} 개발일지
-              </h2>
-
-              <p className="text-[13px] text-slate-500 mt-1.5">
-                현재 작업 중인 워크스페이스의 일정과 개발 과정을 함께
-                기록합니다.
-              </p>
-            </div>
-
-            <button
-              onClick={handleOpenCreate}
-              className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl flex items-center gap-2 text-[14px] font-bold transition-all shadow-md"
-            >
-              <VscAdd size={18} />새 개발일지
-            </button>
-          </div>
-
-          <div className="grid grid-cols-[360px_1fr] gap-6 flex-1 min-h-[500px]">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-[17px] font-extrabold text-slate-900">
-                    워크스페이스 일정
-                  </h3>
-                  <p className="text-[12px] text-slate-400 mt-1">
-                    일정의 일지 쓰기를 누르면 해당 일정과 연결됩니다.
-                  </p>
-                </div>
-
-                <button
-                  onClick={loadSchedules}
-                  className="text-slate-400 hover:text-slate-800 transition-colors p-2 rounded-lg hover:bg-slate-100"
-                >
-                  <VscRefresh
-                    size={18}
-                    className={isScheduleLoading ? "animate-spin" : ""}
-                  />
-                </button>
-              </div>
-
-              <div className="mb-4 rounded-xl bg-slate-50 border border-slate-100 px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <VscCalendar className="text-slate-500" size={17} />
-                  <span className="text-[13px] font-bold text-slate-700">
-                    이번 달 일정
-                  </span>
-                </div>
-
-                <span className="text-[12px] font-bold text-blue-600">
-                  {scheduleCount}개
-                </span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-3">
-                {isScheduleLoading ? (
-                  <div className="text-xs font-bold text-slate-400 text-center py-16 animate-pulse">
-                    일정을 불러오는 중입니다...
-                  </div>
-                ) : schedules.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-center">
-                    <p className="text-[13px] font-bold text-slate-400">
-                      등록된 일정이 없습니다.
-                    </p>
-                    <p className="text-[12px] text-slate-400 mt-1">
-                      일정관리에서 일정을 먼저 등록해주세요.
-                    </p>
-                  </div>
-                ) : (
-                  schedules.map((event) => {
-                    const status = getScheduleStatus(event);
-
-                    return (
-                      <div
-                        key={event.id}
-                        className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:border-slate-300 transition-all"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          {event.category ? (
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
-                              {event.category}
-                            </span>
-                          ) : null}
-
-                          {event.stage ? (
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                                STAGE_BADGE_COLORS[event.stage] ||
-                                "bg-blue-50 text-blue-600"
-                              }`}
-                            >
-                              {STAGE_LABELS[event.stage] || event.stage}
-                            </span>
-                          ) : null}
-
-                          <ScheduleStatusBadge status={status} />
-                        </div>
-
-                        <h4 className="text-[14px] font-extrabold text-slate-900 leading-snug line-clamp-2">
-                          {event.title}
-                        </h4>
-
-                        <p className="text-[12px] text-slate-500 mt-2">
-                          {event.startDateISO}
-                          {event.startDateISO !== event.endDateISO
-                            ? ` ~ ${event.endDateISO}`
-                            : ""}
-                        </p>
-
-                        {event.description ? (
-                          <p className="text-[12px] text-slate-500 mt-2 line-clamp-2 leading-relaxed">
-                            {event.description}
-                          </p>
-                        ) : null}
-
-                        <div className="mt-4 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCreateFromSchedule(event)}
-                            className="rounded-lg bg-slate-900 px-3 py-2 text-[12px] font-bold text-white hover:bg-slate-800 transition-colors"
-                          >
-                            일지 쓰기
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-[18px] font-extrabold text-slate-900">
-                  작성된 일지 목록
-                </h3>
-
-                <button
-                  onClick={loadLogs}
-                  className="text-slate-400 hover:text-slate-800 transition-colors p-2 rounded-lg hover:bg-slate-100"
-                >
-                  <VscRefresh
-                    size={20}
-                    className={isLoading ? "animate-spin" : ""}
-                  />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-4">
-                {isLoading ? (
-                  <div className="text-xs font-bold text-slate-400 text-center py-20 animate-pulse">
-                    일지를 불러오는 중입니다...
-                  </div>
-                ) : logs.length === 0 ? (
-                  <button
-                    onClick={handleOpenCreate}
-                    className="text-[13px] font-bold text-slate-400 text-center py-10 border border-dashed border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
-                  >
-                    + 첫 개발일지를 작성해보세요
-                  </button>
-                ) : (
-                  logs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="p-5 rounded-2xl border border-slate-100 hover:border-slate-300 shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-md transition-all cursor-pointer group flex flex-col gap-1"
-                      onClick={() => {
-                        setSelectedLog(log);
-                        setView("detail");
-                      }}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-slate-400">
-                            {log.date}
-                          </span>
-
-                          {log.scheduleId ? (
-                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md">
-                              일정 연결
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md">
-                          {STAGE_LABELS[log.stage] || "구현"}
-                        </span>
-                      </div>
-
-                      <h4 className="text-[16px] font-bold text-slate-800 mb-1 group-hover:text-blue-600 transition-colors tracking-tight">
-                        {log.title}
-                      </h4>
-
-                      <p className="text-[13px] text-slate-500 line-clamp-2 leading-relaxed mb-2">
-                        {log.summary || "내용이 없습니다."}
-                      </p>
-
-                      {log.tags && (
-                        <div>
-                          <span className="text-[11px] text-slate-400 font-mono truncate bg-slate-50 inline-block px-2 py-1 rounded-md">
-                            #
-                            {Array.isArray(log.tags)
-                              ? log.tags.join(" #")
-                              : log.tags}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+      <div className="flex h-full w-full flex-1 items-center justify-center bg-[#f8fafc]">
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-10 py-8 text-center shadow-sm">
+          <p className="text-[15px] font-extrabold text-slate-700">
+            워크스페이스 정보를 불러올 수 없습니다.
+          </p>
+          <p className="mt-2 text-[13px] font-medium text-slate-400">
+            메인 화면에서 프로젝트를 선택한 뒤 다시 들어와주세요.
+          </p>
         </div>
-
-        {isFormOpen && (
-          <DevlogFormModal
-            editingTarget={editingTarget}
-            form={form}
-            projects={[{ id: defaultProjectId, name: workspaceName }]}
-            setForm={setForm}
-            onClose={() => setIsFormOpen(false)}
-            onSubmit={handleSubmit}
-            isStageFixed={false}
-            isProjectFixed={true}
-          />
-        )}
       </div>
     );
   }
 
   return (
-    <div className="flex-1 w-full flex flex-col h-full bg-[#f8fafc] font-sans p-6 overflow-hidden">
-      <div className="max-w-5xl mx-auto w-full bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full overflow-hidden">
-        <div className="h-16 border-b border-slate-200 flex items-center justify-between px-6 shrink-0 bg-white">
-          <button
-            onClick={() => setView("list")}
-            className="flex items-center gap-1 text-[13px] font-bold text-slate-500 hover:text-slate-900 transition-colors"
-          >
-            <VscChevronLeft size={18} />
-            목록으로
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleOpenEdit(selectedLog)}
-              className="px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1"
-            >
-              <VscEdit size={14} />
-              수정
-            </button>
-
-            <button
-              onClick={() =>
-                handleDelete(selectedLog.id, selectedLog.projectId)
-              }
-              className="px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1"
-            >
-              <VscTrash size={14} />
-              삭제
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          <div className="max-w-3xl mx-auto">
-            <div className="mb-8">
-              <div className="flex gap-2 items-center mb-4">
-                <span className="text-[11px] font-bold bg-slate-800 text-white px-3 py-1 rounded-full">
-                  {workspaceName}
-                </span>
-
-                <span className="text-[11px] font-bold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">
-                  {STAGE_LABELS[selectedLog?.stage] || "구현"}
-                </span>
-
-                {selectedLog?.scheduleId ? (
-                  <span className="text-[11px] font-bold bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full">
-                    일정 연결
+    <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-[#f8fafc] font-sans">
+      <div className="flex-1 overflow-y-auto px-7 py-7">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+          <section className="rounded-[28px] border border-slate-200 bg-white px-7 py-6 shadow-sm">
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                {/* <div className="mb-3 flex items-center gap-2">
+                  <span className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-extrabold text-white">
+                    개발일지
                   </span>
-                ) : null}
 
-                <span className="text-[13px] font-medium text-slate-400 ml-1">
-                  {selectedLog?.date}
+                  {isIdePage ? (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-500">
+                      IDE 워크스페이스
+                    </span>
+                  ) : null}
+                </div> */}
+
+                <h1 className="text-[24px] font-black tracking-[-0.03em] text-slate-950">
+                  {workspaceName} 개발일지
+                </h1>
+
+                <p className="mt-1.5 text-[13px] font-medium text-slate-500">
+                  일정에 연결된 일지와 일반 작업 일지를 한 화면에서 관리합니다.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={reloadAll}
+                  className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-extrabold text-slate-600 transition hover:bg-slate-50"
+                >
+                  <VscRefresh
+                    size={17}
+                    className={
+                      isLoadingLogs || isLoadingSchedules ? "animate-spin" : ""
+                    }
+                  />
+                  새로고침
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openCreateGeneral}
+                  className="flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                  <VscAdd size={18} />새 개발일지
+                </button>
+              </div>
+            </div>
+          </section>
+
+         
+
+          <section className="grid min-h-[620px] grid-cols-[360px_minmax(0,1fr)_420px] gap-5">
+            <aside className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[18px] font-black text-slate-950">
+                    워크스페이스 일정
+                  </h2>
+                  <p className="mt-1 text-[12px] font-medium text-slate-400">
+                    일정별로 개발일지를 바로 작성할 수 있습니다.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadSchedules}
+                  className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <VscRefresh
+                    size={18}
+                    className={isLoadingSchedules ? "animate-spin" : ""}
+                  />
+                </button>
+              </div>
+
+              <div className="mb-4 flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <VscCalendar className="text-slate-500" size={17} />
+                  <span className="text-[13px] font-extrabold text-slate-700">
+                    이번 달 일정
+                  </span>
+                </div>
+                <span className="text-[12px] font-black text-blue-600">
+                  {schedules.length}개
                 </span>
               </div>
 
-              <h2 className="text-[28px] font-extrabold text-slate-900 leading-snug">
-                {selectedLog?.title}
-              </h2>
-
-              {selectedLog?.tags && (
-                <div className="text-[13px] text-slate-400 mt-3 font-mono">
-                  #
-                  {Array.isArray(selectedLog.tags)
-                    ? selectedLog.tags.join(" #")
-                    : selectedLog.tags}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-8">
-              {selectedLog?.summary && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    한 줄 요약
-                  </h4>
-                  <p className="text-[14px] text-slate-700 bg-slate-50 p-5 rounded-2xl border border-slate-100 leading-relaxed">
-                    {selectedLog.summary}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.goal && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    목표
-                  </h4>
-                  <p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed px-1">
-                    {selectedLog.goal}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.design && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    설계
-                  </h4>
-                  <p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed px-1">
-                    {selectedLog.design}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.issue && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    문제 상황
-                  </h4>
-                  <p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed px-1">
-                    {selectedLog.issue}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.solution && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    해결 방법
-                  </h4>
-                  <p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed px-1">
-                    {selectedLog.solution}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.nextPlan && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    다음 계획
-                  </h4>
-                  <p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed px-1">
-                    {selectedLog.nextPlan}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.commitHash && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    커밋 / 브랜치
-                  </h4>
-                  <p className="font-mono text-[13px] text-slate-600 bg-slate-100 px-4 py-2 rounded-lg inline-block">
-                    {selectedLog.commitHash}
-                  </p>
-                </div>
-              )}
-
-              {selectedLog?.content && (
-                <div>
-                  <h4 className="text-[14px] font-bold text-slate-900 mb-3 border-b pb-2">
-                    상세 내용
-                  </h4>
-                  <div className="text-[14px] text-slate-800 bg-white p-6 rounded-2xl border border-slate-200 whitespace-pre-wrap leading-relaxed shadow-sm">
-                    {selectedLog.content}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {isLoadingSchedules ? (
+                  <div className="rounded-3xl border border-dashed border-slate-200 py-16 text-center text-[13px] font-bold text-slate-400">
+                    일정을 불러오는 중입니다.
                   </div>
+                ) : schedules.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-slate-300 px-5 py-10 text-center">
+                    <p className="text-[13px] font-extrabold text-slate-500">
+                      등록된 일정이 없습니다.
+                    </p>
+                    <p className="mt-1 text-[12px] font-medium text-slate-400">
+                      일정관리에서 일정을 먼저 등록해주세요.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {schedules.map((schedule) => (
+                      <article
+                        key={schedule.id}
+                        className="rounded-3xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.03)] transition hover:border-slate-300 hover:shadow-md"
+                      >
+                        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                          <ScheduleStatusBadge status={schedule.status} />
+
+                          {schedule.hasDevlog ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                              작성됨
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <h3 className="line-clamp-2 text-[14px] font-black leading-snug text-slate-900">
+                          {schedule.title}
+                        </h3>
+
+                        <p className="mt-2 text-[12px] font-bold text-slate-400">
+                          {schedule.startDate}
+                          {schedule.startDate !== schedule.endDate
+                            ? ` ~ ${schedule.endDate}`
+                            : ""}
+                        </p>
+
+                        {schedule.description ? (
+                          <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-slate-500">
+                            {schedule.description}
+                          </p>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          onClick={() => openCreateFromSchedule(schedule)}
+                          className="mt-4 h-9 w-full rounded-xl bg-slate-950 text-[12px] font-extrabold text-white transition hover:bg-slate-800"
+                        >
+                          이 일정으로 일지 쓰기
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </aside>
+
+            <main className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[18px] font-black text-slate-950">
+                    작성된 일지
+                  </h2>
+                  <p className="mt-1 text-[12px] font-medium text-slate-400">
+                    클릭하면 오른쪽에서 상세 내용을 확인합니다.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadLogs}
+                  className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <VscRefresh
+                    size={18}
+                    className={isLoadingLogs ? "animate-spin" : ""}
+                  />
+                </button>
+              </div>
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  ["all", "전체"],
+                  ["linked", "일정 연결"],
+                  ["general", "일반"],
+                  ["progress", "진행 중"],
+                  ["done", "완료"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFilter(key)}
+                    className={`h-9 rounded-xl px-3 text-[12px] font-extrabold transition ${
+                      filter === key
+                        ? "bg-slate-950 text-white shadow-sm"
+                        : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {isLoadingLogs ? (
+                  <div className="rounded-3xl border border-dashed border-slate-200 py-20 text-center text-[13px] font-bold text-slate-400">
+                    개발일지를 불러오는 중입니다.
+                  </div>
+                ) : filteredLogs.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={openCreateGeneral}
+                    className="w-full rounded-3xl border border-dashed border-slate-300 py-16 text-center transition hover:bg-slate-50"
+                  >
+                    <p className="text-[14px] font-extrabold text-slate-500">
+                      작성된 개발일지가 없습니다.
+                    </p>
+                    <p className="mt-1 text-[12px] font-medium text-slate-400">
+                      + 첫 개발일지를 작성해보세요.
+                    </p>
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredLogs.map((log) => {
+                      const active = String(selectedLog?.id) === String(log.id);
+
+                      return (
+                        <article
+                          key={log.id}
+                          onClick={() => setSelectedLog(log)}
+                          className={`cursor-pointer rounded-3xl border p-5 transition ${
+                            active
+                              ? "border-slate-950 bg-slate-950 text-white shadow-md"
+                              : "border-slate-100 bg-white text-slate-900 shadow-[0_2px_10px_rgba(15,23,42,0.03)] hover:border-slate-300 hover:shadow-md"
+                          }`}
+                        >
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <span
+                              className={`text-[11px] font-black ${
+                                active ? "text-slate-300" : "text-slate-400"
+                              }`}
+                            >
+                              {log.workedDate}
+                            </span>
+
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                log.scheduleId
+                                  ? active
+                                    ? "bg-white/15 text-blue-100"
+                                    : "bg-blue-50 text-blue-700"
+                                  : active
+                                    ? "bg-white/15 text-slate-200"
+                                    : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {log.scheduleId ? "일정 연결" : "일반 일지"}
+                            </span>
+
+                            {log.status ? (
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                  active
+                                    ? "bg-white/15 text-slate-100"
+                                    : "bg-purple-50 text-purple-700"
+                                }`}
+                              >
+                                {scheduleStatusLabel[log.status] || log.status}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <h3
+                            className={`line-clamp-1 text-[16px] font-black ${
+                              active ? "text-white" : "text-slate-950"
+                            }`}
+                          >
+                            {log.title}
+                          </h3>
+
+                          {log.scheduleTitle ? (
+                            <p
+                              className={`mt-2 line-clamp-1 text-[12px] font-bold ${
+                                active ? "text-blue-100" : "text-blue-600"
+                              }`}
+                            >
+                              연결 일정: {log.scheduleTitle}
+                            </p>
+                          ) : null}
+
+                          <p
+                            className={`mt-2 line-clamp-2 text-[13px] leading-6 ${
+                              active ? "text-slate-300" : "text-slate-500"
+                            }`}
+                          >
+                            {log.content || "내용이 없습니다."}
+                          </p>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </main>
+
+            <aside className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm">
+              {selectedLog ? (
+                <>
+                  <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLog(null)}
+                      className="flex items-center gap-1 text-[13px] font-extrabold text-slate-500 transition hover:text-slate-900"
+                    >
+                      <VscChevronLeft size={17} />
+                      상세 닫기
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(selectedLog)}
+                        className="rounded-xl p-2 text-slate-400 transition hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        <VscEdit size={17} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(selectedLog)}
+                        className="rounded-xl p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <VscTrash size={17} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <DevlogTypeBadge type={selectedLog.type} />
+
+                      {selectedLog.status ? (
+                        <ScheduleStatusBadge status={selectedLog.status} />
+                      ) : null}
+                    </div>
+
+                    <h2 className="text-[24px] font-black leading-tight tracking-[-0.03em] text-slate-950">
+                      {selectedLog.title}
+                    </h2>
+
+                    <p className="mt-3 text-[13px] font-bold text-slate-400">
+                      작업 날짜 {selectedLog.workedDate}
+                    </p>
+
+                    {selectedLog.scheduleTitle ? (
+                      <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+                        <p className="text-[12px] font-extrabold text-blue-700">
+                          연결 일정
+                        </p>
+                        <p className="mt-1 text-[13px] font-bold text-blue-950">
+                          {selectedLog.scheduleTitle}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-6">
+                      <h3 className="mb-3 text-[14px] font-black text-slate-950">
+                        작성 내용
+                      </h3>
+
+                      <div className="min-h-[260px] whitespace-pre-wrap rounded-3xl border border-slate-200 bg-slate-50 px-5 py-5 text-[14px] leading-7 text-slate-700">
+                        {selectedLog.content || "작성된 내용이 없습니다."}
+                      </div>
+                    </div>
+
+                    {selectedLog.updatedAt ? (
+                      <p className="mt-4 text-[11px] font-medium text-slate-400">
+                        마지막 수정: {selectedLog.updatedAt}
+                      </p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-slate-400">
+                    <VscCalendar size={26} />
+                  </div>
+
+                  <p className="text-[15px] font-black text-slate-700">
+                    선택된 일지가 없습니다.
+                  </p>
+                  <p className="mt-2 text-[13px] leading-6 text-slate-400">
+                    작성된 일지를 선택하면 상세 내용이 이 영역에 표시됩니다.
+                  </p>
                 </div>
               )}
-            </div>
-          </div>
+            </aside>
+          </section>
         </div>
       </div>
 
-      {isFormOpen && (
-        <DevlogFormModal
-          editingTarget={editingTarget}
-          form={form}
-          projects={[{ id: defaultProjectId, name: workspaceName }]}
-          setForm={setForm}
-          onClose={() => setIsFormOpen(false)}
-          onSubmit={handleSubmit}
-          isStageFixed={false}
-          isProjectFixed={true}
-        />
-      )}
+      <DevlogFormModal
+        open={formOpen}
+        mode={formMode}
+        form={form}
+        schedules={schedules}
+        selectedSchedule={selectedSchedule}
+        onChange={updateForm}
+        onClose={closeForm}
+        onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }
