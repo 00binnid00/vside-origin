@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
   Clock3,
   Code2,
+  Database,
   Download,
+  GitBranch,
   Github,
   LayoutDashboard,
   LogOut,
@@ -25,6 +27,7 @@ import {
   fetchMyWorkspaces,
   fetchScheduleProgress,
   fetchWorkspaceDevlogs,
+  generateFinalReportDraftApi,
   type MyPageDevlogResponse,
   type ScheduleProgressResponse,
   type ScheduleView,
@@ -33,6 +36,12 @@ import {
   type WorkspaceListResponse,
   type WorkspaceProjectResponse,
 } from "@/components/mypage/api";
+
+import {
+  fetchWorkspaceApiSpecsApi,
+  fetchWorkspaceDesignDocumentApi,
+  fetchWorkspaceRequirementsApi,
+} from "@/lib/design/api";
 
 import type {
   ActivitySummary,
@@ -47,6 +56,37 @@ import type {
 type DevlogSortType = "latest" | "oldest";
 type ProjectTypeFilter = "all" | "personal" | "team";
 type ArchiveTabKey = "devlog" | "design" | "final";
+type DesignArchiveSectionKey = "requirements" | "api" | "erd" | "flow";
+
+type DesignRequirementItem = {
+  id: string | number;
+  category: string;
+  name: string;
+  description: string;
+};
+
+type DesignApiSpecItem = {
+  id: string | number;
+  method: string;
+  endpoint: string;
+  description: string;
+  request: string;
+  response: string;
+};
+
+type DesignDocumentItem = {
+  erdNodesJson?: string | null;
+  erdEdgesJson?: string | null;
+  flowNodesJson?: string | null;
+  flowEdgesJson?: string | null;
+};
+
+type ParsedDesignDocument = {
+  erdNodes: Record<string, unknown>[];
+  erdEdges: Record<string, unknown>[];
+  flowNodes: Record<string, unknown>[];
+  flowEdges: Record<string, unknown>[];
+};
 
 const fallbackHeatmapValues: HeatmapLevel[] = [
   0, 1, 2, 0, 3, 1, 4, 2, 0, 1, 3, 0, 2, 1, 4, 3, 1, 0, 2, 4, 1, 0, 1, 3, 2, 0,
@@ -571,7 +611,7 @@ function logout() {
 }
 
 function escapeHtml(value: string) {
-  return value
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -591,6 +631,364 @@ function getPrintDateLabel() {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
+}
+
+function parseDesignJsonArray(
+  value?: string | null,
+): Record<string, unknown>[] {
+  if (!value || typeof value !== "string") return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (item): item is Record<string, unknown> =>
+            typeof item === "object" && item !== null && !Array.isArray(item),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function getParsedDesignDocument(
+  designDocument: DesignDocumentItem | null,
+): ParsedDesignDocument {
+  return {
+    erdNodes: parseDesignJsonArray(designDocument?.erdNodesJson),
+    erdEdges: parseDesignJsonArray(designDocument?.erdEdgesJson),
+    flowNodes: parseDesignJsonArray(designDocument?.flowNodesJson),
+    flowEdges: parseDesignJsonArray(designDocument?.flowEdgesJson),
+  };
+}
+
+function getNodeData(node: Record<string, unknown>) {
+  const data = node.data;
+
+  return typeof data === "object" && data !== null && !Array.isArray(data)
+    ? (data as Record<string, unknown>)
+    : {};
+}
+
+function getNodeLabel(node: Record<string, unknown>, fallback: string) {
+  const data = getNodeData(node);
+  const label = data.label ?? data.name ?? node.label ?? node.name;
+
+  return typeof label === "string" && label.trim() ? label.trim() : fallback;
+}
+
+function getNodeSubText(node: Record<string, unknown>) {
+  const data = getNodeData(node);
+  const type = data.type;
+  const techStack = data.techStack;
+
+  const typeLabel =
+    type === "client"
+      ? "화면"
+      : type === "server"
+        ? "서버/API"
+        : type === "db"
+          ? "DB"
+          : type === "external"
+            ? "외부 서비스"
+            : typeof type === "string" && type.trim()
+              ? type.trim()
+              : "설계 노드";
+
+  const techText =
+    typeof techStack === "string" && techStack.trim()
+      ? techStack.trim()
+      : "설명 없음";
+
+  return `${typeLabel} · ${techText}`;
+}
+
+function getNodeColumns(node: Record<string, unknown>) {
+  const data = getNodeData(node);
+  const columns = data.columns;
+
+  return Array.isArray(columns)
+    ? columns.filter(
+        (column): column is Record<string, unknown> =>
+          typeof column === "object" &&
+          column !== null &&
+          !Array.isArray(column),
+      )
+    : [];
+}
+
+
+function getNodePosition(node: Record<string, unknown>, index: number) {
+  const position = node.position;
+
+  if (
+    typeof position === "object" &&
+    position !== null &&
+    !Array.isArray(position)
+  ) {
+    const record = position as Record<string, unknown>;
+    const x = Number(record.x);
+    const y = Number(record.y);
+
+    return {
+      x: Number.isFinite(x) ? x : 120 + (index % 3) * 280,
+      y: Number.isFinite(y) ? y : 100 + Math.floor(index / 3) * 190,
+    };
+  }
+
+  return {
+    x: 120 + (index % 3) * 280,
+    y: 100 + Math.floor(index / 3) * 190,
+  };
+}
+
+function getEdgeSourceTarget(edge: Record<string, unknown>) {
+  const source = edge.source;
+  const target = edge.target;
+
+  return {
+    source: typeof source === "string" ? source : "",
+    target: typeof target === "string" ? target : "",
+  };
+}
+
+function buildSvgPath(
+  sourceX: number,
+  sourceY: number,
+  targetX: number,
+  targetY: number,
+) {
+  const midX = (sourceX + targetX) / 2;
+
+  return `M ${sourceX} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${targetX} ${targetY}`;
+}
+
+type NormalizedDiagramNode = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  columns: Record<string, unknown>[];
+  subText: string;
+};
+
+function normalizeDiagramNodes(
+  nodes: Record<string, unknown>[],
+  type: "erd" | "flow",
+): NormalizedDiagramNode[] {
+  return nodes.map((node, index) => {
+    const position = getNodePosition(node, index);
+
+    return {
+      id: String(node.id ?? `node-${index}`),
+      label: getNodeLabel(
+        node,
+        type === "erd" ? `TABLE_${index + 1}` : `NODE_${index + 1}`,
+      ),
+      x: position.x,
+      y: position.y,
+      columns: getNodeColumns(node),
+      subText: getNodeSubText(node),
+    };
+  });
+}
+
+function getDiagramLayout(
+  nodes: NormalizedDiagramNode[],
+  type: "erd" | "flow",
+) {
+  const nodeWidth = type === "erd" ? 220 : 270;
+  const nodeHeight = type === "erd" ? 138 : 92;
+  const padding = 80;
+
+  if (nodes.length === 0) {
+    return {
+      nodes: [] as NormalizedDiagramNode[],
+      width: 760,
+      height: 420,
+      nodeWidth,
+      nodeHeight,
+    };
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const minY = Math.min(...nodes.map((node) => node.y));
+  const maxX = Math.max(...nodes.map((node) => node.x));
+  const maxY = Math.max(...nodes.map((node) => node.y));
+
+  const offsetX = padding - minX;
+  const offsetY = padding - minY;
+
+  return {
+    nodes: nodes.map((node) => ({
+      ...node,
+      x: node.x + offsetX,
+      y: node.y + offsetY,
+    })),
+    width: Math.max(860, maxX - minX + nodeWidth + padding * 2),
+    height: Math.max(460, maxY - minY + nodeHeight + padding * 2),
+    nodeWidth,
+    nodeHeight,
+  };
+}
+
+function buildPrintDiagramSvg({
+  nodes,
+  edges,
+  type,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  type: "erd" | "flow";
+}) {
+  if (nodes.length === 0) {
+    return `<div class="empty small-empty">표시할 다이어그램이 없습니다.</div>`;
+  }
+
+  const layout = getDiagramLayout(normalizeDiagramNodes(nodes, type), type);
+  const nodeMap = new Map(layout.nodes.map((node) => [node.id, node]));
+  const strokeColor = type === "erd" ? "#2563eb" : "#7c3aed";
+
+  const edgeSvg = edges
+    .map((edge) => {
+      const { source, target } = getEdgeSourceTarget(edge);
+      const sourceNode = nodeMap.get(source);
+      const targetNode = nodeMap.get(target);
+
+      if (!sourceNode || !targetNode) return "";
+
+      const sourceX = sourceNode.x + layout.nodeWidth;
+      const sourceY = sourceNode.y + layout.nodeHeight / 2;
+      const targetX = targetNode.x;
+      const targetY = targetNode.y + layout.nodeHeight / 2;
+
+      return `
+        <path
+          d="${buildSvgPath(sourceX, sourceY, targetX, targetY)}"
+          fill="none"
+          stroke="${strokeColor}"
+          stroke-width="2"
+          stroke-dasharray="${type === "flow" ? "6 5" : "0"}"
+          marker-end="url(#arrow-${type})"
+        />
+      `;
+    })
+    .join("");
+
+  const nodeSvg = layout.nodes
+    .map((node) => {
+      if (type === "erd") {
+        const columnRows = node.columns.length
+          ? node.columns
+              .slice(0, 4)
+              .map((column, columnIndex) => {
+                const columnName =
+                  typeof column.name === "string" ? column.name : "column";
+                const columnType =
+                  typeof column.type === "string" ? column.type : "TYPE";
+
+                return `
+                  <text x="${node.x + 16}" y="${node.y + 74 + columnIndex * 18}" class="diagram-column">
+                    ${escapeHtml(columnName)} · ${escapeHtml(columnType)}
+                  </text>
+                `;
+              })
+              .join("")
+          : `<text x="${node.x + 16}" y="${node.y + 78}" class="diagram-muted">컬럼 없음</text>`;
+
+        return `
+          <g>
+            <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="${layout.nodeHeight}" rx="14" fill="#ffffff" stroke="#bfdbfe" />
+            <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="42" rx="14" fill="#020617" />
+            <text x="${node.x + 16}" y="${node.y + 27}" class="diagram-title diagram-white">${escapeHtml(node.label)}</text>
+            ${columnRows}
+          </g>
+        `;
+      }
+
+      return `
+        <g>
+          <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="${layout.nodeHeight}" rx="16" fill="#eff6ff" stroke="#bfdbfe" />
+          <circle cx="${node.x + 28}" cy="${node.y + 32}" r="14" fill="#ffffff" stroke="#dbeafe" />
+          <text x="${node.x + 52}" y="${node.y + 33}" class="diagram-title">${escapeHtml(node.label)}</text>
+          <text x="${node.x + 52}" y="${node.y + 58}" class="diagram-muted">${escapeHtml(node.subText)}</text>
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 ${layout.width} ${layout.height}" class="diagram-svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow-${type}" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="${strokeColor}" />
+          </marker>
+          <pattern id="dot-grid-${type}" width="18" height="18" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="#dbeafe" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="#f8fbff" />
+        <rect width="100%" height="100%" fill="url(#dot-grid-${type})" />
+        ${edgeSvg}
+        ${nodeSvg}
+      </svg>
+    </div>
+  `;
+}
+
+function getColumnStringValue(
+  column: Record<string, unknown>,
+  key: string,
+  fallback: string,
+) {
+  const value = column[key];
+
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function getColumnBooleanValue(
+  column: Record<string, unknown>,
+  keys: string[],
+) {
+  return keys.some((key) => column[key] === true || column[key] === "true");
+}
+
+function getFlowNodeType(node: Record<string, unknown>) {
+  const data = getNodeData(node);
+  const type = data.type ?? node.type;
+
+  return typeof type === "string" && type.trim() ? type.trim() : "설계 노드";
+}
+
+function getFlowNodeTechStack(node: Record<string, unknown>) {
+  const data = getNodeData(node);
+  const techStack =
+    data.techStack ?? data.description ?? data.memo ?? node.description;
+
+  return typeof techStack === "string" && techStack.trim()
+    ? techStack.trim()
+    : getNodeSubText(node);
+}
+
+function buildErdTablesForDraft(erdNodes: Record<string, unknown>[]) {
+  return erdNodes.map((node, index) => ({
+    name: getNodeLabel(node, `TABLE_${index + 1}`),
+    columns: getNodeColumns(node).map((column) => ({
+      name: getColumnStringValue(column, "name", "column"),
+      type: getColumnStringValue(column, "type", "TYPE"),
+      pk: getColumnBooleanValue(column, ["pk", "primaryKey", "isPrimaryKey"]),
+      fk: getColumnBooleanValue(column, ["fk", "foreignKey", "isForeignKey"]),
+    })),
+  }));
+}
+
+function buildFlowNodesForDraft(flowNodes: Record<string, unknown>[]) {
+  return flowNodes.map((node, index) => ({
+    label: getNodeLabel(node, `NODE_${index + 1}`),
+    type: getFlowNodeType(node),
+    techStack: getFlowNodeTechStack(node),
+  }));
 }
 
 export default function MyPageDemo() {
@@ -761,7 +1159,7 @@ export default function MyPageDemo() {
 
   return (
     <main className="min-h-screen bg-blue-50 text-slate-950">
-      <div className="mx-auto max-w-[1440px] px-6 py-8">
+      <div className="mx-auto max-w-[1440px] px-6 py-6">
         <section className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border border-blue-100 bg-white px-5 py-4 shadow-sm md:flex-row md:items-center">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-blue-100 bg-white text-xl font-black shadow-sm">
@@ -835,7 +1233,7 @@ export default function MyPageDemo() {
                         </span>
                         <span
                           className={[
-                            "mt-0.5 block text-[11px] font-semibold",
+                            "mt-0.5 block text-[10px] font-semibold",
                             isActive ? "text-blue-100" : "text-slate-400",
                           ].join(" ")}
                         >
@@ -1071,7 +1469,7 @@ function ProjectSection({
         </div>
       </div>
 
-      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           {projectTypeFilters.map((filter) => {
             const isActive = projectTypeFilter === filter.key;
@@ -1309,33 +1707,143 @@ function ProjectArchiveSection({
 }) {
   const [activeArchiveTab, setActiveArchiveTab] =
     useState<ArchiveTabKey>("devlog");
-  const [selectedProjectId, setSelectedProjectId] = useState("all");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [sortType, setSortType] = useState<DevlogSortType>("latest");
   const [finalReportDraft, setFinalReportDraft] = useState("");
+  const [finalReportLoading, setFinalReportLoading] = useState(false);
+  const [finalReportError, setFinalReportError] = useState("");
+
+  const [designRequirements, setDesignRequirements] = useState<
+    DesignRequirementItem[]
+  >([]);
+  const [designApiSpecs, setDesignApiSpecs] = useState<DesignApiSpecItem[]>([]);
+  const [designDocument, setDesignDocument] =
+    useState<DesignDocumentItem | null>(null);
+  const [designLoading, setDesignLoading] = useState(false);
+  const [designError, setDesignError] = useState("");
 
   const projectOptions = useMemo(() => {
-    const map = new Map<string, string>();
+    return projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+    }));
+  }, [projects]);
 
-    for (const project of projects) {
-      map.set(project.id, project.name);
+  useEffect(() => {
+    if (projectOptions.length === 0) {
+      if (selectedProjectId) setSelectedProjectId("");
+      return;
     }
 
-    for (const devlog of devlogs) {
-      if (devlog.projectId && devlog.projectName) {
-        map.set(devlog.projectId, devlog.projectName);
+    const exists = projectOptions.some(
+      (project) => project.id === selectedProjectId,
+    );
+
+    if (!selectedProjectId || !exists) {
+      setSelectedProjectId(projectOptions[0].id);
+    }
+  }, [projectOptions, selectedProjectId]);
+
+  const selectedProject = useMemo(() => {
+    return projects.find((project) => project.id === selectedProjectId) ?? null;
+  }, [projects, selectedProjectId]);
+
+  const selectedDesignWorkspaceId =
+    selectedProject?.workspaceId || selectedProject?.id || "";
+
+  const parsedDesignDocument = useMemo(
+    () => getParsedDesignDocument(designDocument),
+    [designDocument],
+  );
+
+  useEffect(() => {
+    setFinalReportDraft("");
+    setFinalReportError("");
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadDesignArchive() {
+      if (activeArchiveTab !== "design" && activeArchiveTab !== "final") return;
+
+      if (!selectedDesignWorkspaceId) {
+        setDesignRequirements([]);
+        setDesignApiSpecs([]);
+        setDesignDocument(null);
+        return;
+      }
+
+      try {
+        setDesignLoading(true);
+        setDesignError("");
+
+        const [requirementsResult, apiSpecsResult, designDocumentResult] =
+          await Promise.allSettled([
+            fetchWorkspaceRequirementsApi(selectedDesignWorkspaceId),
+            fetchWorkspaceApiSpecsApi(selectedDesignWorkspaceId),
+            fetchWorkspaceDesignDocumentApi(selectedDesignWorkspaceId),
+          ]);
+
+        if (!mounted) return;
+
+        if (requirementsResult.status === "fulfilled") {
+          setDesignRequirements(
+            Array.isArray(requirementsResult.value)
+              ? requirementsResult.value
+              : [],
+          );
+        } else {
+          setDesignRequirements([]);
+        }
+
+        if (apiSpecsResult.status === "fulfilled") {
+          setDesignApiSpecs(
+            Array.isArray(apiSpecsResult.value) ? apiSpecsResult.value : [],
+          );
+        } else {
+          setDesignApiSpecs([]);
+        }
+
+        if (designDocumentResult.status === "fulfilled") {
+          setDesignDocument(designDocumentResult.value ?? null);
+        } else {
+          setDesignDocument(null);
+        }
+
+        const failedCount = [
+          requirementsResult,
+          apiSpecsResult,
+          designDocumentResult,
+        ].filter((result) => result.status === "rejected").length;
+
+        if (failedCount > 0) {
+          setDesignError(
+            "일부 설계 문서를 불러오지 못했습니다. 저장된 항목만 표시합니다.",
+          );
+        }
+      } catch (error) {
+        if (!mounted) return;
+
+        setDesignRequirements([]);
+        setDesignApiSpecs([]);
+        setDesignDocument(null);
+        setDesignError(
+          error instanceof Error
+            ? error.message
+            : "설계 문서를 불러오지 못했습니다.",
+        );
+      } finally {
+        if (mounted) setDesignLoading(false);
       }
     }
 
-    return Array.from(map.entries()).map(([id, name]) => ({
-      id,
-      name,
-    }));
-  }, [projects, devlogs]);
+    loadDesignArchive();
 
-  const selectedProject = useMemo(() => {
-    if (selectedProjectId === "all") return projects[0] ?? null;
-    return projects.find((project) => project.id === selectedProjectId) ?? null;
-  }, [projects, selectedProjectId]);
+    return () => {
+      mounted = false;
+    };
+  }, [activeArchiveTab, selectedDesignWorkspaceId]);
 
   const filteredDevlogs = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -1343,7 +1851,6 @@ function ProjectArchiveSection({
     return devlogs
       .filter((devlog) => {
         const matchesProject =
-          selectedProjectId === "all" ||
           String(devlog.projectId ?? "") === selectedProjectId ||
           String(devlog.workspaceId ?? "") === selectedProjectId;
 
@@ -1400,29 +1907,7 @@ function ProjectArchiveSection({
     }
 
     const documentTitle = activeArchive?.label ?? "프로젝트 자료실";
-    const selectedProjectName =
-      selectedProjectId === "all"
-        ? "전체 프로젝트"
-        : selectedProject?.name || "선택된 프로젝트";
-
-    const designSections = [
-      {
-        title: "요구사항 정의",
-        body: "사용자, 프로젝트, 일정, 개발일지, 설계 자료를 프로젝트 단위로 관리할 수 있어야 합니다.",
-      },
-      {
-        title: "기능 명세",
-        body: "프로젝트 목록 조회, 개인/팀 필터링, 개발일지 문서화, 설계 문서 정리, 최종 보고서 생성 기능을 제공합니다.",
-      },
-      {
-        title: "ERD",
-        body: "사용자, 워크스페이스, 프로젝트, 일정, 개발일지, 설계 문서 엔티티를 중심으로 구성합니다. 실제 ERD 연결 시 이 영역에 이미지 또는 다이어그램 데이터를 표시하면 됩니다.",
-      },
-      {
-        title: "데이터 플로우",
-        body: "프로젝트 선택 후 일정/일지/설계 데이터가 워크스페이스 기준으로 조회되고, 자료실에서 문서 형태로 재구성됩니다.",
-      },
-    ];
+    const selectedProjectName = selectedProject?.name || "선택된 프로젝트";
 
     const printBody = (() => {
       if (activeArchiveTab === "devlog") {
@@ -1449,34 +1934,194 @@ function ProjectArchiveSection({
       }
 
       if (activeArchiveTab === "design") {
-        return designSections
-          .map(
-            (section, index) => `
-              <article class="print-card">
-                <div class="print-card-header">
-                  <span class="index">${index + 1}</span>
-                  <div>
-                    <h2>${escapeHtml(section.title)}</h2>
-                    <p class="meta">설계 문서</p>
-                  </div>
-                </div>
-                <p class="body-text">${escapeHtmlWithLineBreaks(section.body)}</p>
-              </article>
-            `,
-          )
-          .join("");
+        const erdTables = parsedDesignDocument.erdNodes;
+        const flowNodes = parsedDesignDocument.flowNodes;
+
+        const requirementHtml = designRequirements.length
+          ? designRequirements
+              .map(
+                (item, index) => `
+                  <article class="print-card compact-card">
+                    <div class="print-card-header">
+                      <span class="index">${index + 1}</span>
+                      <div>
+                        <h2>${escapeHtml(item.name || "이름 없는 요구사항")}</h2>
+                        <p class="meta">${escapeHtml(item.category || "기본")}</p>
+                      </div>
+                    </div>
+                    <p class="body-text">${escapeHtmlWithLineBreaks(item.description || "설명이 없습니다.")}</p>
+                  </article>
+                `,
+              )
+              .join("")
+          : `<div class="empty small-empty">작성된 요구사항이 없습니다.</div>`;
+
+       const apiHtml = designApiSpecs.length
+  ? designApiSpecs
+      .map(
+        (item) => `
+          <article class="print-card compact-card">
+            <h2>
+              <span class="method">${escapeHtml(item.method || "GET")}</span>
+              ${escapeHtml(item.endpoint || "/api/example")}
+            </h2>
+            <p class="body-text">${escapeHtmlWithLineBreaks(
+              item.description || "설명이 없습니다.",
+            )}</p>
+
+            <div class="api-payload-grid">
+              <div>
+                <p class="payload-title">요청 데이터</p>
+                <pre class="code-block">${escapeHtml(
+                  formatApiPayload(item.request),
+                )}</pre>
+              </div>
+
+              <div>
+                <p class="payload-title">응답 데이터</p>
+                <pre class="code-block">${escapeHtml(
+                  formatApiPayload(item.response),
+                )}</pre>
+              </div>
+            </div>
+          </article>
+        `,
+      )
+      .join("")
+  : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
+        const erdDiagramHtml = buildPrintDiagramSvg({
+          nodes: erdTables,
+          edges: parsedDesignDocument.erdEdges,
+          type: "erd",
+        });
+
+        const flowDiagramHtml = buildPrintDiagramSvg({
+          nodes: flowNodes,
+          edges: parsedDesignDocument.flowEdges,
+          type: "flow",
+        });
+
+        const erdHtml = erdTables.length
+          ? erdTables
+              .map((node, index) => {
+                const columns = getNodeColumns(node);
+
+                return `
+                  <article class="print-card compact-card">
+                    <div class="print-card-header">
+                      <span class="index">${index + 1}</span>
+                      <div>
+                        <h2>${escapeHtml(getNodeLabel(node, `TABLE_${index + 1}`))}</h2>
+                        <p class="meta">컬럼 ${columns.length}개</p>
+                      </div>
+                    </div>
+                    <p class="body-text">${
+                      columns.length
+                        ? columns
+                            .slice(0, 8)
+                            .map((column) => {
+                              const name =
+                                typeof column.name === "string"
+                                  ? column.name
+                                  : "column";
+                              const type =
+                                typeof column.type === "string"
+                                  ? column.type
+                                  : "TYPE";
+
+                              return `${escapeHtml(name)} (${escapeHtml(type)})`;
+                            })
+                            .join(", ")
+                        : "컬럼이 없습니다."
+                    }</p>
+                  </article>
+                `;
+              })
+              .join("")
+          : `<div class="empty small-empty">작성된 ERD 테이블이 없습니다.</div>`;
+
+        const flowHtml = flowNodes.length
+          ? flowNodes
+              .map(
+                (node, index) => `
+                  <article class="print-card compact-card">
+                    <div class="print-card-header">
+                      <span class="index">${index + 1}</span>
+                      <div>
+                        <h2>${escapeHtml(getNodeLabel(node, `NODE_${index + 1}`))}</h2>
+                        <p class="meta">${escapeHtml(getNodeSubText(node))}</p>
+                      </div>
+                    </div>
+                  </article>
+                `,
+              )
+              .join("")
+          : `<div class="empty small-empty">작성된 데이터 플로우가 없습니다.</div>`;
+
+        return `
+          <section class="print-section">
+            <h2 class="section-title">1. 요구사항 정의</h2>
+            ${requirementHtml}
+          </section>
+          <section class="print-section">
+            <h2 class="section-title">2. API 명세</h2>
+            ${apiHtml}
+          </section>
+          <section class="print-section">
+            <h2 class="section-title">3. ERD</h2>
+            <p class="body-text section-description">설계단계에서 작성한 테이블과 관계선을 시각화한 다이어그램입니다.</p>
+            ${erdDiagramHtml}
+            ${erdHtml}
+          </section>
+          <section class="print-section">
+            <h2 class="section-title">4. 데이터 플로우</h2>
+            <p class="body-text section-description">화면, 서버, DB, 외부 서비스 사이의 데이터 흐름을 시각화한 다이어그램입니다.</p>
+            ${flowDiagramHtml}
+            ${flowHtml}
+          </section>
+        `;
       }
 
-      const reportContent =
-        finalReportDraft.trim() ||
-        "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
+    const reportContent =
+  finalReportDraft.trim() ||
+  "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
 
-      return `
-        <article class="print-card report-card">
-          <h2>프로젝트 최종 보고서 초안</h2>
-          <div class="report-text">${escapeHtmlWithLineBreaks(reportContent)}</div>
-        </article>
-      `;
+const finalErdDiagramHtml = buildPrintDiagramSvg({
+  nodes: parsedDesignDocument.erdNodes,
+  edges: parsedDesignDocument.erdEdges,
+  type: "erd",
+});
+
+const finalFlowDiagramHtml = buildPrintDiagramSvg({
+  nodes: parsedDesignDocument.flowNodes,
+  edges: parsedDesignDocument.flowEdges,
+  type: "flow",
+});
+
+return `
+  <section class="print-section">
+    <h2 class="section-title">1. 최종 보고서 초안</h2>
+    <article class="print-card report-card">
+      <div class="report-text">${escapeHtmlWithLineBreaks(reportContent)}</div>
+    </article>
+  </section>
+
+  <section class="print-section diagram-page">
+    <h2 class="section-title">2. ERD</h2>
+    <p class="body-text section-description">
+      설계단계에서 작성한 테이블 구조와 관계선을 최종 보고서에 포함합니다.
+    </p>
+    ${finalErdDiagramHtml}
+  </section>
+
+  <section class="print-section diagram-page">
+    <h2 class="section-title">3. 데이터 플로우</h2>
+    <p class="body-text section-description">
+      화면, 서버, DB, 외부 서비스 사이의 데이터 흐름을 최종 보고서에 포함합니다.
+    </p>
+    ${finalFlowDiagramHtml}
+  </section>
+`;
     })();
 
     printWindow.document.write(`
@@ -1556,11 +2201,26 @@ function ProjectArchiveSection({
               font-weight: 800;
             }
 
+            .print-section {
+              margin-bottom: 22px;
+            }
+
+            .section-title {
+              margin: 0 0 8px;
+              color: #1d4ed8;
+              font-size: 18px;
+              font-weight: 900;
+            }
+
             .print-card {
               break-inside: avoid;
               page-break-inside: avoid;
               padding: 18px 0;
               border-bottom: 1px solid #e5e7eb;
+            }
+
+            .compact-card {
+              padding: 12px 0;
             }
 
             .print-card:first-of-type {
@@ -1596,6 +2256,16 @@ function ProjectArchiveSection({
               letter-spacing: -0.02em;
             }
 
+            .method {
+              display: inline-block;
+              margin-right: 6px;
+              border-radius: 7px;
+              background: #dbeafe;
+              color: #1d4ed8;
+              padding: 2px 7px;
+              font-size: 11px;
+            }
+
             .meta {
               margin: 3px 0 0;
               color: #64748b;
@@ -1620,16 +2290,100 @@ function ProjectArchiveSection({
               margin-bottom: 14px;
             }
 
-            .report-text {
-              white-space: normal;
-            }
-
             .empty {
               padding: 40px 0;
               color: #64748b;
               font-size: 14px;
               font-weight: 700;
               text-align: center;
+            }
+
+            .small-empty {
+              padding: 14px 0;
+              text-align: left;
+            }
+
+
+
+            .section-description {
+              margin-bottom: 10px;
+            }
+
+            .diagram-wrap {
+              width: 100%;
+              margin: 12px 0 18px;
+              border: 1px solid #dbeafe;
+              border-radius: 16px;
+              overflow: hidden;
+              background: #f8fbff;
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+              .diagram-page {
+  break-before: auto;
+  page-break-before: auto;
+}
+
+.code-block {
+  margin: 8px 0 0;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.api-payload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.payload-title {
+  margin: 0 0 4px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+@media print {
+  .api-payload-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+            .diagram-svg {
+              display: block;
+              width: 100%;
+              min-height: 360px;
+            }
+
+            .diagram-title {
+              fill: #0f172a;
+              font-size: 13px;
+              font-weight: 900;
+            }
+
+            .diagram-white {
+              fill: #ffffff;
+            }
+
+            .diagram-column {
+              fill: #334155;
+              font-size: 11px;
+              font-weight: 700;
+            }
+
+            .diagram-muted {
+              fill: #64748b;
+              font-size: 10px;
+              font-weight: 700;
             }
 
             @media print {
@@ -1675,37 +2429,130 @@ function ProjectArchiveSection({
     };
   };
 
-  const handleGenerateFinalReport = () => {
-    const projectName = selectedProject?.name ?? "선택된 프로젝트";
-    const stack =
-      selectedProject?.stack?.join(", ") || selectedProject?.language || "미정";
-    const progress = selectedProject?.progress ?? 0;
-    const doneScheduleCount = selectedProject?.doneScheduleCount ?? 0;
-    const scheduleTotalCount = selectedProject?.scheduleTotalCount ?? 0;
+  const handleGenerateFinalReport = async () => {
+  if (!selectedProject) {
+    alert("최종 보고서 초안을 생성할 프로젝트를 선택해주세요.");
+    return;
+  }
 
-    setFinalReportDraft(
-      `프로젝트 최종 보고서 초안\n\n1. 프로젝트 개요\n${projectName}은(는) 프로젝트 관리, 개발 기록, 설계 자료 문서화를 지원하는 프로젝트입니다. 프로젝트 진행 과정에서 작성된 개발일지와 설계 정보를 바탕으로 최종 산출물을 정리합니다.\n\n2. 개발 목적\n프로젝트 진행 상황과 개발 기록을 한 곳에서 관리하고, 누적된 자료를 문서 형태로 확인할 수 있도록 하는 것을 목표로 합니다.\n\n3. 주요 기능\n- 프로젝트별 개발일지 관리\n- 설계 문서 정리\n- 프로젝트 진행률 및 완료 일정 요약\n- 최종 보고서 초안 생성 및 PDF 저장\n\n4. 기술 스택\n${stack}\n\n5. 개발 진행 요약\n현재 진행률은 ${progress}%이며, 완료 일정은 ${doneScheduleCount}/${scheduleTotalCount}개입니다. 작성된 개발일지는 ${filteredDevlogs.length}개입니다.\n\n6. 개발 결과\n프로젝트 자료실을 통해 개발일지, 설계 문서, 최종 보고서를 한 화면에서 확인할 수 있도록 구성했습니다.\n\n7. 향후 개선점\nAI 초안 생성 결과를 서버에 저장하고, Word 또는 PDF 파일 다운로드 기능으로 확장할 수 있습니다.`,
-    );
-  };
+  if (!selectedDesignWorkspaceId) {
+    alert("프로젝트 식별값을 찾지 못했습니다.");
+    return;
+  }
+
+  if (finalReportLoading) {
+    return;
+  }
+
+  try {
+    setFinalReportLoading(true);
+    setFinalReportError("");
+
+    console.log("[final report] AI 초안 생성 요청 시작", {
+      workspaceId: selectedDesignWorkspaceId,
+      projectName: selectedProject.name,
+      devlogCount: filteredDevlogs.length,
+      requirementCount: designRequirements.length,
+      apiSpecCount: designApiSpecs.length,
+      erdCount: parsedDesignDocument.erdNodes.length,
+      flowCount: parsedDesignDocument.flowNodes.length,
+    });
+
+    const response = await generateFinalReportDraftApi({
+      workspaceId: selectedDesignWorkspaceId,
+      project: {
+        name: selectedProject.name,
+        description: selectedProject.description,
+        type: selectedProject.type,
+        language: selectedProject.language,
+        stack: selectedProject.stack,
+        progress: selectedProject.progress,
+        doneScheduleCount: selectedProject.doneScheduleCount,
+        scheduleTotalCount: selectedProject.scheduleTotalCount,
+        devlogCount: filteredDevlogs.length,
+      },
+      devlogs: filteredDevlogs.map((devlog) => ({
+        title: devlog.title,
+        date: devlog.date,
+        projectName: devlog.projectName,
+        summary: devlog.summary,
+      })),
+      requirements: designRequirements.map((item) => ({
+        category: item.category,
+        name: item.name,
+        description: item.description,
+      })),
+      apiSpecs: designApiSpecs.map((item) => ({
+        method: item.method,
+        endpoint: item.endpoint,
+        description: item.description,
+        request: item.request,
+        response: item.response,
+      })),
+      erdTables: buildErdTablesForDraft(parsedDesignDocument.erdNodes),
+      flowNodes: buildFlowNodesForDraft(parsedDesignDocument.flowNodes),
+    });
+
+    console.log("[final report] AI 초안 생성 응답", response);
+
+    const responseRecord =
+  typeof response === "object" && response !== null
+    ? (response as Record<string, unknown>)
+    : null;
+
+const nextDraft =
+  typeof response === "string"
+    ? response
+    : typeof responseRecord?.draft === "string"
+      ? responseRecord.draft
+      : typeof responseRecord?.content === "string"
+        ? responseRecord.content
+        : typeof responseRecord?.result === "string"
+          ? responseRecord.result
+          : typeof responseRecord?.message === "string"
+            ? responseRecord.message
+            : "";
+
+    if (!nextDraft.trim()) {
+      throw new Error(
+        "AI 초안 응답은 왔지만 보고서 내용이 비어 있습니다. 백엔드 응답 필드명을 확인해주세요.",
+      );
+    }
+
+    setFinalReportDraft(nextDraft);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "AI 최종 보고서 초안 생성에 실패했습니다.";
+
+    console.error("[final report] AI 초안 생성 실패", error);
+
+    setFinalReportError(message);
+    alert(message);
+  } finally {
+    setFinalReportLoading(false);
+  }
+};
 
   return (
-    <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
+    <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex flex-col justify-between gap-2 xl:flex-row xl:items-center">
         <div>
           <h3 className="text-lg font-black tracking-tight text-slate-950">
             프로젝트 자료실
           </h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500">
-            개발일지, 설계 문서, 최종 보고서를 문서 형태로 확인합니다.
+          <p className="mt-0.5 text-xs font-bold text-slate-500">
+            선택 프로젝트: {selectedProject?.name ?? "프로젝트 없음"}
           </p>
         </div>
 
-        <span className="w-fit rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-700">
+        <span className="w-fit rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-black text-blue-700">
           {activeArchive?.label}
         </span>
       </div>
 
-      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+      <div className="mb-3 grid grid-cols-3 gap-2">
         {archiveTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeArchiveTab === tab.key;
@@ -1716,7 +2563,7 @@ function ProjectArchiveSection({
               type="button"
               onClick={() => setActiveArchiveTab(tab.key)}
               className={[
-                "flex items-center gap-3 rounded-2xl border p-4 text-left transition",
+                "flex h-10 items-center justify-center gap-2 rounded-xl border px-2.5 text-left transition",
                 isActive
                   ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-100"
                   : "border-blue-100 bg-blue-50 text-slate-700 hover:border-blue-200 hover:bg-blue-100",
@@ -1724,21 +2571,15 @@ function ProjectArchiveSection({
             >
               <span
                 className={[
-                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
                   isActive ? "bg-white/20" : "bg-white text-blue-700",
                 ].join(" ")}
               >
-                <Icon size={18} />
+                <Icon size={15} />
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-black">{tab.label}</span>
-                <span
-                  className={[
-                    "mt-0.5 block text-[11px] font-semibold",
-                    isActive ? "text-blue-100" : "text-slate-500",
-                  ].join(" ")}
-                >
-                  {tab.description}
+                <span className="block text-sm font-black leading-tight">
+                  {tab.label}
                 </span>
               </span>
             </button>
@@ -1746,14 +2587,17 @@ function ProjectArchiveSection({
         })}
       </div>
 
-      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_150px] xl:w-[520px]">
+      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)] xl:w-[360px]">
           <select
             value={selectedProjectId}
             onChange={(event) => setSelectedProjectId(event.target.value)}
-            className="h-9 rounded-xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400 focus:bg-white"
+            disabled={projectOptions.length === 0}
+            className="h-9 rounded-xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-blue-400 focus:bg-white"
           >
-            <option value="all">전체 프로젝트</option>
+            {projectOptions.length === 0 && (
+              <option value="">프로젝트 없음</option>
+            )}
             {projectOptions.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
@@ -1761,17 +2605,18 @@ function ProjectArchiveSection({
             ))}
           </select>
 
-          <select
-            value={sortType}
-            onChange={(event) =>
-              setSortType(event.target.value as DevlogSortType)
-            }
-            disabled={activeArchiveTab !== "devlog"}
-            className="h-9 rounded-xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-blue-400 focus:bg-white"
-          >
-            <option value="latest">최신순</option>
-            <option value="oldest">오래된순</option>
-          </select>
+          {activeArchiveTab === "devlog" && (
+            <select
+              value={sortType}
+              onChange={(event) =>
+                setSortType(event.target.value as DevlogSortType)
+              }
+              className="h-9 rounded-xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400 focus:bg-white"
+            >
+              <option value="latest">최신순</option>
+              <option value="oldest">오래된순</option>
+            </select>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -1804,18 +2649,28 @@ function ProjectArchiveSection({
       )}
 
       {activeArchiveTab === "design" && (
-        <ArchiveDesignContent selectedProject={selectedProject} />
-      )}
-
-      {activeArchiveTab === "final" && (
-        <ArchiveFinalReportContent
+        <ArchiveDesignContent
           selectedProject={selectedProject}
-          devlogCount={filteredDevlogs.length}
-          draft={finalReportDraft}
-          onDraftChange={setFinalReportDraft}
-          onGenerate={handleGenerateFinalReport}
+          requirements={designRequirements}
+          apiSpecs={designApiSpecs}
+          designDocument={parsedDesignDocument}
+          isLoading={designLoading}
+          errorMessage={designError}
         />
       )}
+
+   {activeArchiveTab === "final" && (
+  <ArchiveFinalReportContent
+    selectedProject={selectedProject}
+    devlogCount={filteredDevlogs.length}
+    draft={finalReportDraft}
+    onDraftChange={setFinalReportDraft}
+    onGenerate={handleGenerateFinalReport}
+    designDocument={parsedDesignDocument}
+    isGenerating={finalReportLoading}
+    errorMessage={finalReportError}
+  />
+)}
     </section>
   );
 }
@@ -1850,59 +2705,671 @@ function ArchiveDevlogContent({ devlogs }: { devlogs: Devlog[] }) {
 
 function ArchiveDesignContent({
   selectedProject,
+  requirements,
+  apiSpecs,
+  designDocument,
+  isLoading,
+  errorMessage,
 }: {
   selectedProject: Project | null;
+  requirements: DesignRequirementItem[];
+  apiSpecs: DesignApiSpecItem[];
+  designDocument: ParsedDesignDocument;
+  isLoading: boolean;
+  errorMessage: string;
 }) {
-  const designSections = [
+  const [activeDesignSection, setActiveDesignSection] =
+    useState<DesignArchiveSectionKey>("requirements");
+
+  const erdTables = designDocument.erdNodes;
+  const erdRelations = designDocument.erdEdges;
+  const flowNodes = designDocument.flowNodes;
+  const flowEdges = designDocument.flowEdges;
+
+  const designSectionTabs: {
+    key: DesignArchiveSectionKey;
+    label: string;
+    description: string;
+    count: number;
+    icon: React.ElementType;
+  }[] = [
     {
-      title: "요구사항 정의",
-      body: "사용자, 프로젝트, 일정, 개발일지, 설계 자료를 프로젝트 단위로 관리할 수 있어야 합니다.",
+      key: "requirements",
+      label: "요구사항",
+      description: "구현 범위와 기능 조건",
+      count: requirements.length,
+      icon: CheckCircle2,
     },
     {
-      title: "기능 명세",
-      body: "프로젝트 목록 조회, 개인/팀 필터링, 개발일지 문서화, 설계 문서 정리, 최종 보고서 생성 기능을 제공합니다.",
+      key: "api",
+      label: "API",
+      description: "요청/응답과 엔드포인트",
+      count: apiSpecs.length,
+      icon: Code2,
     },
     {
-      title: "ERD",
-      body: "사용자, 워크스페이스, 프로젝트, 일정, 개발일지, 설계 문서 엔티티를 중심으로 구성합니다. 실제 ERD 연결 시 이 영역에 이미지 또는 다이어그램 데이터를 표시하면 됩니다.",
+      key: "erd",
+      label: "ERD",
+      description: "테이블·컬럼·관계",
+      count: erdTables.length,
+      icon: Database,
     },
     {
-      title: "데이터 플로우",
-      body: "프로젝트 선택 후 일정/일지/설계 데이터가 워크스페이스 기준으로 조회되고, 자료실에서 문서 형태로 재구성됩니다.",
+      key: "flow",
+      label: "데이터 흐름",
+      description: "화면·서버·DB 처리 흐름",
+      count: flowNodes.length,
+      icon: GitBranch,
     },
   ];
 
+  const activeDesignTab = designSectionTabs.find(
+    (tab) => tab.key === activeDesignSection,
+  );
+  const ActiveDesignIcon = activeDesignTab?.icon;
+
+  const hasAnyDesignData =
+    requirements.length > 0 ||
+    apiSpecs.length > 0 ||
+    erdTables.length > 0 ||
+    flowNodes.length > 0;
+
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-        <p className="text-sm font-black text-blue-700">설계 문서</p>
-        <p className="mt-1 text-sm font-semibold text-slate-600">
-          {selectedProject
-            ? `${selectedProject.name}의 설계 단계 자료를 문서화하는 영역입니다.`
-            : "프로젝트를 선택하면 해당 프로젝트의 설계 문서를 확인할 수 있습니다."}
+      {errorMessage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+          {errorMessage}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {designSectionTabs.map((tab) => {
+            const isActive = activeDesignSection === tab.key;
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveDesignSection(tab.key)}
+                className={[
+                  "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition",
+                  isActive
+                    ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-100"
+                    : "border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100",
+                ].join(" ")}
+              >
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <span className="w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-black text-blue-700">
+          선택 프로젝트: {selectedProject?.name ?? "프로젝트 없음"}
+        </span>
+      </div>
+
+      {isLoading ? (
+        <div className="rounded-2xl border border-blue-100 bg-white px-4 py-10 text-center text-sm font-black text-slate-500">
+          설계 문서를 불러오는 중입니다.
+        </div>
+      ) : !hasAnyDesignData ? (
+        <EmptyState message="아직 문서화할 설계 데이터가 없습니다. 설계단계에서 요구사항, ERD 또는 데이터 플로우를 먼저 작성해주세요." />
+      ) : (
+        <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex flex-col justify-between gap-2 border-b border-blue-50 pb-3 xl:flex-row xl:items-center">
+            <div className="flex min-w-0 items-center gap-2">
+              {ActiveDesignIcon && (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                  <ActiveDesignIcon size={16} />
+                </span>
+              )}
+              <div className="min-w-0">
+                <h4 className="truncate text-base font-black tracking-tight text-slate-950">
+                  {activeDesignTab?.label}
+                </h4>
+                <p className="truncate text-xs font-semibold text-slate-500">
+                  {activeDesignTab?.description}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {activeDesignSection === "requirements" && (
+            <DesignRequirementsPage requirements={requirements} />
+          )}
+
+          {activeDesignSection === "api" && (
+            <DesignApiSpecsPage apiSpecs={apiSpecs} />
+          )}
+
+          {activeDesignSection === "erd" && (
+            <DesignErdPage
+              tables={erdTables}
+              edges={erdRelations}
+              relationCount={erdRelations.length}
+            />
+          )}
+
+          {activeDesignSection === "flow" && (
+            <DesignFlowPage
+              nodes={flowNodes}
+              edges={flowEdges}
+              edgeCount={flowEdges.length}
+            />
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function DesignRequirementsPage({
+  requirements,
+}: {
+  requirements: DesignRequirementItem[];
+}) {
+  if (requirements.length === 0) {
+    return <DesignEmptyText text="작성된 요구사항이 없습니다." />;
+  }
+
+  return (
+    <div className="space-y-2.5">
+      {requirements.map((item, index) => (
+        <article
+          key={item.id}
+          className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"
+        >
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-xs font-black text-white">
+              {index + 1}
+            </span>
+            <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-black text-blue-700">
+              {item.category || "기본"}
+            </span>
+            <h5 className="text-sm font-black text-slate-950">
+              {item.name || "이름 없는 요구사항"}
+            </h5>
+          </div>
+          <p className="text-sm font-semibold leading-6 text-slate-600">
+            {item.description || "설명이 없습니다."}
+          </p>
+        </article>
+      ))}
+    </div>
+  );
+}
+function formatApiPayload(value?: string | null) {
+  if (!value || !value.trim()) return "-";
+
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function DesignApiSpecsPage({ apiSpecs }: { apiSpecs: DesignApiSpecItem[] }) {
+  if (apiSpecs.length === 0) {
+    return <DesignEmptyText text="작성된 API 명세가 없습니다." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {apiSpecs.map((item) => (
+        <article
+          key={item.id}
+          className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm"
+        >
+          <div className="flex flex-col gap-3 border-b border-blue-100 bg-blue-50 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1 text-[11px] font-black text-white">
+                {item.method || "GET"}
+              </span>
+
+              <code className="min-w-0 break-all rounded-lg bg-white px-3 py-1.5 text-sm font-black text-slate-900">
+                {item.endpoint || "/api/example"}
+              </code>
+            </div>
+
+            <span className="w-fit rounded-full bg-white px-3 py-1 text-[11px] font-black text-blue-700">
+              API 명세
+            </span>
+          </div>
+
+          <div className="space-y-4 p-4">
+            <div>
+              <p className="mb-1 text-xs font-black text-slate-400">설명</p>
+              <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-slate-700">
+                {item.description || "설명이 없습니다."}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                <p className="mb-2 text-xs font-black text-blue-700">
+                  요청 데이터
+                </p>
+                <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-blue-100 bg-white p-3 text-xs font-bold leading-6 text-slate-700">
+                  {formatApiPayload(item.request)}
+                </pre>
+              </div>
+
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                <p className="mb-2 text-xs font-black text-blue-700">
+                  응답 데이터
+                </p>
+                <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-blue-100 bg-white p-3 text-xs font-bold leading-6 text-slate-700">
+                  {formatApiPayload(item.response)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DesignErdPage({
+  tables,
+  edges,
+  relationCount,
+}: {
+  tables: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  relationCount: number;
+}) {
+  if (tables.length === 0) {
+    return <DesignEmptyText text="작성된 ERD 테이블이 없습니다." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <DesignDiagramPreview
+        nodes={tables}
+        edges={edges}
+        type="erd"
+        title="ERD 구조 미리보기"
+        description="설계단계에서 작성한 테이블 위치와 관계선을 시각화했습니다."
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+        <p className="text-sm font-black text-slate-700">
+          테이블 {tables.length}개 · 관계 {relationCount}개
+        </p>
+        <p className="text-xs font-semibold text-slate-500">
+          아래 목록에서는 각 테이블의 컬럼을 문서 형태로 확인합니다.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {designSections.map((section, index) => (
-          <article
-            key={section.title}
-            className="rounded-2xl border border-blue-100 bg-white p-4"
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+        {tables.map((node, index) => {
+          const columns = getNodeColumns(node);
+
+          return (
+            <article
+              key={String(node.id ?? index)}
+              className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm"
+            >
+              <div className="flex items-center justify-between gap-2 bg-slate-950 px-4 py-3 text-white">
+                <div className="min-w-0">
+                  <h5 className="truncate text-sm font-black">
+                    {getNodeLabel(node, `TABLE_${index + 1}`)}
+                  </h5>
+                  <p className="text-[11px] font-semibold text-slate-300">
+                    컬럼 {columns.length}개
+                  </p>
+                </div>
+                <Database size={16} />
+              </div>
+
+              <div className="max-h-[220px] divide-y divide-slate-100 overflow-y-auto">
+                {columns.length === 0 ? (
+                  <p className="px-4 py-4 text-xs font-bold text-slate-400">
+                    컬럼이 없습니다.
+                  </p>
+                ) : (
+                  columns.map((column, columnIndex) => (
+                    <div
+                      key={String(column.id ?? columnIndex)}
+                      className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs"
+                    >
+                      <span className="min-w-0 truncate font-black text-slate-700">
+                        {typeof column.name === "string"
+                          ? column.name
+                          : "column"}
+                      </span>
+                      <span className="shrink-0 rounded-lg bg-blue-50 px-2 py-0.5 font-black text-blue-700">
+                        {typeof column.type === "string" ? column.type : "TYPE"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DesignFlowPage({
+  nodes,
+  edges,
+  edgeCount,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  edgeCount: number;
+}) {
+  if (nodes.length === 0) {
+    return <DesignEmptyText text="작성된 데이터 플로우가 없습니다." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <DesignDiagramPreview
+        nodes={nodes}
+        edges={edges}
+        type="flow"
+        title="데이터 플로우 미리보기"
+        description="화면, 서버, DB, 외부 서비스 사이의 흐름을 시각화했습니다."
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+        <p className="text-sm font-black text-slate-700">
+          노드 {nodes.length}개 · 연결 {edgeCount}개
+        </p>
+        <p className="text-xs font-semibold text-slate-500">
+          아래 목록에서는 각 흐름 노드의 역할을 문서 형태로 확인합니다.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+        {nodes.map((node, index) => (
+          <div
+            key={String(node.id ?? index)}
+            className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/60 p-4"
           >
-            <div className="mb-2 flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-xs font-black text-white">
-                {index + 1}
-              </span>
-              <h4 className="text-sm font-black text-slate-950">
-                {section.title}
-              </h4>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-700">
+              <GitBranch size={17} />
             </div>
-            <p className="text-sm font-semibold leading-6 text-slate-500">
-              {section.body}
-            </p>
-          </article>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-black text-slate-950">
+                {getNodeLabel(node, `NODE_${index + 1}`)}
+              </p>
+              <p className="truncate text-xs font-semibold text-slate-500">
+                {getNodeSubText(node)}
+              </p>
+            </div>
+          </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function DesignDiagramPreview({
+  nodes,
+  edges,
+  type,
+  title,
+  description,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  type: "erd" | "flow";
+  title: string;
+  description: string;
+}) {
+  const normalizedNodes = useMemo(
+    () => normalizeDiagramNodes(nodes, type),
+    [nodes, type],
+  );
+
+  const layout = useMemo(
+    () => getDiagramLayout(normalizedNodes, type),
+    [normalizedNodes, type],
+  );
+
+  const nodeMap = useMemo(
+    () => new Map(layout.nodes.map((node) => [node.id, node])),
+    [layout.nodes],
+  );
+
+  const strokeColor = type === "erd" ? "#2563eb" : "#7c3aed";
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+      <div className="flex flex-col justify-between gap-2 border-b border-blue-100 bg-blue-50 px-4 py-3 md:flex-row md:items-center">
+        <div>
+          <p className="text-sm font-black text-slate-950">{title}</p>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">
+            {description}
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-white px-3 py-1 text-[11px] font-black text-blue-700 shadow-sm">
+          노드 {nodes.length}개 · 연결 {edges.length}개
+        </span>
+      </div>
+
+      <div className="overflow-auto bg-[#f8fbff] p-3">
+        <svg
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          className="h-[420px] min-w-[860px] w-full rounded-xl border border-blue-100 bg-white"
+          role="img"
+          aria-label={title}
+        >
+          <defs>
+            <marker
+              id={`archive-arrow-${type}`}
+              markerWidth="10"
+              markerHeight="10"
+              refX="8"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L9,3 z" fill={strokeColor} />
+            </marker>
+            <pattern
+              id={`archive-dot-grid-${type}`}
+              width="18"
+              height="18"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="1" cy="1" r="1" fill="#dbeafe" />
+            </pattern>
+          </defs>
+
+          <rect width="100%" height="100%" fill="#f8fbff" />
+          <rect
+            width="100%"
+            height="100%"
+            fill={`url(#archive-dot-grid-${type})`}
+          />
+
+          {edges.map((edge, index) => {
+            const { source, target } = getEdgeSourceTarget(edge);
+            const sourceNode = nodeMap.get(source);
+            const targetNode = nodeMap.get(target);
+
+            if (!sourceNode || !targetNode) return null;
+
+            const sourceX = sourceNode.x + layout.nodeWidth;
+            const sourceY = sourceNode.y + layout.nodeHeight / 2;
+            const targetX = targetNode.x;
+            const targetY = targetNode.y + layout.nodeHeight / 2;
+
+            return (
+              <path
+                key={String(edge.id ?? index)}
+                d={buildSvgPath(sourceX, sourceY, targetX, targetY)}
+                fill="none"
+                stroke={strokeColor}
+                strokeWidth={2}
+                strokeDasharray={type === "flow" ? "6 5" : undefined}
+                markerEnd={`url(#archive-arrow-${type})`}
+              />
+            );
+          })}
+
+          {layout.nodes.map((node) => {
+            if (type === "erd") {
+              return (
+                <g key={node.id}>
+                  <rect
+                    x={node.x}
+                    y={node.y}
+                    width={layout.nodeWidth}
+                    height={layout.nodeHeight}
+                    rx={14}
+                    fill="#ffffff"
+                    stroke="#bfdbfe"
+                  />
+                  <rect
+                    x={node.x}
+                    y={node.y}
+                    width={layout.nodeWidth}
+                    height={42}
+                    rx={14}
+                    fill="#020617"
+                  />
+                  <text
+                    x={node.x + 16}
+                    y={node.y + 27}
+                    fill="#ffffff"
+                    fontSize={13}
+                    fontWeight={900}
+                  >
+                    {node.label}
+                  </text>
+
+                  {node.columns.length === 0 ? (
+                    <text
+                      x={node.x + 16}
+                      y={node.y + 78}
+                      fill="#64748b"
+                      fontSize={11}
+                      fontWeight={700}
+                    >
+                      컬럼 없음
+                    </text>
+                  ) : (
+                    node.columns.slice(0, 4).map((column, columnIndex) => {
+                      const columnName =
+                        typeof column.name === "string"
+                          ? column.name
+                          : "column";
+                      const columnType =
+                        typeof column.type === "string" ? column.type : "TYPE";
+
+                      return (
+                        <text
+                          key={String(column.id ?? columnIndex)}
+                          x={node.x + 16}
+                          y={node.y + 74 + columnIndex * 18}
+                          fill="#334155"
+                          fontSize={11}
+                          fontWeight={700}
+                        >
+                          {columnName} · {columnType}
+                        </text>
+                      );
+                    })
+                  )}
+                </g>
+              );
+            }
+
+            return (
+              <g key={node.id}>
+                <rect
+                  x={node.x}
+                  y={node.y}
+                  width={layout.nodeWidth}
+                  height={layout.nodeHeight}
+                  rx={16}
+                  fill="#eff6ff"
+                  stroke="#bfdbfe"
+                />
+                <circle
+                  cx={node.x + 28}
+                  cy={node.y + 32}
+                  r={14}
+                  fill="#ffffff"
+                  stroke="#dbeafe"
+                />
+                <text
+                  x={node.x + 52}
+                  y={node.y + 33}
+                  fill="#0f172a"
+                  fontSize={13}
+                  fontWeight={900}
+                >
+                  {node.label}
+                </text>
+                <text
+                  x={node.x + 52}
+                  y={node.y + 58}
+                  fill="#64748b"
+                  fontSize={10}
+                  fontWeight={700}
+                >
+                  {node.subText}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
+function DesignDocumentBlock({
+  title,
+  description,
+  count,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  description: string;
+  count: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+            <Icon size={15} />
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-base font-black text-slate-950">{title}</h4>
+            <p className="mt-0.5 text-xs font-semibold text-slate-500">
+              {description}
+            </p>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-black text-blue-700">
+          {count}
+        </span>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+function DesignEmptyText({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-blue-100 bg-blue-50/70 px-4 py-8 text-center">
+      <p className="text-sm font-black text-slate-400">{text}</p>
     </div>
   );
 }
@@ -1913,58 +3380,466 @@ function ArchiveFinalReportContent({
   draft,
   onDraftChange,
   onGenerate,
+  designDocument,
+  isGenerating,
+  errorMessage,
 }: {
   selectedProject: Project | null;
   devlogCount: number;
   draft: string;
   onDraftChange: (value: string) => void;
   onGenerate: () => void;
+  designDocument: ParsedDesignDocument;
+  isGenerating: boolean;
+  errorMessage: string;
 }) {
-  return (
-    <div className="space-y-4">
-      {/* <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <ArchiveMetricCard
-          label="선택 프로젝트"
-          value={selectedProject?.name ?? "전체 기준"}
-        />
-        <ArchiveMetricCard
-          label="진행률"
-          value={`${selectedProject?.progress ?? 0}%`}
-        />
-        <ArchiveMetricCard label="개발일지" value={`${devlogCount}개`} />
-      </div> */}
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 520)}px`;
+  }, [draft]);
+
+  return (
+    <div className="space-y-4 pb-28">
       <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
         <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
           <div>
             <h4 className="text-base font-black text-slate-950">최종 보고서</h4>
             <p className="mt-1 text-sm font-semibold text-slate-500">
-              프로젝트 정보와 개발일지 요약을 기반으로 AI 초안 형태의 보고서를
-              작성합니다.
+              AI 초안과 설계 다이어그램을 하나의 보고서 문서로 구성합니다.
             </p>
           </div>
 
           <button
             type="button"
             onClick={onGenerate}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900"
+            disabled={isGenerating}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Sparkles size={16} />
-            AI 초안 생성
+            {isGenerating ? "생성 중..." : "AI 초안 생성"}
           </button>
         </div>
       </div>
 
-      <div className="min-h-screen rounded-2xl border border-blue-100 bg-white p-4 xl:min-h-[calc(100vh-200px)]">
-        <textarea
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
-          placeholder="AI 초안 생성 버튼을 누르면 최종 보고서 초안이 여기에 작성됩니다. 생성 후 직접 수정할 수 있습니다."
-          className="h-full min-h-[600px] w-full resize-none border-0 bg-transparent text-sm font-semibold leading-7 text-slate-700 outline-none placeholder:text-slate-400 xl:min-h-[calc(100vh-360px)]"
-        />
-      </div>
+      {errorMessage && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+          {errorMessage}
+        </div>
+      )}
+
+      <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col justify-between gap-2 border-b border-blue-50 pb-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-sm font-black text-slate-950">
+              프로젝트 최종 보고서
+            </p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              PDF 저장 시 아래 초안, ERD, 데이터 플로우가 함께 출력됩니다.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-[11px] font-black">
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">
+              {selectedProject?.name ?? "프로젝트 미선택"}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+              개발일지 {devlogCount}개
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <section>
+            <h5 className="mb-2 text-sm font-black text-slate-950">
+              1. AI 최종 보고서 초안
+            </h5>
+
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              placeholder={
+                isGenerating
+                  ? "AI가 최종 보고서 초안을 생성하는 중입니다."
+                  : "AI 초안 생성 버튼을 누르면 최종 보고서 초안이 여기에 작성됩니다. 생성 후 직접 수정할 수 있습니다."
+              }
+              className="block min-h-[520px] w-full resize-none overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/30 p-4 text-sm font-semibold leading-8 text-slate-700 outline-none placeholder:text-slate-400"
+            />
+          </section>
+
+          <section>
+            <h5 className="mb-2 text-sm font-black text-slate-950">
+              2. 설계 다이어그램
+            </h5>
+
+            <FinalReportDesignVisuals designDocument={designDocument} />
+          </section>
+        </div>
+      </section>
     </div>
   );
+}
+
+function FinalReportDesignVisuals({
+  designDocument,
+}: {
+  designDocument: ParsedDesignDocument;
+}) {
+  const erdNodes = designDocument.erdNodes;
+  const erdEdges = designDocument.erdEdges;
+  const flowNodes = designDocument.flowNodes;
+  const flowEdges = designDocument.flowEdges;
+
+  const hasErd = erdNodes.length > 0;
+  const hasFlow = flowNodes.length > 0;
+
+  if (!hasErd && !hasFlow) {
+    return (
+      <section className="rounded-2xl border border-dashed border-blue-100 bg-blue-50/70 px-4 py-10 text-center">
+        <p className="text-sm font-black text-slate-400">
+          최종 보고서에 표시할 ERD 또는 데이터 플로우가 없습니다.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="border-b border-blue-50 pb-4">
+        <p className="text-sm font-black text-slate-950">설계 다이어그램</p>
+        <p className="mt-1 text-xs font-semibold text-slate-500">
+          설계관리에서 작성한 ERD와 데이터 플로우를 최종 보고서에 함께
+          표시합니다.
+        </p>
+      </div>
+
+      {hasErd && (
+        <FinalReportErdDiagram nodes={erdNodes} edges={erdEdges} />
+      )}
+
+      {hasFlow && (
+        <FinalReportFlowDiagram nodes={flowNodes} edges={flowEdges} />
+      )}
+    </section>
+  );
+}
+
+function FinalReportErdDiagram({
+  nodes,
+  edges,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+}) {
+  const bounds = getDiagramBounds(nodes);
+
+  return (
+    <section className="rounded-2xl border border-blue-100 bg-slate-50 p-4">
+      <div className="mb-3 flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div>
+          <h5 className="text-sm font-black text-slate-950">ERD</h5>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">
+            테이블 {nodes.length}개 · 관계 {edges.length}개
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-auto rounded-2xl border border-blue-100 bg-white">
+        <div
+          className="relative"
+          style={{
+            width: bounds.width,
+            height: bounds.height,
+            minWidth: "100%",
+            minHeight: 420,
+          }}
+        >
+          <DiagramEdgeLayer nodes={nodes} edges={edges} bounds={bounds} />
+
+          {nodes.map((node, index) => {
+            const position = getDiagramPosition(node, index, bounds);
+            const columns = getNodeColumns(node);
+
+            return (
+              <article
+                key={String(node.id ?? index)}
+                className="absolute w-[230px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                style={{
+                  left: position.x,
+                  top: position.y,
+                }}
+              >
+                <div className="flex items-center justify-between bg-slate-950 px-4 py-3 text-white">
+                  <div className="min-w-0">
+                    <h6 className="truncate text-xs font-black">
+                      {getNodeLabel(node, `TABLE_${index + 1}`)}
+                    </h6>
+                    <p className="text-[10px] font-semibold text-slate-300">
+                      컬럼 {columns.length}개
+                    </p>
+                  </div>
+                  <Database size={15} />
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {columns.length === 0 ? (
+                    <p className="px-4 py-3 text-xs font-bold text-slate-400">
+                      컬럼 없음
+                    </p>
+                  ) : (
+                    columns.slice(0, 6).map((column, columnIndex) => {
+                      const name =
+                        typeof column.name === "string"
+                          ? column.name
+                          : "column";
+                      const type =
+                        typeof column.type === "string" ? column.type : "TYPE";
+
+                      return (
+                        <div
+                          key={String(column.id ?? columnIndex)}
+                          className="flex items-center justify-between gap-2 px-4 py-2 text-[11px]"
+                        >
+                          <span className="min-w-0 truncate font-black text-slate-700">
+                            {name}
+                          </span>
+                          <span className="shrink-0 rounded-lg bg-blue-50 px-2 py-0.5 font-black text-blue-700">
+                            {type}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FinalReportFlowDiagram({
+  nodes,
+  edges,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+}) {
+  const bounds = getDiagramBounds(nodes);
+
+  return (
+    <section className="rounded-2xl border border-blue-100 bg-slate-50 p-4">
+      <div className="mb-3 flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div>
+          <h5 className="text-sm font-black text-slate-950">데이터 플로우</h5>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">
+            노드 {nodes.length}개 · 연결 {edges.length}개
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-auto rounded-2xl border border-blue-100 bg-white">
+        <div
+          className="relative"
+          style={{
+            width: bounds.width,
+            height: bounds.height,
+            minWidth: "100%",
+            minHeight: 420,
+          }}
+        >
+          <DiagramEdgeLayer nodes={nodes} edges={edges} bounds={bounds} />
+
+          {nodes.map((node, index) => {
+            const position = getDiagramPosition(node, index, bounds);
+            const data = getNodeData(node);
+            const type = typeof data.type === "string" ? data.type : "server";
+
+            const colorClass =
+              type === "client"
+                ? "border-blue-200 bg-blue-50 text-blue-700"
+                : type === "db"
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : type === "external"
+                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+            return (
+              <article
+                key={String(node.id ?? index)}
+                className={[
+                  "absolute flex w-[260px] items-center gap-3 rounded-2xl border p-4 shadow-sm",
+                  colorClass,
+                ].join(" ")}
+                style={{
+                  left: position.x,
+                  top: position.y,
+                }}
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80">
+                  <GitBranch size={17} />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black">
+                    {getNodeLabel(node, `NODE_${index + 1}`)}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs font-semibold opacity-80">
+                    {getNodeSubText(node)}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DiagramEdgeLayer({
+  nodes,
+  edges,
+  bounds,
+}: {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  bounds: DiagramBounds;
+}) {
+  const nodeMap = new Map<string, Record<string, unknown>>();
+
+  for (const node of nodes) {
+    if (node.id) {
+      nodeMap.set(String(node.id), node);
+    }
+  }
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0"
+      width={bounds.width}
+      height={bounds.height}
+    >
+      {edges.map((edge, index) => {
+        const sourceId = String(edge.source ?? "");
+        const targetId = String(edge.target ?? "");
+
+        const source = nodeMap.get(sourceId);
+        const target = nodeMap.get(targetId);
+
+        if (!source || !target) return null;
+
+        const sourcePosition = getDiagramPosition(source, index, bounds);
+        const targetPosition = getDiagramPosition(target, index + 1, bounds);
+
+        const x1 = sourcePosition.x + 230;
+        const y1 = sourcePosition.y + 60;
+        const x2 = targetPosition.x;
+        const y2 = targetPosition.y + 60;
+
+        const midX = (x1 + x2) / 2;
+
+        return (
+          <path
+            key={String(edge.id ?? index)}
+            d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+            fill="none"
+            stroke="#2563eb"
+            strokeWidth="2"
+            strokeDasharray="6 5"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+type DiagramBounds = {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+};
+
+function getDiagramBounds(nodes: Record<string, unknown>[]): DiagramBounds {
+  const positions = nodes.map((node, index) => {
+    const rawPosition = node.position;
+
+    if (
+      typeof rawPosition === "object" &&
+      rawPosition !== null &&
+      !Array.isArray(rawPosition)
+    ) {
+      const position = rawPosition as Record<string, unknown>;
+
+      return {
+        x: typeof position.x === "number" ? position.x : 180 + index * 260,
+        y:
+          typeof position.y === "number"
+            ? position.y
+            : 120 + (index % 3) * 160,
+      };
+    }
+
+    return {
+      x: 180 + index * 260,
+      y: 120 + (index % 3) * 160,
+    };
+  });
+
+  const minX = Math.min(...positions.map((position) => position.x), 0);
+  const minY = Math.min(...positions.map((position) => position.y), 0);
+  const maxX = Math.max(...positions.map((position) => position.x), 600);
+  const maxY = Math.max(...positions.map((position) => position.y), 320);
+
+  return {
+    minX,
+    minY,
+    width: maxX - minX + 420,
+    height: maxY - minY + 260,
+  };
+}
+
+function getDiagramPosition(
+  node: Record<string, unknown>,
+  index: number,
+  bounds: DiagramBounds,
+) {
+  const rawPosition = node.position;
+
+  if (
+    typeof rawPosition === "object" &&
+    rawPosition !== null &&
+    !Array.isArray(rawPosition)
+  ) {
+    const position = rawPosition as Record<string, unknown>;
+
+    return {
+      x:
+        (typeof position.x === "number" ? position.x : 180 + index * 260) -
+        bounds.minX +
+        40,
+      y:
+        (typeof position.y === "number"
+          ? position.y
+          : 120 + (index % 3) * 160) -
+        bounds.minY +
+        40,
+    };
+  }
+
+  return {
+    x: 180 + index * 260,
+    y: 120 + (index % 3) * 160,
+  };
 }
 
 function ArchiveMetricCard({ label, value }: { label: string; value: string }) {
@@ -2344,7 +4219,7 @@ function ActivityCard({
 }) {
   return (
     <article className="flex min-h-[74px] items-center gap-3 rounded-xl border border-blue-100 bg-white px-3 py-2.5 shadow-sm">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-950 text-white">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-950 text-white">
         <Icon size={15} />
       </div>
 
@@ -2404,7 +4279,7 @@ function AccountRow({
   return (
     <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-600">
-        <Icon size={16} />
+        <Icon size={15} />
         {label}
       </div>
 

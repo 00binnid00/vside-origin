@@ -457,3 +457,104 @@ export async function deleteMyAccountApi() {
 
   return true;
 }
+export async function generateFinalReportDraftApi({
+  workspaceId,
+  project,
+  devlogs,
+  requirements,
+  apiSpecs,
+  erdTables,
+  flowNodes,
+}: {
+  workspaceId: string;
+  project: {
+    name: string;
+    description?: string;
+    type?: string;
+    language?: string;
+    stack?: string[];
+    progress?: number;
+    doneScheduleCount?: number;
+    scheduleTotalCount?: number;
+    devlogCount?: number;
+  };
+  devlogs: {
+    title: string;
+    date?: string;
+    projectName?: string;
+    summary?: string;
+  }[];
+  requirements: {
+    category?: string;
+    name: string;
+    description?: string;
+  }[];
+  apiSpecs: {
+    method?: string;
+    endpoint: string;
+    description?: string;
+    request?: string;
+    response?: string;
+  }[];
+  erdTables: {
+    name: string;
+    columns: {
+      name: string;
+      type?: string;
+      pk?: boolean;
+      fk?: boolean;
+    }[];
+  }[];
+  flowNodes: {
+    label: string;
+    type?: string;
+    techStack?: string;
+  }[];
+}) {
+  if (!workspaceId) {
+    throw new Error("AI 초안을 생성할 프로젝트를 선택해주세요.");
+  }
+
+  const response = await authFetch(
+    `${API_BASE}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/archive/final-report/draft`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        project,
+        devlogs,
+        requirements,
+        apiSpecs,
+        erdTables,
+        flowNodes,
+      }),
+    },
+  );
+
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!response.ok) {
+    const message = await response.text();
+
+    throw new Error(
+      message ||
+        `AI 최종 보고서 초안 생성에 실패했습니다. 상태 코드: ${response.status}`,
+    );
+  }
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+
+    throw new Error(
+      [
+        "AI 최종 보고서 API 응답이 JSON 형식이 아닙니다.",
+        "프론트가 백엔드가 아닌 Next 서버로 요청하고 있거나, 백엔드 라우팅이 맞지 않을 수 있습니다.",
+        text.slice(0, 300),
+      ].join("\n"),
+    );
+  }
+
+  return response.json() as Promise<{ draft: string }>;
+}
+
