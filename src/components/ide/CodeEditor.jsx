@@ -51,7 +51,7 @@ class CustomWebSocket extends WebSocket {
 
 const applyConflictEdit = (monacoInstance, editor, conflict, type) => {
   const model = editor.getModel();
-  if (!model) return;
+  if (!model || model.isDisposed()) return;
 
   let newText = "";
   let currentText = "";
@@ -101,11 +101,15 @@ export default function CodeEditor() {
 
   const editorRef = useRef(null);
   const monacoRef = useRef(null); 
-  const decorationsRef = useRef([]);
   
   const lockedLinesRef = useRef({});
   const lockDecosRef = useRef([]);
   const cursorListenerRef = useRef(null); 
+
+  // [아키텍처 개선] 파일별 최신 로컬 상태를 독립적으로 추적하는 딕셔너리 맵 구조 도입 (O(1) 접근성)
+  const saveTimerRef = useRef(null);
+  const latestContentRef = useRef({}); 
+  const prevFileIdRef = useRef(null);
 
   const [fontSize, setFontSize] = useState(14);
   const [showAiInput, setShowAiInput] = useState(false);
@@ -161,6 +165,54 @@ export default function CodeEditor() {
     isTeamModeRef.current = isTeamMode;
   }, [isTeamMode]);
 
+  // [방어적 코드] 활성 탭이 전환될 때마다, 직전 탭의 Pending 상태를 즉시 Redux로 동기화
+  useEffect(() => {
+    const prevFileId = prevFileIdRef.current;
+    if (prevFileId && prevFileId !== activeFileId) {
+      const pendingContent = latestContentRef.current[prevFileId];
+      // 추적된 내용이 존재하고, Redux에 반영되지 않은 경우에만 Flush
+      if (pendingContent !== undefined && pendingContent !== fileContents[prevFileId]) {
+        dispatch(updateFileContent({ filePath: prevFileId, content: pendingContent }));
+      }
+    }
+    prevFileIdRef.current = activeFileId;
+  }, [activeFileId, dispatch, fileContents]);
+
+  // [생명주기 클린업] 컴포넌트 완전히 언마운트 될 때 타이머 초기화 및 최종 Flush
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      const currentFileId = prevFileIdRef.current;
+      if (currentFileId && latestContentRef.current[currentFileId] !== undefined) {
+         dispatch(updateFileContent({ filePath: currentFileId, content: latestContentRef.current[currentFileId] }));
+      }
+    };
+  }, [dispatch]);
+
+  // 💡 [핵심 개선 포인트: Yjs Bridge 패턴 적용]
+  // 기존의 '!isTeamModeRef.current' 조건을 과감히 제거했습니다.
+  // 백엔드가 코드를 조작하여 Redux가 갱신되면, Yjs 팀 모드라 할지라도
+  // 변경사항을 에디터에 밀어넣어 y-monaco가 이를 감지하고 B 사용자에게 전파하도록 합니다.
+  useEffect(() => {
+    if (editorRef.current && activeFileId) {
+      const model = editorRef.current.getModel();
+      const reduxContent = fileContents[activeFileId] || "";
+      const lastTypedContent = latestContentRef.current[activeFileId];
+
+      if (model && !model.isDisposed()) {
+        // 조건: 현재 에디터 내용과 다르고 && 사용자가 마지막으로 타이핑한 내용과도 다를 때만 덮어씀
+        if (reduxContent !== model.getValue() && reduxContent !== lastTypedContent) {
+          model.pushEditOperations(
+            [],
+            [{ range: model.getFullModelRange(), text: reduxContent }],
+            () => null
+          );
+          latestContentRef.current[activeFileId] = reduxContent; // 추적 맵 최신화
+        }
+      }
+    }
+  }, [fileContents, activeFileId]);
+
   const showWarningToast = (msg) => {
     if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
     setLockWarning({ show: true, msg });
@@ -214,7 +266,10 @@ export default function CodeEditor() {
         cursorListenerRef.current = null;
       }
       if (editorRef.current && lockDecosRef.current.length > 0) {
-        editorRef.current.deltaDecorations(lockDecosRef.current, []);
+        const model = editorRef.current.getModel();
+        if (model && !model.isDisposed()) {
+          editorRef.current.deltaDecorations(lockDecosRef.current, []);
+        }
         lockDecosRef.current = [];
       }
       lockedLinesRef.current = {};
@@ -245,9 +300,8 @@ export default function CodeEditor() {
     if (!activeFileId || !workspaceId || !activeProject) return;
 
     const model = editor.getModel();
-    if (!model) return;
+    if (!model || model.isDisposed()) return;
 
-    // 💡 [핵심 해결 1] Windows(CRLF)와 Yjs(LF)의 줄바꿈 계산 차이로 인한 "커서 밀림 현상" 완벽 방지!
     if (monacoRef.current) {
       model.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
     }
@@ -273,7 +327,6 @@ export default function CodeEditor() {
 
     const initialPos = editor.getPosition();
     
-    // Yjs Awareness에 내 정보(커서 색상, 이름, 락 데이터) 등록
     awareness.setLocalStateField("user", {
       name: myName,
       color: myColor,
@@ -284,18 +337,15 @@ export default function CodeEditor() {
       line: initialPos ? initialPos.lineNumber : 1, 
     });
 
-    // 커서 이동 시 내 위치를 실시간으로 상대방에게 전송 및 ReadOnly 처리
     cursorListenerRef.current = editor.onDidChangeCursorPosition((e) => {
       if (!isTeamModeRef.current) return;
       const line = e.position.lineNumber;
       
-      // 내 위치 서버로 전송
       awareness.setLocalStateField("lockData", {
         name: myName,
         line: line,
       });
 
-      // 💡 [핵심 해결 2] 내가 이동한 줄이 상대방이 점유 중이라면 "읽기 전용"으로 철벽 방어!
       if (lockedLinesRef.current[line]) {
         editor.updateOptions({ readOnly: true });
       } else {
@@ -303,9 +353,10 @@ export default function CodeEditor() {
       }
     });
 
-    // 상대방이 있는 줄에 락(빨간색 시각 효과) 그리기
     const updateLockDecorations = () => {
       if (!editorRef.current || !monacoRef.current) return; 
+      const model = editorRef.current.getModel();
+      if (!model || model.isDisposed()) return;
       
       const decos = [];
       Object.entries(lockedLinesRef.current).forEach(([lineStr, lockerName]) => {
@@ -339,7 +390,6 @@ export default function CodeEditor() {
       const newLockedLines = {};
 
       awareness.getStates().forEach((state, clientId) => {
-        // 상대방 이름표(커서) 스타일링 주입
         if (state.user && state.user.name && state.user.color) {
           styles.push(`
             .yRemoteSelectionHead-${clientId} {
@@ -372,7 +422,6 @@ export default function CodeEditor() {
           `);
         }
 
-        // 상대방 락(Lock) 위치 갱신
         if (clientId !== awareness.clientID && state.lockData && state.lockData.line) {
           newLockedLines[state.lockData.line] = state.lockData.name;
         }
@@ -382,7 +431,6 @@ export default function CodeEditor() {
       lockedLinesRef.current = newLockedLines;
       updateLockDecorations();
 
-      // 💡 상대방이 내 위치로 다가와서 선점했다면, 즉시 내 에디터를 읽기 전용으로 차단!
       const currentPos = editorRef.current?.getPosition();
       if (currentPos && lockedLinesRef.current[currentPos.lineNumber]) {
         editorRef.current.updateOptions({ readOnly: true });
@@ -393,15 +441,12 @@ export default function CodeEditor() {
 
     const yText = ydoc.getText("monaco");
     
-    // 로컬 데이터 역시 LF(\n) 규격으로 완벽히 맞춰서 빈 화면/밀림 충돌을 방지합니다.
     const rawContent = fileContentsRef.current[activeFileId] || "";
     const localContent = rawContent.replace(/\r\n/g, "\n");
 
-    // 💡 [해결 3: 복붙 더블링 방지 및 정석 바인딩]
     const doBind = () => {
       if (bindingRef.current) return;
 
-      // 1. 서버가 비어있다면, 방장(가장 먼저 들어온 사람)만 초기 데이터를 주입
       if (yText.length === 0 && localContent !== "") {
         const clients = Array.from(awareness.getStates().keys()).sort();
         if (clients.length === 0 || clients[0] === awareness.clientID) {
@@ -409,16 +454,13 @@ export default function CodeEditor() {
         }
       }
 
-      // 2. 바인딩 직전에 모델과 서버 텍스트를 정확히 일치시킵니다.
       if (model.getValue() !== yText.toString()) {
         model.setValue(yText.toString());
       }
 
-      // 3. 결합!
       bindingRef.current = new MonacoBinding(yText, model, new Set([editor]), awareness);
     };
 
-    // 무한 멈춤 방지를 위해 연결 상태가 확인되면 즉각적으로 바인딩 시도
     if (provider.synced) {
       doBind();
     } else {
@@ -427,7 +469,7 @@ export default function CodeEditor() {
           setTimeout(doBind, 300);
         }
       });
-      setTimeout(doBind, 1500); // 최후의 보루
+      setTimeout(doBind, 1500); 
     }
   };
 
@@ -511,7 +553,13 @@ export default function CodeEditor() {
 
   const handleEditorChange = (value) => {
     if (!isTeamModeRef.current && activeFileId) {
-      dispatch(updateFileContent({ filePath: activeFileId, content: value }));
+      // 1차적으로 맵에 최신화된 로컬 값 등록
+      latestContentRef.current[activeFileId] = value;
+
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        dispatch(updateFileContent({ filePath: activeFileId, content: value }));
+      }, 400); 
     }
   };
 
@@ -567,7 +615,7 @@ export default function CodeEditor() {
       editorRef.current
     ) {
       const model = editorRef.current.getModel();
-      if (model) {
+      if (model && !model.isDisposed()) {
         model.pushEditOperations(
           [],
           [
@@ -598,7 +646,6 @@ export default function CodeEditor() {
     monacoRef.current = monacoInstance;
     setIsEditorReady(true);
 
-    // 💡 키보드 타이핑 시 경고 토스트 띄우기 및 튕겨내기 로직
     editor.onKeyDown((e) => {
       if (!isTeamModeRef.current) return;
 
@@ -619,7 +666,6 @@ export default function CodeEditor() {
         const isCopy = (e.ctrlKey || e.metaKey) && e.keyCode === m.KeyC;
         const isSelectAll = (e.ctrlKey || e.metaKey) && e.keyCode === m.KeyA;
 
-        // 허용되지 않은 쓰기/삭제 작업을 시도하면 막고 경고창 띄움
         if (!allowedKeys.includes(e.keyCode) && !isCopy && !isSelectAll) {
           e.preventDefault();
           e.stopPropagation();
@@ -634,6 +680,8 @@ export default function CodeEditor() {
 
     const codeLensProvider = monacoInstance.languages.registerCodeLensProvider("*", {
       provideCodeLenses: function (model, token) {
+        if (model.isDisposed()) return { lenses: [], dispose: () => {} };
+
         const lenses = [];
         const lines = model.getValue().split('\n');
         let currentConflict = null;
@@ -679,7 +727,7 @@ export default function CodeEditor() {
     editor.onDidChangeCursorSelection((e) => {
       const selection = e.selection;
       const model = editor.getModel();
-      if (model) {
+      if (model && !model.isDisposed()) {
         const text = model.getValueInRange(selection);
         dispatch(setSelectedText(text));
       }
@@ -702,9 +750,11 @@ export default function CodeEditor() {
       monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS,
       async () => {
         const currentContent = editor.getValue();
-        const { activeFileId, workspaceId, activeProject, activeBranch } =
-          stateRef.current;
+        const { activeFileId, workspaceId, activeProject, activeBranch } = stateRef.current;
         if (!activeFileId || !workspaceId || !activeProject) return;
+
+        dispatch(updateFileContent({ filePath: activeFileId, content: currentContent }));
+        latestContentRef.current[activeFileId] = currentContent;
 
         try {
           await saveFileApi(
@@ -829,7 +879,7 @@ export default function CodeEditor() {
           });
 
           timer = setTimeout(async () => {
-            if (token.isCancellationRequested) {
+            if (token.isCancellationRequested || model.isDisposed()) {
               finish({ items: [] });
               return;
             }
