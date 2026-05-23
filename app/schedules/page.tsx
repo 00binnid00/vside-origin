@@ -47,6 +47,7 @@ type ScheduleViewMode = "calendar" | "month" | "board" | "list";
 type WorkspaceMode = "personal" | "team";
 type ProjectFilter = "all" | WorkspaceMode;
 type SidebarPanelMode = "projects" | "today" | "devlog";
+type TodayScheduleScope = "selected" | "all";
 
 type ProjectScheduleItem = ScheduleItem & {
   workspaceId: string;
@@ -222,9 +223,16 @@ export default function ScheduleManagementPage() {
   const [workspaceName, setWorkspaceName] = useState("프로젝트");
 
   const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
+  const [allProjectTodaySchedules, setAllProjectTodaySchedules] = useState<
+    ProjectScheduleItem[]
+  >([]);
+
   const [loading, setLoading] = useState(true);
+  const [allTodayLoading, setAllTodayLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
+
   const [errorMessage, setErrorMessage] = useState("");
+  const [allTodayErrorMessage, setAllTodayErrorMessage] = useState("");
   const [workspaceErrorMessage, setWorkspaceErrorMessage] = useState("");
 
   const [viewMode, setViewMode] = useState<ScheduleViewMode>("calendar");
@@ -258,6 +266,54 @@ export default function ScheduleManagementPage() {
     description: "",
   });
 
+  const loadAllProjectTodaySchedules = async (
+    workspaceList: WorkspaceSidebarItem[],
+  ) => {
+    if (workspaceList.length === 0) {
+      setAllProjectTodaySchedules([]);
+      setAllTodayLoading(false);
+      return;
+    }
+
+    try {
+      setAllTodayLoading(true);
+      setAllTodayErrorMessage("");
+
+      const results = await Promise.allSettled(
+        workspaceList.map((workspace) =>
+          fetchWorkspaceSchedulesApi({ workspaceId: workspace.id }),
+        ),
+      );
+
+      const merged = results.flatMap((result) => {
+        if (result.status !== "fulfilled") return [];
+        return result.value.map(mapScheduleFromApi);
+      });
+
+      const todayItems = merged
+        .filter((item) => isDateInScheduleRange(item, todayDate))
+        .sort((a, b) => {
+          const statusOrder: Record<ScheduleStatus, number> = {
+            delayed: 0,
+            progress: 1,
+            todo: 2,
+            done: 3,
+          };
+
+          const statusCompare = statusOrder[a.status] - statusOrder[b.status];
+          if (statusCompare !== 0) return statusCompare;
+
+          return getScheduleStartDate(a).localeCompare(getScheduleStartDate(b));
+        });
+
+      setAllProjectTodaySchedules(todayItems);
+    } catch {
+      setAllTodayErrorMessage("전체 프로젝트의 오늘 일정을 불러오지 못했습니다.");
+    } finally {
+      setAllTodayLoading(false);
+    }
+  };
+
   const loadWorkspaces = async () => {
     try {
       setWorkspaceLoading(true);
@@ -269,6 +325,7 @@ export default function ScheduleManagementPage() {
         .filter((item): item is WorkspaceSidebarItem => Boolean(item));
 
       setWorkspaces(mapped);
+      void loadAllProjectTodaySchedules(mapped);
 
       const matchedWorkspace = mapped.find(
         (workspace) => workspace.id === workspaceId,
@@ -290,6 +347,7 @@ export default function ScheduleManagementPage() {
       }
     } catch {
       setWorkspaceErrorMessage("프로젝트 목록을 불러오지 못했습니다.");
+      setAllTodayLoading(false);
     } finally {
       setWorkspaceLoading(false);
     }
@@ -394,6 +452,21 @@ export default function ScheduleManagementPage() {
   const todayTodos = filteredSchedules.filter(
     (item) => isDateInScheduleRange(item, todayDate) && item.status !== "done",
   );
+    const selectedProjectTodaySchedules = schedules
+    .filter((item) => isDateInScheduleRange(item, todayDate))
+    .sort((a, b) => {
+      const statusOrder: Record<ScheduleStatus, number> = {
+        delayed: 0,
+        progress: 1,
+        todo: 2,
+        done: 3,
+      };
+
+      const statusCompare = statusOrder[a.status] - statusOrder[b.status];
+      if (statusCompare !== 0) return statusCompare;
+
+      return getScheduleStartDate(a).localeCompare(getScheduleStartDate(b));
+    });
 
   const noDevlogSchedules = filteredSchedules.filter((item) => !item.hasDevlog);
 
@@ -419,6 +492,21 @@ export default function ScheduleManagementPage() {
     setSchedules((prev) =>
       prev.map((item) => (item.id === updated.id ? updated : item)),
     );
+
+    setAllProjectTodaySchedules((prev) => {
+      const isTodaySchedule = isDateInScheduleRange(updated, todayDate);
+      const exists = prev.some((item) => item.id === updated.id);
+
+      if (!isTodaySchedule) {
+        return prev.filter((item) => item.id !== updated.id);
+      }
+
+      if (exists) {
+        return prev.map((item) => (item.id === updated.id ? updated : item));
+      }
+
+      return [updated, ...prev];
+    });
   };
 
   const openScheduleDetail = (id: string) => {
@@ -546,6 +634,11 @@ export default function ScheduleManagementPage() {
       const mapped = mapScheduleFromApi(created);
 
       setSchedules((prev) => [mapped, ...prev]);
+
+      if (isDateInScheduleRange(mapped, todayDate)) {
+        setAllProjectTodaySchedules((prev) => [mapped, ...prev]);
+      }
+
       setWorkspaceName(mapped.projectName || workspaceName);
       setSelectedScheduleId(mapped.id);
       setIsDetailSidebarOpen(true);
@@ -637,7 +730,7 @@ export default function ScheduleManagementPage() {
             onMoveScheduleDate={moveScheduleDate}
           />
         ) : (
-          <WeeklySchedulePageView
+                   <WeeklySchedulePageView
             viewMode={viewMode}
             setViewMode={setViewMode}
             query={query}
@@ -651,10 +744,14 @@ export default function ScheduleManagementPage() {
             recentDoneSchedule={recentDoneSchedule}
             filteredSchedules={filteredSchedules}
             selectedScheduleId={selectedScheduleId}
+            selectedProjectTodaySchedules={selectedProjectTodaySchedules}
+            allProjectTodaySchedules={allProjectTodaySchedules}
+            allTodayLoading={allTodayLoading}
+            allTodayErrorMessage={allTodayErrorMessage}
+            todayDate={todayDate}
             weekDays={weekDays}
             weekStartLabel={`${weekStart.month + 1}월 ${weekStart.date}일`}
             weekEndLabel={`${weekEnd.month + 1}월 ${weekEnd.date}일`}
-            todayDate={todayDate}
             loading={loading}
             errorMessage={errorMessage}
             onOpenMonth={() => setViewMode("month")}
@@ -763,7 +860,7 @@ function ScheduleProjectSidebar({
   }
 
   return (
-    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
+    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-2 pr-0">
       <div className="flex h-full overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
         <div className="flex w-[52px] shrink-0 flex-col items-center gap-3 border-r border-slate-100 bg-white py-4">
           <button
@@ -1265,6 +1362,10 @@ function WeeklySchedulePageView({
   recentDoneSchedule,
   filteredSchedules,
   selectedScheduleId,
+  selectedProjectTodaySchedules,
+  allProjectTodaySchedules,
+  allTodayLoading,
+  allTodayErrorMessage,
   weekDays,
   weekStartLabel,
   weekEndLabel,
@@ -1292,6 +1393,10 @@ function WeeklySchedulePageView({
   recentDoneSchedule: ProjectScheduleItem | null;
   filteredSchedules: ProjectScheduleItem[];
   selectedScheduleId: string | null;
+  selectedProjectTodaySchedules: ProjectScheduleItem[];
+  allProjectTodaySchedules: ProjectScheduleItem[];
+  allTodayLoading: boolean;
+  allTodayErrorMessage: string;
   weekDays: ReturnType<typeof getWeekDays>;
   weekStartLabel: string;
   weekEndLabel: string;
@@ -1306,83 +1411,78 @@ function WeeklySchedulePageView({
   onMoveScheduleDate: (id: string, nextDate: string) => void;
   onChangeStatus: (id: string, status: ScheduleStatus) => void;
 }) {
+  const [todayScope, setTodayScope] =
+    useState<TodayScheduleScope>("selected");
+
+  const visibleTodaySchedules =
+    todayScope === "selected"
+      ? selectedProjectTodaySchedules
+      : allProjectTodaySchedules;
+
+  const todayTitle =
+    todayScope === "selected"
+      ? `${selectedProjectName} 오늘 일정`
+      : "전체 프로젝트 오늘 일정";
+
+  const todayDescription =
+    todayScope === "selected"
+      ? "현재 선택된 프로젝트에 등록된 오늘 날짜의 일정입니다."
+      : "모든 프로젝트에 등록된 오늘 날짜의 일정을 한눈에 확인합니다.";
+
   return (
-    <main className="min-w-0 bg-[#f5f6fa] p-4 xl:p-5">
+    <main className="min-w-0 bg-[#f5f6fa] p-3 xl:p-5">
       <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-blue-600">Schedule</p>
-            <h1 className="mt-1 line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
-              {selectedProjectName}
+            <p className="text-sm font-bold text-blue-600">Today Schedule</p>
+            <h1 className="line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
+              {todayTitle}
             </h1>
-            <p className="mt-1 truncate text-sm text-slate-500">
-              현재 선택된 프로젝트의 일정 현황입니다.
+            <p className="truncate text-sm text-slate-500">
+              {todayDescription}
             </p>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
-            <button
-              type="button"
-              onClick={onOpenMonth}
-              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <CalendarDays size={17} />
-              월간 캘린더
-            </button>
-
-            <button
-              type="button"
-              onClick={onCreateSchedule}
-              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              <Plus size={17} />새 일정 추가
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-slate-500">
-              <span>
-                전체 <strong className="text-slate-950">{totalCount}개</strong>
-              </span>
-              <span className="text-slate-300">·</span>
-              <span>
-                진행 중{" "}
-                <strong className="text-slate-950">{progressCount}개</strong>
-              </span>
-              <span className="text-slate-300">·</span>
-              <span>
-                완료 <strong className="text-slate-950">{doneCount}개</strong>
-              </span>
-              <span className="text-slate-300">·</span>
-              <span>
-                지연{" "}
-                <strong className="text-slate-950">{delayedCount}개</strong>
-              </span>
-              <span className="text-slate-300">·</span>
-              <span>
-                진행률{" "}
-                <strong className="text-blue-600">{progressRate}%</strong>
-              </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex rounded-2xl bg-slate-100 p-1">
+              <TodayScopeButton
+                active={todayScope === "selected"}
+                label="선택 프로젝트"
+                onClick={() => setTodayScope("selected")}
+              />
+              <TodayScopeButton
+                active={todayScope === "all"}
+                label="전체"
+                onClick={() => setTodayScope("all")}
+              />
             </div>
-
-            <span className="w-fit rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-600">
-              완료 {doneCount}개 / 전체 {totalCount}개
-            </span>
-          </div>
-
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-blue-600 transition-all"
-              style={{ width: `${progressRate}%` }}
-            />
           </div>
         </div>
+
+        <TodayAllProjectSchedulePager
+          schedules={visibleTodaySchedules}
+          loading={todayScope === "all" ? allTodayLoading : loading}
+          errorMessage={todayScope === "all" ? allTodayErrorMessage : errorMessage}
+          todayDate={todayDate}
+          scope={todayScope}
+          selectedProjectName={selectedProjectName}
+          onSelectSchedule={onSelectSchedule}
+        />
       </section>
 
       <section className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
-        <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <ProjectScheduleSummary
+          selectedProjectName={selectedProjectName}
+          totalCount={totalCount}
+          progressCount={progressCount}
+          doneCount={doneCount}
+          delayedCount={delayedCount}
+          progressRate={progressRate}
+          onOpenMonth={onOpenMonth}
+          onCreateSchedule={onCreateSchedule}
+        />
+
+        <div className="mb-5 mt-5 flex flex-col gap-4 border-t border-slate-100 pt-5 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex rounded-2xl bg-slate-100 p-1">
               <ViewButton
@@ -1493,6 +1593,226 @@ function WeeklySchedulePageView({
   );
 }
 
+function TodayAllProjectSchedulePager({
+  schedules,
+  loading,
+  errorMessage,
+  todayDate,
+  scope,
+  selectedProjectName,
+  onSelectSchedule,
+}: {
+  schedules: ProjectScheduleItem[];
+  loading: boolean;
+  errorMessage: string;
+  todayDate: string;
+  scope: TodayScheduleScope;
+  selectedProjectName: string;
+  onSelectSchedule: (id: string) => void;
+}) {
+  const PAGE_SIZE = 3;
+  const [page, setPage] = useState(0);
+
+  const totalPages = Math.max(1, Math.ceil(schedules.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+
+  const pageItems = schedules.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setPage(0);
+  }, [schedules.length]);
+
+  return (
+    <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+        <div>
+          <p className="text-xs font-black uppercase tracking-wide text-blue-600">
+            {todayDate}
+          </p>
+                    <h2 className="mt-1 text-base font-black text-slate-950">
+            {scope === "selected" ? "오늘 진행할 선택 프로젝트 일정" : "오늘 진행할 전체 일정"}
+          </h2>
+        </div>
+
+        <span className="w-fit rounded-full bg-white px-4 py-2 text-xs font-black text-slate-600">
+          전체 {schedules.length}개
+        </span>
+      </div>
+
+      {loading ? (
+                <div className="grid h-[132px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
+          {scope === "selected"
+            ? `${selectedProjectName}에 오늘 등록된 일정이 없습니다.`
+            : "오늘 등록된 전체 일정이 없습니다."}
+        </div>
+      ) : errorMessage ? (
+        <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+          {errorMessage}
+        </div>
+      ) : schedules.length === 0 ? (
+        <div className="grid h-[132px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
+          오늘 등록된 일정이 없습니다.
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 xl:grid-cols-3">
+            {pageItems.map((item) => {
+              const projectName = getProjectName(item);
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelectSchedule(item.id)}
+                  className="min-h-[132px] rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-1 text-xs font-black text-blue-600">
+                        {projectName}
+                      </p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-black leading-5 text-slate-950">
+                        {item.title}
+                      </h3>
+                    </div>
+
+                    <span
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold ${
+                        statusBadgeStyle[item.status]
+                      }`}
+                    >
+                      {scheduleStatusLabel[item.status]}
+                    </span>
+                  </div>
+
+                  <p className="mt-3 text-xs font-bold text-slate-500">
+                    {getSchedulePeriodText(item)}
+                  </p>
+
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">
+                    {item.description || "등록된 상세 내용이 없습니다."}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-center gap-1.5">
+              {Array.from({ length: totalPages }).map((_, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => setPage(index)}
+                  className={`h-8 min-w-8 rounded-xl px-2 text-xs font-black transition ${
+                    safePage === index
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProjectScheduleSummary({
+  selectedProjectName,
+  totalCount,
+  progressCount,
+  doneCount,
+  delayedCount,
+  progressRate,
+  onOpenMonth,
+  onCreateSchedule,
+}: {
+  selectedProjectName: string;
+  totalCount: number;
+  progressCount: number;
+  doneCount: number;
+  delayedCount: number;
+  progressRate: number;
+  onOpenMonth: () => void;
+  onCreateSchedule: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-blue-600">Schedule</p>
+          <h1 className="mt-1 line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
+            {selectedProjectName}
+          </h1>
+          <p className="mt-1 truncate text-sm text-slate-500">
+            현재 선택된 프로젝트의 일정 현황입니다.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
+          <button
+            type="button"
+            onClick={onOpenMonth}
+            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <CalendarDays size={17} />
+            월간 캘린더
+          </button>
+
+          <button
+            type="button"
+            onClick={onCreateSchedule}
+            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            <Plus size={17} />
+            새 일정 추가
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-slate-500">
+            <span>
+              전체 <strong className="text-slate-950">{totalCount}개</strong>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              진행 중{" "}
+              <strong className="text-slate-950">{progressCount}개</strong>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              완료 <strong className="text-slate-950">{doneCount}개</strong>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              지연 <strong className="text-slate-950">{delayedCount}개</strong>
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              진행률 <strong className="text-blue-600">{progressRate}%</strong>
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-blue-600 transition-all"
+            style={{ width: `${progressRate}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 function DataState({
   loading,
   errorMessage,
@@ -1932,28 +2252,24 @@ function ScheduleDetailAside({
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <h3 className="min-w-0 text-lg font-black leading-snug text-slate-900">
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className=" flex gap-2">
+              <h3 className="min-w-0 text-lg items-center justify-center font-black leading-snug text-slate-900">
                 {selectedSchedule.title}
               </h3>
 
               <span
-                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold ${
                   statusBadgeStyle[selectedSchedule.status]
                 }`}
               >
                 {scheduleStatusLabel[selectedSchedule.status]}
               </span>
             </div>
-
-            <p className="text-xs leading-5 text-slate-500">
-              {selectedSchedule.description || "등록된 상세 내용이 없습니다."}
-            </p>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="mb-3 text-xs font-black text-slate-800">
+            <h3 className="mb-2 text-xs font-black text-slate-800">
               일정 정보
             </h3>
 
@@ -1974,7 +2290,7 @@ function ScheduleDetailAside({
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="text-xs font-black text-slate-800">일정 상세</h3>
 
-            <p className="mt-3 whitespace-pre-wrap break-keep text-xs leading-5 text-slate-600">
+            <p className="mt-3 whitespace-pre-wrap break-keep text-sm leading-5 text-slate-600">
               {selectedSchedule.description || "등록된 상세 내용이 없습니다."}
             </p>
           </section>
@@ -2342,6 +2658,29 @@ function ViewButton({
       className={`rounded-xl px-5 py-2.5 text-sm font-bold ${
         active
           ? "bg-white text-slate-900 shadow-sm"
+          : "text-slate-500 hover:text-slate-900"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+function TodayScopeButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-9 rounded-xl px-4 text-xs font-black transition ${
+        active
+          ? "bg-white text-slate-950 shadow-sm"
           : "text-slate-500 hover:text-slate-900"
       }`}
     >
