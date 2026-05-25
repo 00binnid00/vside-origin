@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
-import { VscCheck, VscClose, VscSparkle, VscLoading, VscLock } from "react-icons/vsc";
+import { VscCheck, VscClose, VscSparkle, VscLoading, VscLock, VscWarning, VscArrowRight } from "react-icons/vsc";
 
 import {
   updateFileContent,
@@ -29,6 +29,8 @@ import {
   triggerEditorCmd,
   addAgentMessage,
   setSelectedText,
+  setActiveActivity,
+  clearConflictNavigation,
 } from "@/store/slices/uiSlice";
 
 import { useAuth } from "@/lib/ide/AuthContext";
@@ -49,9 +51,50 @@ class CustomWebSocket extends WebSocket {
   }
 }
 
+
+const parseMergeConflicts = (value = "") => {
+  const lines = String(value || "").split("\n");
+  const conflicts = [];
+  let currentConflict = null;
+
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+
+    if (line.startsWith("<<<<<<<")) {
+      currentConflict = {
+        start: lineNumber,
+        mid: null,
+        end: null,
+        currentLabel: line.replace(/^<<<<<<<\s*/, "").trim() || "Current",
+        incomingLabel: "Incoming",
+      };
+      return;
+    }
+
+    if (line.startsWith("=======") && currentConflict) {
+      currentConflict.mid = lineNumber;
+      return;
+    }
+
+    if (line.startsWith(">>>>>>>") && currentConflict) {
+      currentConflict.end = lineNumber;
+      currentConflict.incomingLabel =
+        line.replace(/^>>>>>>>\s*/, "").trim() || "Incoming";
+
+      if (currentConflict.mid && currentConflict.end) {
+        conflicts.push({ ...currentConflict });
+      }
+
+      currentConflict = null;
+    }
+  });
+
+  return conflicts;
+};
+
 const applyConflictEdit = (monacoInstance, editor, conflict, type) => {
   const model = editor.getModel();
-  if (!model || model.isDisposed()) return;
+  if (!model || model.isDisposed()) return false;
 
   let newText = "";
   let currentText = "";
@@ -91,7 +134,23 @@ const applyConflictEdit = (monacoInstance, editor, conflict, type) => {
     text: newText,
     forceMoveMarkers: true
   }]);
+
+  editor.focus();
+  return true;
 };
+
+
+function EditorModalPortal({ children }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || typeof document === "undefined") return null;
+
+  return createPortal(children, document.body);
+}
 
 export default function CodeEditor() {
   const dispatch = useDispatch();
@@ -104,6 +163,8 @@ export default function CodeEditor() {
   
   const lockedLinesRef = useRef({});
   const lockDecosRef = useRef([]);
+  const conflictDecosRef = useRef([]);
+  const conflictOriginalContentRef = useRef({});
   const cursorListenerRef = useRef(null); 
 
   // [아키텍처 개선] 파일별 최신 로컬 상태를 독립적으로 추적하는 딕셔너리 맵 구조 도입 (O(1) 접근성)
@@ -119,6 +180,14 @@ export default function CodeEditor() {
   const [fetchedNickname, setFetchedNickname] = useState("");
 
   const [lockWarning, setLockWarning] = useState({ show: false, msg: "" });
+  const [mergeConflicts, setMergeConflicts] = useState([]);
+  const [conflictSessionFileId, setConflictSessionFileId] = useState(null);
+  const [lastConflictCount, setLastConflictCount] = useState(0);
+  const [conflictResetDialog, setConflictResetDialog] = useState({
+    isOpen: false,
+    type: "confirm",
+  });
+  const [editorNotice, setEditorNotice] = useState(null);
   const warningTimeoutRef = useRef(null);
 
   const aiInputRef = useRef(null);
@@ -137,15 +206,17 @@ export default function CodeEditor() {
     fileContentsRef.current = fileContents;
   }, [fileContents]);
 
-  const { editorCmd, debugLine, breakpoints } = useSelector(
-    (state) => state.ui,
-  );
+  const { editorCmd, debugLine, breakpoints, conflictNavigationTarget } =
+    useSelector((state) => state.ui);
 
   const editorSettings = useSelector((state) => state.ui.editorSettings) || {
     autoComplete: true,
     formatOnType: true,
     minimap: true,
   };
+
+  const activeContent = activeFileId ? fileContents[activeFileId] || "" : "";
+  const hasMergeConflicts = mergeConflicts.length > 0;
 
   const stateRef = useRef({
     activeFileId,
@@ -164,6 +235,31 @@ export default function CodeEditor() {
   useEffect(() => {
     isTeamModeRef.current = isTeamMode;
   }, [isTeamMode]);
+
+  useEffect(() => {
+    const parsedConflicts = parseMergeConflicts(activeContent);
+    setMergeConflicts(parsedConflicts);
+
+    if (!activeFileId) {
+      setConflictSessionFileId(null);
+      setLastConflictCount(0);
+      return;
+    }
+
+    if (parsedConflicts.length > 0) {
+      if (conflictSessionFileId !== activeFileId || !conflictOriginalContentRef.current[activeFileId]) {
+        conflictOriginalContentRef.current[activeFileId] = activeContent;
+      }
+      setConflictSessionFileId(activeFileId);
+      setLastConflictCount(parsedConflicts.length);
+      return;
+    }
+
+    if (conflictSessionFileId && conflictSessionFileId !== activeFileId) {
+      setConflictSessionFileId(null);
+      setLastConflictCount(0);
+    }
+  }, [activeContent, activeFileId, conflictSessionFileId]);
 
   // [방어적 코드] 활성 탭이 전환될 때마다, 직전 탭의 Pending 상태를 즉시 Redux로 동기화
   useEffect(() => {
@@ -552,6 +648,8 @@ export default function CodeEditor() {
   };
 
   const handleEditorChange = (value) => {
+    setMergeConflicts(parseMergeConflicts(value || ""));
+
     if (!isTeamModeRef.current && activeFileId) {
       // 1차적으로 맵에 최신화된 로컬 값 등록
       latestContentRef.current[activeFileId] = value;
@@ -587,10 +685,18 @@ export default function CodeEditor() {
           }),
         );
       } else {
-        alert("AI 거절: " + response.explanation);
+        setEditorNotice({
+          title: "AI 요청을 처리하지 못했습니다",
+          message: response.explanation || "요청 내용을 다시 확인해주세요.",
+          variant: "warning",
+        });
       }
     } catch (error) {
-      alert("AI 요청 실패: " + error.message);
+      setEditorNotice({
+        title: "AI 요청 실패",
+        message: error.message || "AI 요청 중 오류가 발생했습니다.",
+        variant: "danger",
+      });
     } finally {
       setIsAiLoading(false);
       setShowAiInput(false);
@@ -641,6 +747,223 @@ export default function CodeEditor() {
 
   const handleRejectAi = () => dispatch(clearAiSuggestion());
 
+  const updateConflictDecorations = useCallback((conflicts = []) => {
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const model = editor?.getModel();
+
+    if (!editor || !monacoInstance || !model || model.isDisposed()) return;
+
+    const decorations = [];
+
+    conflicts.forEach((conflict, index) => {
+      decorations.push({
+        range: new monacoInstance.Range(conflict.start, 1, conflict.start, 1),
+        options: {
+          isWholeLine: true,
+          className: "conflict-marker-bg",
+          linesDecorationsClassName: "conflict-marker-margin",
+          hoverMessage: {
+            value: `Merge conflict #${index + 1}: current / incoming boundary`,
+          },
+        },
+      });
+
+      if (conflict.mid - conflict.start > 1) {
+        decorations.push({
+          range: new monacoInstance.Range(
+            conflict.start + 1,
+            1,
+            conflict.mid - 1,
+            model.getLineMaxColumn(conflict.mid - 1),
+          ),
+          options: {
+            isWholeLine: true,
+            className: "conflict-current-bg",
+            linesDecorationsClassName: "conflict-current-margin",
+            hoverMessage: { value: "Current branch changes" },
+          },
+        });
+      }
+
+      if (conflict.end - conflict.mid > 1) {
+        decorations.push({
+          range: new monacoInstance.Range(
+            conflict.mid + 1,
+            1,
+            conflict.end - 1,
+            model.getLineMaxColumn(conflict.end - 1),
+          ),
+          options: {
+            isWholeLine: true,
+            className: "conflict-incoming-bg",
+            linesDecorationsClassName: "conflict-incoming-margin",
+            hoverMessage: { value: "Incoming changes" },
+          },
+        });
+      }
+
+      decorations.push({
+        range: new monacoInstance.Range(conflict.end, 1, conflict.end, 1),
+        options: {
+          isWholeLine: true,
+          className: "conflict-marker-bg",
+          linesDecorationsClassName: "conflict-marker-margin",
+        },
+      });
+    });
+
+    conflictDecosRef.current = editor.deltaDecorations(
+      conflictDecosRef.current,
+      decorations,
+    );
+  }, []);
+
+  const revealConflict = useCallback((targetConflict = mergeConflicts[0]) => {
+    const editor = editorRef.current;
+
+    if (!editor || !targetConflict) return;
+
+    editor.revealLineInCenter(targetConflict.start);
+    editor.setPosition({
+      lineNumber: targetConflict.start,
+      column: 1,
+    });
+    editor.focus();
+  }, [mergeConflicts]);
+
+  const applyConflictResolution = useCallback((type, conflict = mergeConflicts[0]) => {
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+
+    if (!editor || !monacoInstance || !conflict) return;
+
+    const applied = applyConflictEdit(monacoInstance, editor, conflict, type);
+
+    if (!applied) return;
+
+    setConflictSessionFileId(activeFileId);
+
+    const nextValue = editor.getValue();
+    const nextConflicts = parseMergeConflicts(nextValue);
+
+    latestContentRef.current[activeFileId] = nextValue;
+    setMergeConflicts(nextConflicts);
+    updateConflictDecorations(nextConflicts);
+
+    dispatch(
+      updateFileContent({
+        filePath: activeFileId,
+        content: nextValue,
+      }),
+    );
+  }, [activeFileId, dispatch, mergeConflicts, updateConflictDecorations]);
+
+  const handleResetConflictSelection = useCallback(() => {
+    if (!activeFileId) return;
+
+    const originalContent = conflictOriginalContentRef.current[activeFileId];
+
+    setConflictResetDialog({
+      isOpen: true,
+      type: originalContent === undefined ? "missing" : "confirm",
+    });
+  }, [activeFileId]);
+
+  const handleCloseConflictResetDialog = useCallback(() => {
+    setConflictResetDialog({ isOpen: false, type: "confirm" });
+  }, []);
+
+  const handleConfirmResetConflictSelection = useCallback(() => {
+    const editor = editorRef.current;
+
+    if (!editor || !activeFileId) return;
+
+    const originalContent = conflictOriginalContentRef.current[activeFileId];
+
+    if (originalContent === undefined) {
+      setConflictResetDialog({ isOpen: false, type: "confirm" });
+      return;
+    }
+
+    const model = editor.getModel();
+
+    if (model && !model.isDisposed()) {
+      model.pushEditOperations(
+        [],
+        [
+          {
+            range: model.getFullModelRange(),
+            text: originalContent,
+          },
+        ],
+        () => null,
+      );
+    }
+
+    latestContentRef.current[activeFileId] = originalContent;
+
+    const nextConflicts = parseMergeConflicts(originalContent);
+
+    setMergeConflicts(nextConflicts);
+    setConflictSessionFileId(activeFileId);
+    setLastConflictCount(nextConflicts.length || lastConflictCount || 1);
+    updateConflictDecorations(nextConflicts);
+
+    dispatch(
+      updateFileContent({
+        filePath: activeFileId,
+        content: originalContent,
+      }),
+    );
+
+    setConflictResetDialog({ isOpen: false, type: "confirm" });
+
+    if (nextConflicts[0]) {
+      window.setTimeout(() => revealConflict(nextConflicts[0]), 0);
+    }
+  }, [
+    activeFileId,
+    dispatch,
+    lastConflictCount,
+    revealConflict,
+    updateConflictDecorations,
+  ]);
+
+  const handleSaveCurrentFile = useCallback(async () => {
+    const editor = editorRef.current;
+
+    if (!editor || !activeFileId || !workspaceId || !activeProject) return;
+
+    const currentContent = editor.getValue();
+
+    dispatch(
+      updateFileContent({
+        filePath: activeFileId,
+        content: currentContent,
+      }),
+    );
+
+    latestContentRef.current[activeFileId] = currentContent;
+
+    await saveFileApi(
+      workspaceId,
+      activeProject,
+      activeBranch || "master",
+      activeFileId,
+      currentContent,
+    );
+
+    dispatch(writeToTerminal(`[System] Saved: ${activeFileId}\n`));
+  }, [activeBranch, activeFileId, activeProject, dispatch, workspaceId]);
+
+  const handleSaveAndReturnToFileStatus = useCallback(async () => {
+    await handleSaveCurrentFile();
+    setConflictSessionFileId(null);
+    setLastConflictCount(0);
+    dispatch(setActiveActivity("git"));
+  }, [dispatch, handleSaveCurrentFile]);
+
   const handleEditorDidMount = (editor, monacoInstance) => {
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
@@ -674,9 +997,9 @@ export default function CodeEditor() {
       }
     });
 
-    const cmdCurrent = editor.addCommand(0, (_, conflict) => applyConflictEdit(monacoInstance, editor, conflict, "current"));
-    const cmdIncoming = editor.addCommand(0, (_, conflict) => applyConflictEdit(monacoInstance, editor, conflict, "incoming"));
-    const cmdBoth = editor.addCommand(0, (_, conflict) => applyConflictEdit(monacoInstance, editor, conflict, "both"));
+    const cmdCurrent = editor.addCommand(0, (_, conflict) => applyConflictResolution("current", conflict));
+    const cmdIncoming = editor.addCommand(0, (_, conflict) => applyConflictResolution("incoming", conflict));
+    const cmdBoth = editor.addCommand(0, (_, conflict) => applyConflictResolution("both", conflict));
 
     const codeLensProvider = monacoInstance.languages.registerCodeLensProvider("*", {
       provideCodeLenses: function (model, token) {
@@ -957,6 +1280,41 @@ export default function CodeEditor() {
   }, [monaco]);
 
   useEffect(() => {
+    if (!conflictNavigationTarget?.filePath) return;
+    if (conflictNavigationTarget.filePath !== activeFileId) return;
+
+    const timer = window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      const editorValue = editor.getValue();
+      const conflicts = parseMergeConflicts(editorValue);
+      if (conflicts.length > 0) {
+        conflictOriginalContentRef.current[activeFileId] = editorValue;
+      }
+      setMergeConflicts(conflicts);
+      setConflictSessionFileId(activeFileId);
+      setLastConflictCount(conflicts.length || 1);
+      updateConflictDecorations(conflicts);
+
+      if (conflicts[0]) {
+        revealConflict(conflicts[0]);
+      }
+
+      dispatch(clearConflictNavigation());
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeFileId,
+    clearConflictNavigation,
+    conflictNavigationTarget,
+    dispatch,
+    revealConflict,
+    updateConflictDecorations,
+  ]);
+
+  useEffect(() => {
     if (!editorRef.current || !editorCmd) return;
 
     const editor = editorRef.current;
@@ -1015,16 +1373,26 @@ export default function CodeEditor() {
   const isDiffMode =
     aiSuggestion?.isDiffMode && aiSuggestion?.targetPath === activeFileId;
 
+  const isConflictResolutionSession = Boolean(
+    activeFileId && conflictSessionFileId === activeFileId,
+  );
+  const shouldShowConflictResolutionPanel =
+    !isDiffMode && Boolean(activeFileId) && (hasMergeConflicts || isConflictResolutionSession);
+  const isConflictSelectionComplete = shouldShowConflictResolutionPanel && !hasMergeConflicts;
+  const conflictDisplayCount = hasMergeConflicts ? mergeConflicts.length : lastConflictCount || 1;
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-white flex flex-col">
       
       <style dangerouslySetInnerHTML={{ __html: `
         .debug-current-line { background-color: rgba(255, 230, 0, 0.3) !important; border-left: 3px solid #eab308; }
         .debug-breakpoint-glyph { background: #ef4444; width: 10px !important; height: 10px !important; border-radius: 50%; margin-left: 6px; margin-top: 5px; cursor: pointer; z-index: 10; }
-        .conflict-current-bg { background-color: rgba(60, 179, 113, 0.2) !important; }
-        .conflict-current-margin { border-left: 4px solid #3cb371 !important; }
-        .conflict-incoming-bg { background-color: rgba(65, 105, 225, 0.2) !important; }
-        .conflict-incoming-margin { border-left: 4px solid #4169e1 !important; }
+        .conflict-marker-bg { background-color: rgba(248, 113, 113, 0.14) !important; }
+        .conflict-marker-margin { border-left: 4px solid #ef4444 !important; }
+        .conflict-current-bg { background-color: rgba(59, 130, 246, 0.10) !important; }
+        .conflict-current-margin { border-left: 4px solid #3b82f6 !important; }
+        .conflict-incoming-bg { background-color: rgba(16, 185, 129, 0.12) !important; }
+        .conflict-incoming-margin { border-left: 4px solid #10b981 !important; }
 
         .locked-line-bg { 
           background-color: rgba(255, 0, 0, 0.12) !important; 
@@ -1046,6 +1414,275 @@ export default function CodeEditor() {
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[99999] bg-red-600/95 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-[0_10px_40px_rgba(255,0,0,0.4)] font-extrabold text-[14px] flex items-center gap-2 animate-bounce border border-red-400">
           <VscLock size={18} />
           {lockWarning.msg}
+        </div>
+      )}
+
+      {editorNotice && (
+        <EditorModalPortal>
+          {(() => {
+        const isDanger = editorNotice.variant === "danger";
+        const isWarning = editorNotice.variant === "warning";
+        const tone = isDanger
+          ? "bg-red-50 text-red-600 border-red-100"
+          : isWarning
+            ? "bg-amber-50 text-amber-600 border-amber-100"
+            : "bg-blue-50 text-blue-600 border-blue-100";
+
+        return (
+          <div className="fixed inset-0 z-[2147483000] flex items-start justify-center bg-slate-950/50 backdrop-blur-[4px] px-4 pt-[13vh] pointer-events-auto">
+            <div className="w-full max-w-[520px] overflow-hidden rounded-3xl border border-white/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.32)] animate-fade-in-up">
+              <div className="border-b border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50/40 px-6 py-5">
+                <div className="flex items-start gap-4">
+                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${tone}`}>
+                    <VscWarning size={24} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${tone}`}>
+                        WEBVAIS Notice
+                      </span>
+                    </div>
+                    <h3 className="text-[17px] font-black text-slate-950">{editorNotice.title}</h3>
+                    <p className="mt-2 whitespace-pre-line text-sm font-medium leading-relaxed text-slate-600">
+                      {editorNotice.message}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end px-6 py-5">
+                <button
+                  type="button"
+                  onClick={() => setEditorNotice(null)}
+                  className="h-10 rounded-xl bg-slate-900 px-5 text-xs font-black text-white shadow-sm transition-colors hover:bg-slate-800"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+          })()}
+        </EditorModalPortal>
+      )}
+
+      {conflictResetDialog.isOpen && (
+        <EditorModalPortal>
+          <div className="fixed inset-0 z-[2147483000] flex items-start justify-center bg-slate-950/50 backdrop-blur-[4px] px-4 pt-[13vh] pointer-events-auto">
+          <div className="w-full max-w-[560px] overflow-hidden rounded-3xl border border-white/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.32)] animate-fade-in-up">
+            <div className="bg-gradient-to-r from-amber-50 via-white to-red-50 px-6 py-5 border-b border-amber-100">
+              <div className="flex items-start gap-4">
+                <div className="h-12 w-12 shrink-0 rounded-2xl border border-amber-200 bg-amber-100 text-amber-700 flex items-center justify-center shadow-sm">
+                  <VscWarning size={24} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-[15px] font-black text-slate-900">
+                      {conflictResetDialog.type === "missing"
+                        ? "되돌릴 충돌 원본을 찾지 못했습니다"
+                        : "선택 전 충돌 상태로 되돌릴까요?"}
+                    </h3>
+                    <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700">
+                      MERGE CONFLICT
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                    {conflictResetDialog.type === "missing"
+                      ? "현재 파일에 저장된 최초 충돌 스냅샷이 없습니다. 충돌 파일 목록에서 파일을 다시 열고 해결을 진행해주세요."
+                      : "Current, Incoming, Both 선택이나 직접 수정한 내용이 사라지고, 이 파일을 처음 충돌이 발생했던 상태로 복원합니다."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-black text-slate-500">대상 파일</span>
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-500 border border-slate-200">
+                    {conflictDisplayCount} conflict
+                  </span>
+                </div>
+                <div className="mt-2 truncate font-mono text-[11px] font-bold text-slate-800">
+                  {activeFileId || "선택된 파일 없음"}
+                </div>
+              </div>
+
+              {conflictResetDialog.type === "confirm" && (
+                <div className="mt-4 grid grid-cols-3 gap-2 text-[11px] text-slate-500">
+                  <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2">
+                    <b className="block text-blue-700">Current</b>
+                    현재 브랜치 내용
+                  </div>
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                    <b className="block text-emerald-700">Incoming</b>
+                    병합되는 내용
+                  </div>
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+                    <b className="block text-slate-700">Both</b>
+                    양쪽 내용 모두
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              {conflictResetDialog.type === "missing" ? (
+                <button
+                  type="button"
+                  onClick={handleCloseConflictResetDialog}
+                  className="h-10 px-5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-black shadow-sm"
+                >
+                  확인
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCloseConflictResetDialog}
+                    className="h-10 px-4 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-bold shadow-sm"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmResetConflictSelection}
+                    className="h-10 px-5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-black shadow-sm flex items-center gap-1.5"
+                  >
+                    <VscCheck size={14} />
+                    처음 충돌 상태로 복원
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          </div>
+        </EditorModalPortal>
+      )}
+
+      {shouldShowConflictResolutionPanel && (
+        <div className={`shrink-0 border-b px-4 py-3 z-20 shadow-sm ${
+          isConflictSelectionComplete
+            ? "border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-blue-50"
+            : "border-red-100 bg-gradient-to-r from-red-50 via-white to-blue-50"
+        }`}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div
+                className={`mt-0.5 h-10 w-10 rounded-2xl flex items-center justify-center border shrink-0 ${
+                  isConflictSelectionComplete
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                    : "bg-red-100 text-red-600 border-red-200"
+                }`}
+              >
+                {isConflictSelectionComplete ? <VscCheck size={21} /> : <VscWarning size={21} />}
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-black text-gray-900">
+                    {isConflictSelectionComplete ? "충돌 선택 완료" : "충돌 해결 모드"}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      isConflictSelectionComplete
+                        ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                        : "bg-red-100 text-red-700 border-red-200"
+                    }`}
+                  >
+                    {conflictDisplayCount} conflict
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-500 truncate max-w-[360px]">
+                    {activeFileId}
+                  </span>
+                </div>
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-600 leading-relaxed">
+                  <span className={isConflictSelectionComplete ? "font-bold text-emerald-700" : "font-bold text-gray-800"}>
+                    1. 변경 선택
+                  </span>
+                  <span className="text-gray-300">→</span>
+                  <span className={isConflictSelectionComplete ? "font-bold text-emerald-700" : "text-gray-500"}>
+                    2. 저장 후 충돌 목록 복귀
+                  </span>
+                  <span className="text-gray-300">→</span>
+                  <span className="text-gray-500">
+                    3. 충돌 목록에서 해결 완료 처리
+                  </span>
+                  <span className="text-gray-300">→</span>
+                  <span className="text-gray-500">
+                    4. 병합 커밋
+                  </span>
+                </div>
+
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {isConflictSelectionComplete
+                    ? "충돌 마커가 제거되었습니다. 이제 저장 후 충돌 파일 목록으로 돌아가 해당 파일을 ‘해결 완료 처리’하세요."
+                    : "Current, Incoming, Both 중 하나를 선택하거나 직접 수정하세요. 잘못 선택했다면 ‘선택 전으로 되돌리기’로 처음 충돌 상태를 복원할 수 있습니다."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {!isConflictSelectionComplete && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => revealConflict()}
+                    className="h-8 px-3 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                  >
+                    <VscArrowRight size={14} />
+                    첫 충돌 이동
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyConflictResolution("current")}
+                    className="h-8 px-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold shadow-sm"
+                  >
+                    Current 적용
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyConflictResolution("incoming")}
+                    className="h-8 px-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-bold shadow-sm"
+                  >
+                    Incoming 적용
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyConflictResolution("both")}
+                    className="h-8 px-3 rounded-lg border border-slate-200 bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold shadow-sm"
+                  >
+                    Both 적용
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={handleResetConflictSelection}
+                className="h-8 px-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-bold shadow-sm"
+              >
+                선택 전으로 되돌리기
+              </button>
+
+              {isConflictSelectionComplete && (
+                <button
+                  type="button"
+                  onClick={handleSaveAndReturnToFileStatus}
+                  className="h-9 px-4 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-black flex items-center gap-1.5 shadow-sm"
+                >
+                  <VscCheck size={14} />
+                  저장 후 충돌 파일 목록으로 돌아가기
+                </button>
+              )}
+
+            </div>
+          </div>
         </div>
       )}
 

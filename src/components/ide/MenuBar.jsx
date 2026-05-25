@@ -3,14 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
-import {
-  setActiveBranch,
-  closeAllFiles,
-  closeFile,
-  openCodeMapTab,
-  clearVirtualTree,
-  setWorkspaceTree,
-} from "@/store/slices/fileSystemSlice";
+import { closeFile, openCodeMapTab, setWorkspaceTree } from "@/store/slices/fileSystemSlice";
 import {
   openProjectModal,
   setDebugMode,
@@ -29,8 +22,6 @@ import {
 import { DebugSocket } from "@/lib/ide/debugSocket";
 import { RunSocket } from "@/lib/ide/runSocket";
 import {
-  VscSourceControl,
-  VscChevronDown,
   VscAdd,
   VscRefresh,
   VscClose,
@@ -38,30 +29,21 @@ import {
   VscCopy,
   VscCheck,
   VscKey,
-  VscTrash,
-  VscLock,
-  VscRocket,
-  VscBeaker,
   VscPlay,
   VscDebugStop,
 } from "react-icons/vsc";
 import {
-  fetchBranchListApi,
-  createBranchApi,
   saveFileApi,
   getWorkspaceMembersApi,
   inviteWorkspaceMemberApi,
   getUserProfileApi,
-  deleteBranchApi,
-  createSandboxApi,
-  applySandboxApi,
   fetchProjectFilesApi,
-  pushToRemoteApi,
-  pullFromRemoteApi,
 } from "@/lib/ide/api";
 import { useAuth } from "@/lib/ide/AuthContext";
 import VoiceChatManager from "@/components/ide/voice/VoiceChatManager";
 import { useWorkspacePresence } from "@/hooks/useWorkspacePresence";
+import GitBranchControls from "@/components/ide/git/GitBranchControls";
+import { useGitRemoteActions } from "@/hooks/ide/useGitRemoteActions";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
@@ -114,35 +96,21 @@ export default function MenuBar({ mode = "personal" }) {
   } = useSelector((state) => state.ui);
 
   const [activeMenu, setActiveMenu] = useState(null);
-  const [isBranchOpen, setIsBranchOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [isVoiceChatModalOpen, setIsVoiceChatModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [isInviting, setIsInviting] = useState(false);
-  const [branches, setBranches] = useState([]);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [fullScreenLoading, setFullScreenLoading] = useState({
-    isOpen: false,
-    text: "",
-  });
-  const [isSandboxCreateModalOpen, setIsSandboxCreateModalOpen] = useState(false);
-  const [sandboxTaskName, setSandboxTaskName] = useState("");
-  const [isSandboxApplyModalOpen, setIsSandboxApplyModalOpen] = useState(false);
-  const [mergeCommitMessage, setMergeCommitMessage] = useState("");
 
   const menuRef = useRef(null);
-  const branchRef = useRef(null);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
   const isRelocationPage = pathname?.includes("/relocation") || pathname?.includes("/rearrange");
-  const currentBranch = activeProject ? activeBranch || "master" : "No Project";
-  const isSandboxMode = currentBranch.startsWith("focus-") || currentBranch.startsWith("focus/");
   const currentNickname = myProfile?.nickname || user?.nickname || "dev";
+  const { pullFromRemote, pushToRemote } = useGitRemoteActions();
 
   useEffect(() => {
     if (user && user.id) {
@@ -156,8 +124,6 @@ export default function MenuBar({ mode = "personal" }) {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target))
         setActiveMenu(null);
-      if (branchRef.current && !branchRef.current.contains(event.target))
-        setIsBranchOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -169,21 +135,12 @@ export default function MenuBar({ mode = "personal" }) {
         setIsTeamModalOpen(false);
         setIsVoiceChatModalOpen(false);
         setIsInviteModalOpen(false);
-        setIsSandboxCreateModalOpen(false);
-        setIsSandboxApplyModalOpen(false);
       }
     };
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, []);
 
-  useEffect(() => {
-    if (workspaceId && activeProject)
-      fetchBranchListApi(workspaceId, activeProject)
-        .then(setBranches)
-        .catch(console.error);
-    else setBranches([]);
-  }, [workspaceId, activeProject, isBranchOpen, currentBranch]);
 
   useEffect(() => {
     if (mode === "team" && workspaceId)
@@ -192,90 +149,6 @@ export default function MenuBar({ mode = "personal" }) {
         .catch(console.error);
   }, [mode, workspaceId, isTeamModalOpen]);
 
-  const handleSelectBranch = (branchName) => {
-    if (branchName === activeBranch) return;
-    dispatch(closeAllFiles());
-    dispatch(clearVirtualTree());
-    dispatch(setActiveBranch(branchName));
-    setIsBranchOpen(false);
-  };
-
-  const handleCreateBranch = async () => {
-    if (!newBranchName.trim()) return;
-    try {
-      setIsCreatingBranch(true);
-      await createBranchApi(workspaceId, activeProject, newBranchName);
-      dispatch(closeAllFiles());
-      dispatch(clearVirtualTree());
-      dispatch(setActiveBranch(newBranchName));
-      setNewBranchName("");
-      setIsBranchOpen(false);
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setIsCreatingBranch(false);
-    }
-  };
-
-  const handleDeleteBranch = async (e, branchName) => {
-    e.stopPropagation();
-    if (branchName === "master") return alert("master 브랜치는 삭제할 수 없습니다.");
-    if (!window.confirm(`정말 '${branchName}' 브랜치를 삭제하시겠습니까?`)) return;
-    try {
-      await deleteBranchApi(workspaceId, activeProject, branchName);
-      setBranches((prev) => prev.filter((b) => b !== branchName));
-      if (activeBranch === branchName) {
-        dispatch(closeAllFiles());
-        dispatch(clearVirtualTree());
-        dispatch(setActiveBranch("master"));
-        setIsBranchOpen(false);
-      }
-    } catch (error) {
-      alert(error.message);
-    }
-  };
-
-  const executeCreateSandbox = async () => {
-    if (!sandboxTaskName.trim()) return alert("작업명을 입력해주세요.");
-    setIsSandboxCreateModalOpen(false);
-    setFullScreenLoading({ isOpen: true, text: "격리된 샌드박스 환경을 구축하는 중입니다..." });
-    try {
-      const sandboxBranchName = await createSandboxApi(workspaceId, activeProject, currentNickname, sandboxTaskName);
-      dispatch(closeAllFiles());
-      dispatch(clearVirtualTree());
-      dispatch(setActiveBranch(sandboxBranchName));
-      setSandboxTaskName("");
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setTimeout(() => setFullScreenLoading({ isOpen: false, text: "" }), 500);
-    }
-  };
-
-  const executeApplySandbox = async () => {
-    if (!mergeCommitMessage.trim()) return alert("병합 전 남길 커밋 메시지를 입력해주세요!");
-    setIsSandboxApplyModalOpen(false);
-    setFullScreenLoading({ isOpen: true, text: "작업 내용을 저장하고 메인으로 합치는 중..." });
-    try {
-      if (fileContents && Object.keys(fileContents).length > 0) {
-        const savePromises = Object.entries(fileContents).map(([path, content]) =>
-          saveFileApi(workspaceId, activeProject, activeBranch, path, content)
-        );
-        await Promise.all(savePromises);
-      }
-      await applySandboxApi(workspaceId, activeProject, activeBranch, mergeCommitMessage, currentNickname);
-      dispatch(closeAllFiles());
-      dispatch(setActiveBranch("master"));
-      if (activeFileId) alert("🚀 master 브랜치로 병합이 완료되었습니다!\n최신 변경된 코드를 화면에 표시하려면 좌측 탐색기에서 파일을 다시 클릭해 주세요.");
-      else alert("🚀 성공적으로 메인(master) 코드에 반영되었습니다!");
-      dispatch(clearVirtualTree());
-      setMergeCommitMessage("");
-    } catch (error) {
-      alert(`⚠️ 병합 실패:\n${error.message}`);
-    } finally {
-      setTimeout(() => setFullScreenLoading({ isOpen: false, text: "" }), 500);
-    }
-  };
 
   const handleCopyCode = () => {
     if (!workspaceId) return alert("워크스페이스 ID를 찾을 수 없습니다.");
@@ -699,28 +572,11 @@ export default function MenuBar({ mode = "personal" }) {
         dispatch(writeToTerminal(`[Git] 🔄 Git 설정 창 이동\n`));
         break;
       case "Pull from Remote":
-        if (!workspaceId || !activeProject) return alert("프로젝트 선택 필수");
-        if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal(`[Git] ⬇️ Pull 시작...\n`));
-        try {
-          await pullFromRemoteApi(workspaceId, activeProject, activeBranch || "master");
-          dispatch(writeToTerminal(`[Git] ✅ Pull 완료.\n`));
-          const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
-          dispatch(setWorkspaceTree(treeData));
-        } catch (e) {
-          dispatch(writeToTerminal(`[Git] ❌ Pull 실패: ${e.message}\n`));
-        }
+        await pullFromRemote();
         break;
       case "Push to Remote":
-        if (!workspaceId || !activeProject) return alert("프로젝트 선택 필수");
-        if (!isTerminalVisible) dispatch(toggleTerminal());
-        dispatch(writeToTerminal(`[Git] ⬆️ Push 시작...\n`));
-        try {
-          await pushToRemoteApi(workspaceId, activeProject, activeBranch || "master");
-          dispatch(writeToTerminal(`[Git] ✅ Push 성공!\n`));
-        } catch (e) {
-          dispatch(writeToTerminal(`[Git] ❌ Push 실패: ${e.message}\n`));
-        }
+        await pushToRemote();
+        break;
         break;
       default:
         break;
@@ -846,14 +702,6 @@ export default function MenuBar({ mode = "personal" }) {
     },
   ];
 
-  const visibleBranches = branches.filter((branch) => {
-    if (branch.startsWith("focus-") || branch.startsWith("focus/"))
-      return (
-        branch.startsWith(`focus-${currentNickname}-`) ||
-        branch.startsWith(`focus/${currentNickname}/`)
-      );
-    return true;
-  });
 
   const {
     onlineMembers,
@@ -1007,80 +855,14 @@ export default function MenuBar({ mode = "personal" }) {
 
             <div className="w-px h-4 bg-gray-200"></div>
 
-            {/* Git Branch & 샌드박스 그룹 */}
-            <div className="flex items-center gap-2">
-              {mode === "team" && activeProject && currentBranch === "master" && (
-                <button
-                  onClick={() => setIsSandboxCreateModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 h-8 bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 active:scale-95 rounded-lg text-[12px] font-bold transition-all"
-                >
-                  <VscLock size={14} /> 샌드박스 (개인작업)
-                </button>
-              )}
-              {mode === "team" && activeProject && isSandboxMode && (
-                <button
-                  onClick={() => setIsSandboxApplyModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 h-8 bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 active:scale-95 rounded-lg text-[12px] font-bold transition-all"
-                >
-                  <VscRocket size={14} /> 메인 병합
-                </button>
-              )}
-
-              {/* 💡 Git 브랜치 드롭다운 (디자인 전면 개선 및 Z-index 최상위 배정) */}
-              <div className="relative" ref={branchRef}>
-                <button
-                  className={`flex items-center gap-1.5 px-3 py-1.5 h-8 border rounded-lg cursor-pointer transition-all text-[12px] font-bold ${
-                    isSandboxMode
-                      ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
-                  }`}
-                  onClick={() => {
-                    if (!activeProject) return alert("프로젝트를 먼저 설정해주세요!");
-                    setIsBranchOpen(!isBranchOpen);
-                  }}
-                >
-                  <VscSourceControl size={14} className={isSandboxMode ? "text-indigo-500" : "text-blue-500"} />
-                  <span className="max-w-[100px] truncate">{currentBranch}</span>
-                  <VscChevronDown size={14} className={isBranchOpen ? "rotate-180 transition-transform" : "transition-transform text-gray-400"} />
-                </button>
-                
-                {/* 💡 드롭다운 메뉴 팝업 (깔끔한 UI/UX 반영) */}
-                {isBranchOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 shadow-xl rounded-xl py-2 z-[99999] animate-fade-in-up origin-top-right">
-                    <div className="px-4 pb-3 pt-1 border-b border-gray-100 mb-2 bg-gray-50/30">
-                      <p className="text-xs font-black text-gray-800 flex items-center gap-1.5">
-                        <VscSourceControl /> Git Repository
-                      </p>
-                      <p className="text-[10px] text-gray-500 truncate mt-1 font-medium">{activeProject}</p>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto custom-scrollbar px-2 space-y-1">
-                      {branches.map((branch) => {
-                        const isActive = branch === currentBranch;
-                        return (
-                          <div
-                            key={branch}
-                            onClick={() => handleSelectBranch(branch)}
-                            className={`flex items-center justify-between px-3 py-2 cursor-pointer text-xs rounded-lg font-medium transition-all ${
-                              isActive ? "bg-blue-50 text-blue-700 font-bold" : "text-gray-600 hover:bg-gray-50 hover:text-blue-600"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <VscSourceControl className={isActive ? "text-blue-500" : "text-gray-400"} />
-                              <span>{branch}</span>
-                            </div>
-                            {branch !== "master" && (
-                              <button onClick={(e) => handleDeleteBranch(e, branch)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition-colors" title="브랜치 삭제">
-                                <VscTrash size={14} />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <GitBranchControls
+              mode={mode}
+              workspaceId={workspaceId}
+              activeProject={activeProject}
+              activeBranch={activeBranch}
+              currentNickname={currentNickname}
+              fileContents={fileContents}
+            />
 
             {mode === "team" && <div className="w-px h-4 bg-gray-200 mx-1"></div>}
 
@@ -1146,88 +928,6 @@ export default function MenuBar({ mode = "personal" }) {
         </div>
       )}
 
-      {fullScreenLoading.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] flex flex-col items-center justify-center animate-fade-in">
-          <div className="bg-white/10 p-6 rounded-3xl backdrop-blur-md border border-white/20 shadow-2xl flex flex-col items-center justify-center animate-pulse">
-            <VscBeaker className="text-indigo-400 mb-4 animate-bounce" size={48} />
-            <h2 className="text-xl font-extrabold text-white tracking-tight">{fullScreenLoading.text}</h2>
-            <div className="w-48 h-1 bg-indigo-900/50 rounded-full mt-5 overflow-hidden">
-              <div className="w-1/2 h-full bg-indigo-400 rounded-full animate-[ping_1.5s_ease-in-out_infinite]"></div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSandboxCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in" onClick={() => setIsSandboxCreateModalOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-[440px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 border-b border-indigo-100 flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="bg-indigo-100 p-1.5 rounded-lg"><VscLock className="text-indigo-600" size={20} /></div>
-                  <h2 className="text-xl font-black text-indigo-900 tracking-tight">나만의 집중 공간 만들기</h2>
-                </div>
-                <p className="text-[13px] text-indigo-700/80 font-medium">다른 팀원에게 영향을 주지 않고 코드를 테스트해보세요.</p>
-              </div>
-              <button onClick={() => setIsSandboxCreateModalOpen(false)} className="text-gray-400 hover:text-gray-800 bg-white/50 hover:bg-white p-1.5 rounded-full transition-colors">
-                <VscClose size={20} />
-              </button>
-            </div>
-            <div className="p-6 bg-white space-y-5">
-              <div className="space-y-2">
-                <label className="text-[13px] font-extrabold text-gray-800">어떤 작업을 진행하시나요?</label>
-                <input
-                  type="text"
-                  value={sandboxTaskName}
-                  onChange={(e) => setSandboxTaskName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && executeCreateSandbox()}
-                  placeholder="예) 로그인 에러 수정, 헤더 UI 변경"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl text-[14px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all font-medium"
-                  autoFocus
-                />
-              </div>
-              <button onClick={executeCreateSandbox} disabled={!sandboxTaskName.trim()} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-xl text-[14px] font-bold shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2">
-                공간 생성 및 이동하기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSandboxApplyModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in" onClick={() => setIsSandboxApplyModalOpen(false)}>
-          <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.4)] w-[460px] overflow-hidden flex flex-col animate-slide-up" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8 pb-6 text-center flex flex-col items-center border-b border-gray-100">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-5 border-4 border-white shadow-md relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-50"></span>
-                <VscRocket className="text-emerald-600" size={32} />
-              </div>
-              <h2 className="text-xl font-black text-gray-900 mb-2 tracking-tight">메인 코드로 병합 (Merge)</h2>
-              <p className="text-[13px] text-gray-500 font-medium leading-relaxed">작업하신 내용을 안전하게 저장하고 <strong className="text-emerald-600 font-black">master</strong> 브랜치에 합칩니다.</p>
-            </div>
-            <div className="p-6 bg-gray-50 space-y-3">
-              <label className="text-[12px] font-bold text-gray-700 flex items-center gap-1.5"><VscSourceControl /> 병합 커밋 메시지 작성</label>
-              <input
-                type="text"
-                value={mergeCommitMessage}
-                onChange={(e) => setMergeCommitMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && executeApplySandbox()}
-                placeholder="예) 로그인 화면 레이아웃 수정 완료"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-[13px] outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all font-medium bg-white"
-                autoFocus
-              />
-            </div>
-            <div className="flex border-t border-gray-100 p-4 gap-3 bg-white">
-              <button onClick={() => setIsSandboxApplyModalOpen(false)} className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 active:scale-95 rounded-xl text-[13px] font-bold transition-all shadow-sm">
-                취소
-              </button>
-              <button onClick={executeApplySandbox} disabled={!mergeCommitMessage.trim()} className="flex-[2] py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-xl text-[13px] font-bold shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
-                <VscCheck size={16} strokeWidth={1} /> 커밋 및 병합하기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isTeamModalOpen && mode === "team" && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[9998] flex items-center justify-center animate-fade-in" onClick={() => setIsTeamModalOpen(false)}>

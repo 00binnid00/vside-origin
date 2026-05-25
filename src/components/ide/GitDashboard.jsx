@@ -1,59 +1,114 @@
+"use client";
+
 // 경로: src/components/ide/GitDashboard.jsx
 
-import React, { useState, useEffect, useRef } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useDispatch, useSelector } from "react-redux";
 import {
-  VscSourceControl,
-  VscRepo,
-  VscRepoForked,
-  VscRecord,
+  VscArrowDown,
+  VscArrowRight,
+  VscArrowUp,
+  VscCheck,
+  VscClose,
   VscCloudDownload,
   VscCloudUpload,
-  VscCheck,
   VscDiffAdded,
   VscDiffModified,
   VscDiffRemoved,
-  VscArrowDown,
-  VscArrowUp,
-  VscRefresh,
-  VscHistory,
+  VscFile,
   VscGithubInverted,
-  VscWarning,
-  VscClose,
+  VscHistory,
+  VscLink,
+  VscRecord,
+  VscRefresh,
+  VscRepo,
+  VscRepoForked,
+  VscSourceControl,
   VscTrash,
-  VscLink
+  VscWarning,
 } from "react-icons/vsc";
 
 import {
-  setActiveProject,
-  setActiveBranch,
-  closeAllFiles,
-  updateProjectGitInfo,
   clearVirtualTree,
+  closeAllFiles,
+  openFile,
+  setActiveBranch,
+  setActiveProject,
+  updateFileContent,
+  updateProjectGitInfo,
 } from "@/store/slices/fileSystemSlice";
 import {
+  requestConflictNavigation,
+  setActiveActivity,
+} from "@/store/slices/uiSlice";
+import {
+  abortMergeApi,
+  checkoutCommitApi,
+  commitChangesApi,
+  deleteBranchApi,
+  fetchBranchListApi,
+  fetchFileContentApi,
+  fetchGitHistoryApi,
   fetchGitStatusApi,
+  mergeCommitApi,
+  pullFromRemoteApi,
+  pushToRemoteApi,
+  resetCommitApi,
   stageFilesApi,
   unstageFilesApi,
-  commitChangesApi,
-  fetchBranchListApi,
-  pushToRemoteApi,
-  pullFromRemoteApi,
-  fetchGitHistoryApi,
-  resetCommitApi,
-  checkoutCommitApi,
-  mergeCommitApi,
   updateGitUrlApi,
-  abortMergeApi,
-  deleteBranchApi,
 } from "@/lib/ide/api";
 import { renderGraph } from "@/lib/ide/gitGraphHelper";
+
+const DEFAULT_BRANCH = "master";
+const OAUTH_RESULT_MESSAGE = "WEVAIS_GITHUB_OAUTH_RESULT";
+const OAUTH_RESULT_STORAGE_KEY = "wevaisGithubOAuthResult";
+const OAUTH_PENDING_STORAGE_KEY = "wevaisPendingGitRemoteAction";
+const OAUTH_RETURN_URL_STORAGE_KEY = "wevaisGithubOAuthReturnUrl";
+
+const getRemoteActionLabel = (action = "push") =>
+  action === "pull" ? "Pull" : "Push";
+
+const getFileNameFromPath = (filePath) => {
+  if (!filePath) return "Conflict file";
+  return String(filePath).split("/").filter(Boolean).pop() || filePath;
+};
+
+const normalizeGitHubRepoUrl = (rawUrl = "") => {
+  const value = String(rawUrl || "").trim();
+
+  if (!value) return "";
+
+  if (value.startsWith("git@github.com:")) {
+    const repoPath = value.replace("git@github.com:", "").replace(/\.git$/, "");
+    return `https://github.com/${repoPath}.git`;
+  }
+
+  if (value.startsWith("http://github.com/")) {
+    return value.replace("http://github.com/", "https://github.com/");
+  }
+
+  return value;
+};
+
+const isValidGitHubRepoUrl = (rawUrl = "") => {
+  const url = normalizeGitHubRepoUrl(rawUrl);
+  return /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(
+    url,
+  );
+};
+
+const hasConflictMarkers = (content = "") => {
+  return /(^|\n)<{7}|(^|\n)={7}|(^|\n)>{7}/m.test(String(content || ""));
+};
 
 export default function GitDashboard() {
   const dispatch = useDispatch();
   const { workspaceId, activeProject, activeBranch, projectList } = useSelector(
     (state) => state.fileSystem,
   );
+
   const [activeView, setActiveView] = useState("status");
   const [commitMessage, setCommitMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -66,14 +121,10 @@ export default function GitDashboard() {
   const [branchList, setBranchList] = useState([]);
   const [historyLog, setHistoryLog] = useState([]);
 
-  // 💡 [수정됨] 토큰 입력 모달은 지우고, OAuth 연동 모달 상태를 추가했습니다!
   const [showOAuthModal, setShowOAuthModal] = useState(false);
   const [showGitUrlModal, setShowGitUrlModal] = useState(false);
   const [modalAction, setModalAction] = useState("push");
   const [inputGitUrl, setInputGitUrl] = useState("");
-
-  const authorName = "노민주";
-  const authorEmail = "minju@webide.com";
 
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
@@ -81,21 +132,98 @@ export default function GitDashboard() {
   const [branchContextMenu, setBranchContextMenu] = useState(null);
   const branchContextMenuRef = useRef(null);
 
+  const [conflictNotice, setConflictNotice] = useState(null);
+  const [appDialog, setAppDialog] = useState(null);
+  const dialogResolverRef = useRef(null);
+
+  const modalActionRef = useRef("push");
+  const pendingOAuthActionRef = useRef(null);
+  const oauthPopupRef = useRef(null);
+
+  const currentBranch = activeBranch || DEFAULT_BRANCH;
+
+  const showAlert = useCallback(
+    ({
+      title = "알림",
+      message = "",
+      detail = "",
+      variant = "info",
+      confirmText = "확인",
+    } = {}) => {
+      setAppDialog({
+        type: "alert",
+        title,
+        message,
+        detail,
+        variant,
+        confirmText,
+      });
+    },
+    [],
+  );
+
+  const showConfirm = useCallback(
+    ({
+      title = "확인이 필요합니다",
+      message = "",
+      detail = "",
+      variant = "warning",
+      confirmText = "확인",
+      cancelText = "취소",
+    } = {}) => {
+      return new Promise((resolve) => {
+        dialogResolverRef.current = resolve;
+        setAppDialog({
+          type: "confirm",
+          title,
+          message,
+          detail,
+          variant,
+          confirmText,
+          cancelText,
+        });
+      });
+    },
+    [],
+  );
+
+  const closeAppDialog = useCallback(() => {
+    if (appDialog?.type === "confirm" && dialogResolverRef.current) {
+      dialogResolverRef.current(false);
+      dialogResolverRef.current = null;
+    }
+    setAppDialog(null);
+  }, [appDialog]);
+
+  const confirmAppDialog = useCallback(() => {
+    if (appDialog?.type === "confirm" && dialogResolverRef.current) {
+      dialogResolverRef.current(true);
+      dialogResolverRef.current = null;
+    }
+    setAppDialog(null);
+  }, [appDialog]);
+
   useEffect(() => {
-    const handleClickOutside = (e) => {
+    modalActionRef.current = modalAction;
+  }, [modalAction]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
       if (
         contextMenuRef.current &&
-        !contextMenuRef.current.contains(e.target)
+        !contextMenuRef.current.contains(event.target)
       ) {
         setContextMenu(null);
       }
+
       if (
         branchContextMenuRef.current &&
-        !branchContextMenuRef.current.contains(e.target)
+        !branchContextMenuRef.current.contains(event.target)
       ) {
         setBranchContextMenu(null);
       }
     };
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -115,37 +243,52 @@ export default function GitDashboard() {
     }
   };
 
-  useEffect(() => {
-    if (workspaceId && activeProject)
-      fetchBranchListApi(workspaceId, activeProject)
-        .then(setBranchList)
-        .catch(console.error);
-    else setBranchList([]);
+  const loadBranches = useCallback(async () => {
+    if (!workspaceId || !activeProject) {
+      setBranchList([]);
+      return;
+    }
+
+    try {
+      const branches = await fetchBranchListApi(workspaceId, activeProject);
+      setBranchList(Array.isArray(branches) ? branches : []);
+    } catch (error) {
+      console.error("브랜치 목록 로드 실패:", error);
+    }
   }, [workspaceId, activeProject]);
 
-  const loadGitStatus = async () => {
+  const loadGitStatus = useCallback(async () => {
     if (!workspaceId || !activeProject) return;
+
     try {
       setIsLoading(true);
+
       if (activeView === "status") {
         const statusData = await fetchGitStatusApi(
           workspaceId,
           activeProject,
-          activeBranch || "master",
+          currentBranch,
         );
+
         setStagedFiles(statusData.staged || []);
         setUnstagedFiles(statusData.unstaged || []);
         setConflictedFiles(statusData.conflicted || []);
-        setIsMerging(statusData.isMerging || false);
+        setIsMerging(Boolean(statusData.isMerging || statusData.conflicted?.length));
 
-        if (statusData.isMerging && !commitMessage) {
-          setCommitMessage("Merge branch and resolve conflicts");
-        }
-      } else if (activeView === "history") {
+        setCommitMessage((prevMessage) => {
+          if (statusData.isMerging && !String(prevMessage || "").trim()) {
+            return "Merge branch and resolve conflicts";
+          }
+
+          return prevMessage;
+        });
+      }
+
+      if (activeView === "history") {
         const historyData = await fetchGitHistoryApi(
           workspaceId,
           activeProject,
-          activeBranch || "master",
+          currentBranch,
         );
         setHistoryLog(historyData || []);
       }
@@ -154,58 +297,127 @@ export default function GitDashboard() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [workspaceId, activeProject, currentBranch, activeView]);
+
+  useEffect(() => {
+    loadBranches();
+  }, [loadBranches]);
 
   useEffect(() => {
     loadGitStatus();
-  }, [workspaceId, activeProject, activeBranch, activeView]);
+  }, [loadGitStatus]);
 
-  const handleProjectChange = (e) => {
-    dispatch(setActiveProject(e.target.value));
-    dispatch(setActiveBranch("master"));
+  const showConflictNotice = useCallback(
+    (statusData = {}) => {
+      const files = statusData.conflicted || [];
+
+      setActiveView("status");
+      setConflictNotice({
+        branchName: currentBranch,
+        files,
+        fileCount: files.length,
+        createdAt: Date.now(),
+      });
+    },
+    [currentBranch],
+  );
+
+  const handleOpenConflictFile = async (filePath) => {
+    const targetPath = filePath || conflictedFiles[0]?.path;
+    if (!targetPath) return;
+
+    try {
+      setIsLoading(true);
+      const content = await fetchFileContentApi(
+        workspaceId,
+        activeProject,
+        currentBranch,
+        targetPath,
+      );
+
+      dispatch(
+        openFile({
+          id: targetPath,
+          name: getFileNameFromPath(targetPath),
+          type: "file",
+          status: "conflicted",
+        }),
+      );
+      dispatch(updateFileContent({ filePath: targetPath, content }));
+      dispatch(
+        requestConflictNavigation({
+          filePath: targetPath,
+          requestedAt: Date.now(),
+        }),
+      );
+      dispatch(setActiveActivity("editor"));
+      setConflictNotice(null);
+    } catch (error) {
+      showAlert({
+        title: "충돌 파일을 열 수 없습니다",
+        message: error.message,
+        variant: "danger",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleProjectChange = (event) => {
+    dispatch(setActiveProject(event.target.value));
+    dispatch(setActiveBranch(DEFAULT_BRANCH));
     setActiveView("status");
   };
 
   const handleBranchChange = (branchName) => {
-    if (branchName !== activeBranch) {
-      dispatch(closeAllFiles());
-      dispatch(clearVirtualTree()); 
-      dispatch(setActiveBranch(branchName));
-    }
+    if (branchName === currentBranch) return;
+
+    dispatch(closeAllFiles());
+    dispatch(clearVirtualTree());
+    dispatch(setActiveBranch(branchName));
   };
 
-  const handleBranchRightClick = (e, branchName) => {
-    e.preventDefault();
-    if (branchName === "master") return;
-    setBranchContextMenu({ x: e.pageX, y: e.pageY, branch: branchName });
+  const handleBranchRightClick = (event, branchName) => {
+    event.preventDefault();
+
+    if (["master", "main"].includes(String(branchName).toLowerCase())) return;
+    if (branchName === currentBranch) return;
+
+    setBranchContextMenu({ x: event.pageX, y: event.pageY, branch: branchName });
   };
 
   const handleDeleteBranch = async () => {
     if (!branchContextMenu) return;
+
     const branchName = branchContextMenu.branch;
     setBranchContextMenu(null);
 
-    if (
-      !window.confirm(
-        `정말 '${branchName}' 브랜치를 삭제하시겠습니까?\n(해당 브랜치의 파일이 영구 삭제됩니다!)`,
-      )
-    )
-      return;
+    const confirmed = await showConfirm({
+      title: "브랜치를 삭제할까요?",
+      message: `'${branchName}' 브랜치를 삭제합니다. 삭제된 브랜치의 워크트리도 함께 제거됩니다.`,
+      detail: "현재 작업 중인 브랜치는 삭제할 수 없습니다. 다른 브랜치로 이동한 뒤 진행하세요.",
+      variant: "danger",
+      confirmText: "삭제하기",
+      cancelText: "취소",
+    });
+
+    if (!confirmed) return;
 
     try {
       setIsLoading(true);
       await deleteBranchApi(workspaceId, activeProject, branchName);
-
-      setBranchList((prev) => prev.filter((b) => b !== branchName));
-      alert(`'${branchName}' 브랜치가 삭제되었습니다.`);
-
-      if (activeBranch === branchName) {
-        dispatch(closeAllFiles());
-        dispatch(clearVirtualTree());
-        dispatch(setActiveBranch("master"));
-      }
+      setBranchList((prev) => prev.filter((branch) => branch !== branchName));
+      showAlert({
+        title: "브랜치 삭제 완료",
+        message: `'${branchName}' 브랜치가 삭제되었습니다.`,
+        variant: "success",
+      });
     } catch (error) {
-      alert(error.message);
+      showAlert({
+        title: "브랜치 삭제 실패",
+        message: error.message,
+        variant: "danger",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -214,228 +426,540 @@ export default function GitDashboard() {
   const handleStage = async (filePattern) => {
     try {
       setIsLoading(true);
-      await stageFilesApi(workspaceId, activeProject, activeBranch || "master", filePattern);
+      await stageFilesApi(workspaceId, activeProject, currentBranch, filePattern);
       await loadGitStatus();
     } catch (error) {
-      alert(error.message);
+      showAlert({
+        title: "Stage 실패",
+        message: error.message,
+        variant: "danger",
+      });
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   const handleUnstage = async (filePattern) => {
     try {
       setIsLoading(true);
-      await unstageFilesApi(workspaceId, activeProject, activeBranch || "master", filePattern);
+      await unstageFilesApi(workspaceId, activeProject, currentBranch, filePattern);
       await loadGitStatus();
     } catch (error) {
-      alert(error.message);
+      showAlert({
+        title: "Unstage 실패",
+        message: error.message,
+        variant: "danger",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMarkConflictResolved = async (filePath) => {
+    if (!filePath) return;
+
+    try {
+      setIsLoading(true);
+      const latestContent = await fetchFileContentApi(
+        workspaceId,
+        activeProject,
+        currentBranch,
+        filePath,
+      );
+
+      if (hasConflictMarkers(latestContent)) {
+        setConflictNotice({
+          branchName: currentBranch,
+          files: [{ path: filePath, status: "conflicted" }],
+          fileCount: 1,
+          createdAt: Date.now(),
+          message:
+            "아직 충돌 마커가 남아 있습니다. 에디터에서 Current / Incoming / Both 중 하나를 선택하거나 직접 수정한 뒤 저장하세요.",
+        });
+        return;
+      }
+
+      await stageFilesApi(workspaceId, activeProject, currentBranch, filePath);
+      await loadGitStatus();
+    } catch (error) {
+      showAlert({
+        title: "해결 완료 처리 실패",
+        message: error.message,
+        variant: "danger",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleAbortMerge = async () => {
-    if (!window.confirm("정말 병합을 취소하시겠습니까? 해결 중이던 충돌 내역이 모두 날아갑니다!")) return;
+    const confirmed = await showConfirm({
+      title: "병합을 취소할까요?",
+      message: "현재 진행 중인 병합을 중단하고 충돌 해결 상태를 되돌립니다.",
+      detail: "직접 수정한 충돌 해결 내용은 사라질 수 있습니다. 확실할 때만 진행하세요.",
+      variant: "danger",
+      confirmText: "병합 취소",
+      cancelText: "계속 해결하기",
+    });
+
+    if (!confirmed) return;
+
     try {
       setIsLoading(true);
-      await abortMergeApi(workspaceId, activeProject, activeBranch || "master");
-      alert("✅ 병합이 안전하게 취소되었습니다. 이전 상태로 복구됩니다.");
+      await abortMergeApi(workspaceId, activeProject, currentBranch);
       setCommitMessage("");
       await loadGitStatus();
+      showAlert({
+        title: "병합이 취소되었습니다",
+        message: "충돌 해결 중이던 상태를 중단하고 이전 상태로 복구했습니다.",
+        variant: "success",
+      });
     } catch (error) {
-      alert("병합 취소 실패: " + error.message);
+      showAlert({
+        title: "병합 취소 실패",
+        message: error.message,
+        variant: "danger",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCommit = async () => {
-    if (conflictedFiles.length > 0)
-      return alert(
-        "❌ 아직 해결되지 않은 충돌 파일이 있습니다! \n파일에서 <<<<<< ======= >>>>>> 부분을 수정하고 Stage(Resolve & Stage) 해주세요.",
-      );
-    if (!commitMessage.trim()) return alert("커밋 메시지를 입력해주세요.");
-    if (stagedFiles.length === 0)
-      return alert("커밋할 파일(Staged)이 없습니다!");
+    if (!commitMessage.trim()) {
+      showAlert({
+        title: "커밋 메시지가 필요합니다",
+        message: "변경 내역을 설명하는 커밋 메시지를 입력한 뒤 다시 시도하세요.",
+        variant: "warning",
+      });
+      return false;
+    }
 
     try {
       setIsLoading(true);
+
+      const latestStatus = await fetchGitStatusApi(
+        workspaceId,
+        activeProject,
+        currentBranch,
+      );
+      const latestConflictedFiles = latestStatus.conflicted || [];
+      let latestStagedFiles = latestStatus.staged || [];
+
+      setStagedFiles(latestStagedFiles);
+      setUnstagedFiles(latestStatus.unstaged || []);
+      setConflictedFiles(latestConflictedFiles);
+      setIsMerging(Boolean(latestStatus.isMerging || latestConflictedFiles.length));
+
+      if (latestConflictedFiles.length > 0) {
+        showAlert({
+          title: "아직 해결되지 않은 충돌 파일이 있습니다",
+          message:
+            "충돌 파일을 열어 내용을 선택하거나 직접 수정한 뒤, 저장 후 충돌 파일 목록에서 해결 완료 처리를 실행하세요.",
+          variant: "warning",
+        });
+        return false;
+      }
+
+      if ((latestStatus.isMerging || isMerging) && latestStagedFiles.length === 0) {
+        await stageFilesApi(workspaceId, activeProject, currentBranch, ".");
+        const restagedStatus = await fetchGitStatusApi(
+          workspaceId,
+          activeProject,
+          currentBranch,
+        );
+        latestStagedFiles = restagedStatus.staged || [];
+        setStagedFiles(latestStagedFiles);
+        setUnstagedFiles(restagedStatus.unstaged || []);
+        setConflictedFiles(restagedStatus.conflicted || []);
+      }
+
+      if (latestStagedFiles.length === 0) {
+        showAlert({
+          title: "커밋할 파일이 없습니다",
+          message:
+            "Staged Files 영역에 파일이 없습니다. 변경 파일을 Stage 하거나 충돌 파일을 해결 완료 처리한 뒤 다시 커밋하세요.",
+          variant: "warning",
+        });
+        return false;
+      }
+
       await commitChangesApi(
         workspaceId,
         activeProject,
-        activeBranch || "master",
+        currentBranch,
         commitMessage,
-        authorName,
-        authorEmail,
       );
-      alert("✅ 성공적으로 커밋되었습니다!");
+
+      showAlert({
+        title: "커밋 완료",
+        message: isMerging
+          ? "병합 커밋이 정상적으로 생성되었습니다."
+          : "변경사항이 정상적으로 커밋되었습니다.",
+        variant: "success",
+      });
+
       setCommitMessage("");
       await loadGitStatus();
       return true;
     } catch (error) {
-      alert("커밋 실패: " + error.message);
+      showAlert({
+        title: "커밋 실패",
+        message: error.message,
+        detail:
+          "충돌 파일이 모두 해결 완료 처리되었는지, Staged Files에 파일이 있는지 확인하세요.",
+        variant: "danger",
+      });
       return false;
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 💡 [수정됨] 토큰 모달을 띄우는 대신, 바로 API를 찌르도록 변경했습니다!
-  const handleRemoteActionClick = (action) => {
-    if (isMerging)
-      return alert(
-        "⚠️ 현재 병합 충돌 해결 중입니다. 충돌을 먼저 해결하고 커밋해주세요!",
-      );
+  const openGithubOAuthPage = useCallback(() => {
+    const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
 
-    const currentProj = projectList.find((p) => p.name === activeProject);
+    if (!clientId) {
+      showAlert({
+        title: "GitHub OAuth 설정이 필요합니다",
+        message:
+          "프론트엔드 .env.local에 NEXT_PUBLIC_GITHUB_CLIENT_ID를 설정한 뒤 다시 시도하세요.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    const requestedAction = modalActionRef.current || "push";
+    pendingOAuthActionRef.current = requestedAction;
+
+    const statePayload = {
+      workspaceId,
+      activeProject,
+      activeBranch: currentBranch,
+      action: requestedAction,
+      requestedAt: Date.now(),
+    };
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(
+        OAUTH_PENDING_STORAGE_KEY,
+        JSON.stringify(statePayload),
+      );
+      window.sessionStorage.setItem(
+        OAUTH_RETURN_URL_STORAGE_KEY,
+        window.location.href,
+      );
+    }
+
+    const authUrl = new URL("https://github.com/login/oauth/authorize");
+    authUrl.searchParams.set("client_id", clientId);
+    authUrl.searchParams.set("scope", "repo");
+    authUrl.searchParams.set(
+      "redirect_uri",
+      `${window.location.origin}/auth/github/callback`,
+    );
+    authUrl.searchParams.set("state", JSON.stringify(statePayload));
+
+    /*
+     * 현재 탭에서 GitHub로 이동했다가 callback에서 원래 IDE URL로 복귀합니다.
+     * 팝업 방식은 사용하지 않습니다.
+     */
+    window.location.assign(authUrl.toString());
+  }, [activeProject, currentBranch, showAlert, workspaceId]);
+
+  const executeRemoteAction = useCallback(
+    async (actionToExecute) => {
+      const nextAction = actionToExecute || modalActionRef.current || "push";
+
+      try {
+        setIsLoading(true);
+
+        if (nextAction === "push") {
+          await pushToRemoteApi(workspaceId, activeProject, currentBranch);
+          showAlert({
+            title: "Push 완료",
+            message: "현재 브랜치의 커밋을 GitHub 원격 저장소에 반영했습니다.",
+            variant: "success",
+          });
+        }
+
+        if (nextAction === "pull") {
+          await pullFromRemoteApi(workspaceId, activeProject, currentBranch);
+          await loadGitStatus();
+          showAlert({
+            title: "Pull 완료",
+            message: "GitHub 원격 저장소의 변경사항을 가져왔습니다.",
+            variant: "success",
+          });
+        }
+      } catch (error) {
+        if (error.code === "GITHUB_AUTH_REQUIRED") {
+          modalActionRef.current = nextAction;
+          pendingOAuthActionRef.current = nextAction;
+          setModalAction(nextAction);
+          setShowOAuthModal(true);
+          return;
+        }
+
+        showAlert({
+          title: "작업을 완료하지 못했습니다",
+          message: error.message,
+          variant: "danger",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [activeProject, currentBranch, loadGitStatus, showAlert, workspaceId],
+  );
+
+  const handleRemoteActionClick = (action) => {
+    if (isMerging) {
+      showAlert({
+        title: "병합 충돌 해결 중입니다",
+        message: "Pull/Push 전에 충돌 파일을 모두 해결 완료 처리하고 병합 커밋을 먼저 생성하세요.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    const currentProject = projectList.find((project) => project.name === activeProject);
+
+    modalActionRef.current = action;
+    pendingOAuthActionRef.current = action;
     setModalAction(action);
 
-    if (!currentProj || !currentProj.gitUrl) {
+    if (!currentProject || !currentProject.gitUrl) {
       setShowGitUrlModal(true);
-    } else {
-      // 깃허브 URL이 있다면 일단 무조건 찌릅니다! (토큰은 백엔드가 알아서 DB에서 찾음)
-      executeRemoteAction(action);
+      return;
     }
+
+    executeRemoteAction(action);
   };
 
   const handleLinkGitUrlAndProceed = async () => {
-    if (!inputGitUrl.trim()) return alert("Git URL을 입력해주세요!");
+    const normalizedUrl = normalizeGitHubRepoUrl(inputGitUrl);
+    const nextAction = modalActionRef.current || modalAction || "push";
+
+    if (!normalizedUrl) {
+      showAlert({
+        title: "GitHub 저장소 주소를 입력해주세요",
+        message: "Push/Pull을 진행하려면 먼저 프로젝트와 연결할 GitHub Repository URL이 필요합니다.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    if (!isValidGitHubRepoUrl(normalizedUrl)) {
+      showAlert({
+        title: "GitHub 저장소 주소 형식이 올바르지 않습니다",
+        message:
+          "https://github.com/username/repository.git 형식으로 입력해주세요. SSH 주소를 입력하면 HTTPS 주소로 자동 변환됩니다.",
+        variant: "warning",
+      });
+      return;
+    }
+
     try {
       setIsLoading(true);
-      await updateGitUrlApi(workspaceId, activeProject, inputGitUrl);
-      dispatch(
-        updateProjectGitInfo({
-          projectName: activeProject,
-          gitUrl: inputGitUrl,
-        }),
-      );
-      alert("✅ Git 저장소가 연동되었습니다! 이어서 작업을 진행합니다.");
+      await updateGitUrlApi(workspaceId, activeProject, normalizedUrl);
+      dispatch(updateProjectGitInfo({ projectName: activeProject, gitUrl: normalizedUrl }));
       setShowGitUrlModal(false);
       setInputGitUrl("");
-      
-      // 연동 성공 후 곧바로 원래 하려던 작업(Push/Pull) 실행!
-      executeRemoteAction(modalAction);
+      executeRemoteAction(nextAction);
     } catch (error) {
-      alert("연동 실패: " + error.message);
+      showAlert({
+        title: "GitHub 저장소를 연결하지 못했습니다",
+        message: error.message,
+        detail:
+          "Repository URL이 실제로 존재하는지, 현재 로그인한 계정이 접근 가능한 저장소인지 확인하세요.",
+        variant: "danger",
+      });
       setIsLoading(false);
     }
   };
 
-  // 💡 [핵심 마법] 토큰 없이 요청을 던지고, 403 에러가 오면 OAuth 창을 띄웁니다!
-  const executeRemoteAction = async (actionToExecute) => {
+  useEffect(() => {
+    const handleGithubOAuthMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+
+      const data = event.data || {};
+      if (data.type !== OAUTH_RESULT_MESSAGE) return;
+
+      if (data.status === "success") {
+        const nextAction =
+          data.state?.action || pendingOAuthActionRef.current || modalActionRef.current || "push";
+
+        setShowOAuthModal(false);
+        pendingOAuthActionRef.current = null;
+
+        if (oauthPopupRef.current && !oauthPopupRef.current.closed) {
+          oauthPopupRef.current.close();
+        }
+
+        showAlert({
+          title: "GitHub 계정 연동 완료",
+          message: `${getRemoteActionLabel(nextAction)} 작업을 이어서 실행합니다.`,
+          variant: "success",
+        });
+
+        executeRemoteAction(nextAction);
+        return;
+      }
+
+      if (data.status === "error") {
+        showAlert({
+          title: "GitHub 계정 연동 실패",
+          message: data.message || "GitHub 인증 처리 중 문제가 발생했습니다.",
+          variant: "danger",
+        });
+      }
+    };
+
+    window.addEventListener("message", handleGithubOAuthMessage);
+    return () => window.removeEventListener("message", handleGithubOAuthMessage);
+  }, [executeRemoteAction, showAlert]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const rawResult = window.sessionStorage.getItem(OAUTH_RESULT_STORAGE_KEY);
+    if (!rawResult) return;
+
+    window.sessionStorage.removeItem(OAUTH_RESULT_STORAGE_KEY);
+
     try {
-      setIsLoading(true);
-      if (actionToExecute === "push") {
-        await pushToRemoteApi(workspaceId, activeProject, activeBranch || "master");
-        alert("🚀 성공적으로 GitHub에 Push 되었습니다!");
-      } else if (actionToExecute === "pull") {
-        await pullFromRemoteApi(workspaceId, activeProject, activeBranch || "master");
-        alert("📥 성공적으로 GitHub에서 Pull 되었습니다!");
-        await loadGitStatus();
-      }
-    } catch (error) {
-      // api.js에서 가로챈 그 에러 코드입니다!
-      if (error.code === "GITHUB_AUTH_REQUIRED") {
-        setShowOAuthModal(true); // 연동이 필요하면 우아하게 모달 팝업 오픈!
-      } else {
-        alert(error.message); // 그 외 일반적인 충돌 등의 에러
-      }
-    } finally {
-      setIsLoading(false);
+      const result = JSON.parse(rawResult);
+      if (result.status !== "success") return;
+
+      const nextAction = result.state?.action || modalActionRef.current || "push";
+      setShowOAuthModal(false);
+      executeRemoteAction(nextAction);
+    } catch {
+      // 잘못된 세션 값은 무시합니다.
     }
-  };
+  }, [executeRemoteAction]);
 
   const handleCommitAndPush = async () => {
     const commitSuccess = await handleCommit();
     if (commitSuccess) handleRemoteActionClick("push");
   };
 
-  const handleRightClick = (e, log) => {
-    e.preventDefault();
+  const handleRightClick = (event, log) => {
+    event.preventDefault();
     if (!log.hash || log.hash.trim() === "") return;
-    setContextMenu({ x: e.pageX, y: e.pageY, commit: log });
+    setContextMenu({ x: event.pageX, y: event.pageY, commit: log });
   };
 
   const handleContextMenuAction = async (action) => {
     if (!contextMenu) return;
+
     const targetHash = contextMenu.commit.hash;
     setContextMenu(null);
 
     if (isMerging) {
-      return alert(
-        "⚠️ 현재 병합 충돌(Conflict)이 발생하여 작업이 일시정지 되었습니다.\n우측의 파일 상태 탭에서 충돌을 해결하여 커밋하거나, [병합 취소]를 눌러주세요.",
-      );
+      showAlert({
+        title: "병합 충돌 해결 중입니다",
+        message: "현재 병합 작업이 일시정지되어 있습니다. 충돌 파일을 해결 완료 처리하거나 병합을 취소한 뒤 다른 Git 작업을 진행하세요.",
+        variant: "warning",
+      });
+      return;
     }
 
     try {
       setIsLoading(true);
+
       if (action === "checkout") {
-        if (
-          window.confirm(
-            `⚠️ 과거 커밋(${targetHash})으로 Checkout 하시겠습니까?\n커밋하지 않은 변경사항은 유실될 수 있으며, Detached HEAD 상태가 됩니다.`,
-          )
-        ) {
-          await checkoutCommitApi(
-            workspaceId,
-            activeProject,
-            activeBranch || "master",
-            targetHash,
-          );
-          alert(`✅ HEAD가 ${targetHash} 커밋으로 이동했습니다!`);
-        }
-      } else if (action === "merge") {
-        if (
-          window.confirm(
-            `현재 브랜치(${activeBranch || "master"})에 이 커밋(${targetHash})을 병합하시겠습니까?`,
-          )
-        ) {
-          try {
-            const mergeResult = await mergeCommitApi(
-              workspaceId,
-              activeProject,
-              activeBranch || "master",
-              targetHash,
-            );
+        const confirmed = await showConfirm({
+          title: "이 커밋으로 이동할까요?",
+          message: `과거 커밋(${targetHash})으로 Checkout 합니다.`,
+          detail: "커밋하지 않은 변경사항은 유실될 수 있으며 Detached HEAD 상태가 됩니다.",
+          variant: "warning",
+          confirmText: "Checkout",
+          cancelText: "취소",
+        });
 
-            const statusData = await fetchGitStatusApi(
-              workspaceId,
-              activeProject,
-              activeBranch || "master"
-            );
-
-            const isConflictText = typeof mergeResult === 'string' && mergeResult.toLowerCase().includes('conflict');
-            const hasConflictedFiles = statusData.conflicted && statusData.conflicted.length > 0;
-
-            if (statusData.isMerging || hasConflictedFiles || isConflictText) {
-              alert("⚠️ 병합 중 충돌(Conflict)이 발생했습니다!\n파일 상태(File Status) 탭에서 충돌을 해결해주세요.");
-              setActiveView("status");
-            } else {
-              alert("✅ 병합 완료!");
-            }
-          } catch (mergeError) {
-            alert("⚠️ 병합 중 충돌(Conflict)이 발생했거나 오류가 있습니다.\n파일 상태(File Status) 탭에서 충돌을 해결해주세요.");
-            setActiveView("status");
-          }
-        }
-      } else if (action === "reset") {
-        if (
-          window.confirm(
-            `⚠️ 경고: 현재 브랜치를 이 커밋(${targetHash}) 상태로 완전히 되돌리시겠습니까? 저장되지 않은 작업은 날아갑니다.`,
-          )
-        ) {
-          await resetCommitApi(
-            workspaceId,
-            activeProject,
-            activeBranch || "master",
-            targetHash,
-          );
-          alert("✅ 리셋 완료!");
+        if (confirmed) {
+          await checkoutCommitApi(workspaceId, activeProject, currentBranch, targetHash);
+          showAlert({
+            title: "Checkout 완료",
+            message: `HEAD가 ${targetHash} 커밋으로 이동했습니다.`,
+            variant: "success",
+          });
         }
       }
+
+      if (action === "merge") {
+        const confirmed = await showConfirm({
+          title: "현재 브랜치로 병합할까요?",
+          message: `현재 브랜치(${currentBranch})에 커밋 ${targetHash}를 병합합니다.`,
+          detail: "충돌이 발생하면 충돌 해결 모드로 전환됩니다.",
+          variant: "warning",
+          confirmText: "병합 시작",
+          cancelText: "취소",
+        });
+
+        if (confirmed) {
+          const mergeResult = await mergeCommitApi(
+            workspaceId,
+            activeProject,
+            currentBranch,
+            targetHash,
+          );
+          const statusData = await fetchGitStatusApi(
+            workspaceId,
+            activeProject,
+            currentBranch,
+          );
+          const nextConflictedFiles = statusData.conflicted || [];
+          const isConflictText =
+            typeof mergeResult === "string" &&
+            mergeResult.toLowerCase().includes("conflict");
+
+          setStagedFiles(statusData.staged || []);
+          setUnstagedFiles(statusData.unstaged || []);
+          setConflictedFiles(nextConflictedFiles);
+          setIsMerging(Boolean(statusData.isMerging || nextConflictedFiles.length));
+
+          if (statusData.isMerging || nextConflictedFiles.length > 0 || isConflictText) {
+            showConflictNotice({ ...statusData, conflicted: nextConflictedFiles });
+          } else {
+            showAlert({
+              title: "병합 완료",
+              message: "충돌 없이 병합이 완료되었습니다.",
+              variant: "success",
+            });
+          }
+        }
+      }
+
+      if (action === "reset") {
+        const confirmed = await showConfirm({
+          title: "브랜치를 이 커밋으로 되돌릴까요?",
+          message: `현재 브랜치를 커밋 ${targetHash} 상태로 강제 초기화합니다.`,
+          detail: "저장되지 않았거나 커밋하지 않은 작업은 사라질 수 있습니다.",
+          variant: "danger",
+          confirmText: "Reset Hard",
+          cancelText: "취소",
+        });
+
+        if (confirmed) {
+          await resetCommitApi(workspaceId, activeProject, currentBranch, targetHash);
+          showAlert({
+            title: "Reset 완료",
+            message: `현재 브랜치를 ${targetHash} 상태로 되돌렸습니다.`,
+            variant: "success",
+          });
+        }
+      }
+
       await loadGitStatus();
-    } catch (e) {
-      alert(`오류 발생: ${e.message}`);
+    } catch (error) {
+      showAlert({
+        title: "Git 작업 실패",
+        message: error.message,
+        variant: "danger",
+      });
       await loadGitStatus();
     } finally {
       setIsLoading(false);
@@ -444,21 +968,26 @@ export default function GitDashboard() {
 
   const renderRefs = (refsStr) => {
     if (!refsStr) return null;
+
     return refsStr
       .split(",")
-      .map((r) => r.trim())
-      .map((ref, idx) => {
+      .map((ref) => ref.trim())
+      .filter(Boolean)
+      .map((ref, index) => {
         const isHead = ref.includes("HEAD");
         const isRemote = ref.includes("origin/");
-        let bgColor = "bg-gray-100 text-gray-700 border-gray-300";
-        if (isHead) bgColor = "bg-[#d1e7dd] text-[#0f5132] border-[#badbcc]";
-        else if (isRemote) bgColor = "bg-red-50 text-red-700 border-red-200";
-        else if (ref === "master" || ref === "main")
-          bgColor = "bg-blue-50 text-blue-700 border-blue-200";
+        let className = "bg-gray-100 text-gray-700 border-gray-300";
+
+        if (isHead) className = "bg-emerald-50 text-emerald-700 border-emerald-200";
+        else if (isRemote) className = "bg-red-50 text-red-700 border-red-200";
+        else if (["master", "main"].includes(ref)) {
+          className = "bg-blue-50 text-blue-700 border-blue-200";
+        }
+
         return (
           <span
-            key={idx}
-            className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-semibold ${bgColor} mr-1.5 shrink-0 shadow-sm`}
+            key={`${ref}-${index}`}
+            className={`mr-1.5 shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold shadow-sm ${className}`}
           >
             {ref}
           </span>
@@ -466,369 +995,756 @@ export default function GitDashboard() {
       });
   };
 
-  if (!activeProject || !projectList || projectList.length === 0)
+  const renderAppDialog = () => {
+    if (!appDialog) return null;
+    if (typeof document === "undefined") return null;
+
+    const variantMap = {
+      danger: {
+        iconWrap: "bg-red-50 text-red-600 border-red-100",
+        badge: "bg-red-50 text-red-700 border-red-100",
+        confirm: "bg-red-600 hover:bg-red-700 text-white",
+        label: "Action required",
+      },
+      warning: {
+        iconWrap: "bg-amber-50 text-amber-600 border-amber-100",
+        badge: "bg-amber-50 text-amber-700 border-amber-100",
+        confirm: "bg-slate-900 hover:bg-slate-800 text-white",
+        label: "Please confirm",
+      },
+      success: {
+        iconWrap: "bg-emerald-50 text-emerald-600 border-emerald-100",
+        badge: "bg-emerald-50 text-emerald-700 border-emerald-100",
+        confirm: "bg-slate-900 hover:bg-slate-800 text-white",
+        label: "Completed",
+      },
+      info: {
+        iconWrap: "bg-blue-50 text-blue-600 border-blue-100",
+        badge: "bg-blue-50 text-blue-700 border-blue-100",
+        confirm: "bg-slate-900 hover:bg-slate-800 text-white",
+        label: "Notice",
+      },
+    };
+
+    const style = variantMap[appDialog.variant] || variantMap.info;
+
+    return createPortal(
+      <div className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[2px]">
+        <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] animate-fade-in-up">
+          <div className="relative border-b border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50/40 px-6 py-5">
+            <div className="flex items-start gap-4">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${style.iconWrap}`}>
+                {appDialog.variant === "success" ? <VscCheck size={24} /> : <VscWarning size={24} />}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${style.badge}`}>
+                    {style.label}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">WEVAIS</span>
+                </div>
+                <h3 className="text-[17px] font-black text-slate-950">
+                  {appDialog.title}
+                </h3>
+                {appDialog.message && (
+                  <p className="mt-2 whitespace-pre-line text-sm font-medium leading-relaxed text-slate-600">
+                    {appDialog.message}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {appDialog.detail && (
+            <div className="mx-6 mt-5 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium leading-relaxed text-slate-600">
+              {appDialog.detail}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 px-6 py-5">
+            {appDialog.type === "confirm" && (
+              <button
+                type="button"
+                onClick={closeAppDialog}
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+              >
+                {appDialog.cancelText || "취소"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={appDialog.type === "confirm" ? confirmAppDialog : closeAppDialog}
+              className={`h-10 rounded-xl px-5 text-xs font-black shadow-sm transition-colors ${style.confirm}`}
+            >
+              {appDialog.confirmText || "확인"}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  if (!activeProject || !projectList || projectList.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50 text-gray-400 flex-col gap-4">
         <VscSourceControl size={48} className="opacity-50" />
         <p>좌측 메뉴에서 프로젝트를 먼저 생성하거나 선택해주세요.</p>
       </div>
     );
+  }
 
   return (
-    <div className="flex-1 flex h-full w-full bg-white font-sans text-[#333] relative">
-      {/* 커밋 히스토리 우클릭 메뉴 */}
+    <div className="relative flex h-full w-full flex-1 bg-white font-sans text-[#333]">
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-white border border-gray-200 shadow-xl rounded-md py-1 z-[9999] text-sm text-gray-700 w-72"
+          className="fixed z-[9999] w-72 rounded-md border border-gray-200 bg-white py-1 text-sm text-gray-700 shadow-xl"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
-          <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50">
+          <div className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
             <span className="font-mono text-xs font-bold text-blue-600">
               Commit: {contextMenu.commit.hash.substring(0, 7)}
             </span>
           </div>
-          <div
+          <button
+            type="button"
             onClick={() => handleContextMenuAction("checkout")}
-            className="px-4 py-2 hover:bg-blue-50 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-2"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
           >
-            <VscRepoForked size={16} /> 이 커밋으로 Checkout (Detached HEAD)
-          </div>
-          <div
+            <VscRepoForked size={16} /> 이 커밋으로 Checkout
+          </button>
+          <button
+            type="button"
             onClick={() => handleContextMenuAction("merge")}
-            className="px-4 py-2 hover:bg-blue-50 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-2"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
           >
-            <VscSourceControl size={16} /> 현재 브랜치로 병합 (Merge)
-          </div>
-          <div
+            <VscSourceControl size={16} /> 현재 브랜치로 병합
+          </button>
+          <button
+            type="button"
             onClick={() => handleContextMenuAction("reset")}
-            className="px-4 py-2 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-colors flex items-center gap-2 text-red-500"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
           >
-            <VscHistory size={16} /> 이 커밋으로 초기화 (Reset Hard)
-          </div>
+            <VscHistory size={16} /> 이 커밋으로 초기화
+          </button>
         </div>
       )}
 
-      {/* 브랜치 전용 우클릭 휴지통 메뉴 */}
       {branchContextMenu && (
         <div
           ref={branchContextMenuRef}
-          className="fixed bg-white border border-gray-200 shadow-xl rounded-md py-1 z-[9999] text-sm text-gray-700 w-48"
+          className="fixed z-[9999] w-48 rounded-md border border-gray-200 bg-white py-1 text-sm text-gray-700 shadow-xl"
           style={{ top: branchContextMenu.y, left: branchContextMenu.x }}
         >
-          <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50">
+          <div className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
             <span className="font-mono text-xs font-bold text-gray-600">
               Branch: {branchContextMenu.branch}
             </span>
           </div>
-          <div
+          <button
+            type="button"
             onClick={handleDeleteBranch}
-            className="px-4 py-2 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-colors flex items-center gap-2 text-red-500 font-bold"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left font-bold text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
           >
             <VscTrash size={16} /> 브랜치 삭제
-          </div>
+          </button>
         </div>
       )}
 
-      {/* 💡 기존 Git URL 연동 모달 */}
+      {renderAppDialog()}
+
       {showGitUrlModal && (
-        <div className="absolute inset-0 bg-black/40 z-[9999] flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-xl w-96 p-6 flex flex-col gap-4 animate-fade-in-up">
-            <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
-              <VscGithubInverted size={20} className="text-gray-800" /> 원격 저장소 연동
+        <div className="fixed inset-0 z-[10000] flex items-start justify-center bg-slate-950/45 px-4 pt-[14vh] backdrop-blur-[3px]">
+          <div className="w-full max-w-[560px] overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.28)] animate-fade-in-up">
+            <div className="relative border-b border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 px-7 py-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGitUrlModal(false);
+                  setInputGitUrl("");
+                }}
+                className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-white hover:text-slate-700"
+                title="닫기"
+              >
+                <VscClose size={16} />
+              </button>
+
+              <div className="flex items-start gap-4 pr-10">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-950 text-white shadow-sm">
+                  <VscGithubInverted size={28} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                      Remote Repository
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">
+                      {getRemoteActionLabel(modalAction)} 준비
+                    </span>
+                  </div>
+
+                  <h2 className="text-[19px] font-black tracking-tight text-slate-950">
+                    GitHub 저장소 연결이 필요합니다
+                  </h2>
+
+                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
+                    현재 프로젝트에 연결된 원격 저장소 주소가 없습니다. 저장소 URL을 한 번만 연결하면 이후 <b className="text-slate-900">Pull/Push는 저장된 GitHub 인증 정보</b>로 바로 사용할 수 있습니다.
+                  </p>
+                </div>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              해당 프로젝트에 연결된 GitHub 저장소가 없습니다.
-              <br />
-              Push/Pull을 위해 먼저 URL을 연동해주세요.
-            </p>
-            <input
-              type="text"
-              placeholder="https://github.com/username/repo.git"
-              value={inputGitUrl}
-              onChange={(e) => setInputGitUrl(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleLinkGitUrlAndProceed();
-              }}
-              className="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:border-blue-500"
-            />
-            <div className="flex justify-end gap-2 mt-2">
-              <button
-                onClick={() => setShowGitUrlModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded transition-colors"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleLinkGitUrlAndProceed}
-                disabled={!inputGitUrl.trim() || isLoading}
-                className="px-4 py-2 text-sm font-semibold text-white bg-gray-800 hover:bg-black rounded transition-colors flex items-center gap-1 disabled:opacity-50"
-              >
-                연동하기
-              </button>
+
+            <div className="px-7 py-6">
+              <label className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">
+                GitHub Repository URL
+              </label>
+
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-inner transition-colors focus-within:border-blue-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50">
+                <VscLink size={18} className="shrink-0 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="https://github.com/username/repository.git"
+                  value={inputGitUrl}
+                  onChange={(event) => setInputGitUrl(event.target.value)}
+                  onBlur={(event) => setInputGitUrl(normalizeGitHubRepoUrl(event.target.value))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleLinkGitUrlAndProceed();
+                  }}
+                  className="h-9 min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                  autoFocus
+                />
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-bold text-slate-500">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="block text-slate-900">1. URL 저장</span>
+                  프로젝트에 원격 저장소 연결
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="block text-slate-900">2. GitHub 인증</span>
+                  최초 1회 OAuth 로그인
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="block text-slate-900">3. 자동 사용</span>
+                  이후 Pull/Push 바로 실행
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs font-medium leading-relaxed text-blue-800">
+                예시: <span className="font-mono font-black">https://github.com/username/repository.git</span>
+                <br />SSH 주소를 입력해도 가능한 경우 HTTPS 주소로 자동 변환합니다.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-7 py-5">
+              <p className="text-[11px] font-bold text-slate-400">
+                현재 프로젝트: <span className="font-mono text-slate-600">{activeProject}</span>
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowGitUrlModal(false);
+                    setInputGitUrl("");
+                  }}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLinkGitUrlAndProceed}
+                  disabled={!inputGitUrl.trim() || isLoading}
+                  className="flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-5 text-xs font-black text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  <VscGithubInverted size={16} />
+                  저장소 연결하고 {getRemoteActionLabel(modalAction)} 계속하기
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 🌟 [핵심] 새롭게 추가된 깔끔한 GitHub OAuth 연동 모달 */}
       {showOAuthModal && (
-        <div className="absolute inset-0 bg-black/50 z-[9999] flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-8 flex flex-col items-center text-center gap-5 animate-fade-in-up">
-            <div className="bg-gray-100 p-4 rounded-full">
-              <VscGithubInverted size={48} className="text-gray-800" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">GitHub 계정 연동</h2>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                안전하고 빠른 Push/Pull 작업을 위해<br/>
-                <b>최초 1회 GitHub 연동</b>이 필요합니다.<br/>
-                이제 복잡한 토큰을 매번 복사/붙여넣기 할 필요가 없습니다!
-              </p>
-            </div>
-            <div className="flex w-full gap-3 mt-4">
+        <div className="fixed inset-0 z-[10000] flex items-start justify-center bg-slate-950/50 px-4 pt-[13vh] backdrop-blur-[3px]">
+          <div className="w-full max-w-[520px] overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.3)] animate-fade-in-up">
+            <div className="relative border-b border-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-7 py-6 text-white">
               <button
+                type="button"
                 onClick={() => setShowOAuthModal(false)}
-                className="flex-1 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+                title="닫기"
               >
-                나중에 하기
+                <VscClose size={16} />
               </button>
+
+              <div className="flex items-start gap-4 pr-10">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white text-slate-950 shadow-sm">
+                  <VscGithubInverted size={30} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                      GitHub OAuth
+                    </span>
+                    <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black text-emerald-200">
+                      최초 1회 인증
+                    </span>
+                  </div>
+
+                  <h2 className="text-[20px] font-black tracking-tight">
+                    GitHub 계정 인증이 필요합니다
+                  </h2>
+
+                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-300">
+                    GitHub 로그인으로 권한을 승인하면, 서버가 access token을 DB에 저장하고 이후 Pull/Push를 자동 처리합니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 px-7 py-6">
+              {["GitHub 로그인", "토큰 저장", "이후 자동 Pull/Push"].map((title, index) => (
+                <div
+                  key={title}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 ${
+                    index === 2
+                      ? "border-emerald-100 bg-emerald-50"
+                      : "border-slate-100 bg-slate-50"
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white ${
+                      index === 2 ? "bg-emerald-600" : "bg-slate-900"
+                    }`}
+                  >
+                    {index + 1}
+                  </div>
+                  <div>
+                    <p className={`text-sm font-black ${index === 2 ? "text-emerald-900" : "text-slate-900"}`}>
+                      {title}
+                    </p>
+                    <p className={`mt-0.5 text-xs font-medium leading-relaxed ${index === 2 ? "text-emerald-700" : "text-slate-500"}`}>
+                      {index === 0 && "GitHub 인증 페이지에서 로그인하고 저장소 접근 권한을 승인합니다."}
+                      {index === 1 && "백엔드가 인증 코드를 access token으로 교환하고 현재 사용자 계정에 저장합니다."}
+                      {index === 2 && "다음부터는 별도 토큰 입력 없이 상단 Pull/Push 버튼만 누르면 됩니다."}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-7 py-5">
+              <p className="text-[11px] font-bold text-slate-400">
+                요청 작업: <span className="font-mono text-slate-700">{getRemoteActionLabel(modalAction)}</span>
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowOAuthModal(false)}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  나중에 하기
+                </button>
+                <button
+                  type="button"
+                  onClick={openGithubOAuthPage}
+                  className="flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-5 text-xs font-black text-white shadow-sm transition-colors hover:bg-slate-800"
+                >
+                  <VscGithubInverted size={17} />
+                  GitHub로 인증하기
+                  <VscArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {conflictNotice && (
+        <div className="absolute inset-0 z-[9998] flex items-center justify-center bg-slate-950/35 backdrop-blur-[2px]">
+          <div className="w-[520px] overflow-hidden rounded-2xl border border-red-100 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] animate-fade-in-up">
+            <div className="relative border-b border-red-100 bg-gradient-to-br from-red-50 via-white to-blue-50 px-6 pb-5 pt-6">
               <button
-                onClick={() => {
-                  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-                  if (!clientId) return alert("프론트엔드 .env 환경변수에 NEXT_PUBLIC_GITHUB_CLIENT_ID가 설정되지 않았습니다.");
-                  
-                  // 연동 완료 후 다시 돌아올 주소 (예: http://localhost:3000/auth/github/callback)
-                  const redirectUri = encodeURIComponent(`${window.location.origin}/auth/github/callback`);
-                  
-                  // 깃허브 로그인 창으로 유저를 쏴버립니다! 🚀
-                  window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&redirect_uri=${redirectUri}`;
-                }}
-                className="flex-[2] py-2.5 text-sm font-bold text-white bg-[#24292F] hover:bg-[#000000] rounded-lg transition-colors flex items-center justify-center gap-2 shadow-md"
+                type="button"
+                onClick={() => setConflictNotice(null)}
+                className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-400 shadow-sm hover:bg-white hover:text-gray-700"
+                title="닫기"
               >
-                <VscLink size={18} /> 연동 페이지로 이동
+                <VscClose size={16} />
               </button>
+
+              <div className="flex items-start gap-4 pr-10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-red-200 bg-red-100 text-red-600 shadow-sm">
+                  <VscWarning size={26} />
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[11px] font-black text-red-700">
+                      MERGE CONFLICT
+                    </span>
+                    <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 font-mono text-[11px] text-blue-700">
+                      {conflictNotice.branchName}
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-black tracking-tight text-gray-950">
+                    병합 중 충돌이 발생했습니다
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                    충돌 파일을 열어 원하는 내용을 선택하거나 직접 수정하세요. 저장 후 충돌 파일 목록에서 <b className="text-gray-900">해결 완료 처리</b>를 실행하면 병합 커밋을 진행할 수 있습니다.
+                  </p>
+                  {conflictNotice.message && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                      {conflictNotice.message}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5">
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2.5">
+                  <span className="text-xs font-black text-gray-700">
+                    충돌 파일 {conflictNotice.fileCount || conflictNotice.files?.length || 0}개
+                  </span>
+                  <span className="font-mono text-[10px] text-gray-400">
+                    충돌 파일 목록에서 관리
+                  </span>
+                </div>
+
+                <div className="max-h-36 space-y-1 overflow-y-auto p-2">
+                  {(conflictNotice.files || []).length > 0 ? (
+                    conflictNotice.files.map((file, index) => (
+                      <button
+                        type="button"
+                        key={`${file.path}-${index}`}
+                        onClick={() => handleOpenConflictFile(file.path)}
+                        className="group flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-all hover:border-red-100 hover:bg-white"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <VscFile className="shrink-0 text-red-500" size={15} />
+                          <span className="truncate font-mono text-[12px] text-gray-800">
+                            {file.path}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-blue-600 opacity-0 group-hover:opacity-100">
+                          열기 <VscArrowRight size={12} />
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-center text-xs text-gray-400">
+                      충돌 파일 목록을 불러오지 못했습니다. Git 상태 화면을 새로고침하세요.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleOpenConflictFile(conflictNotice.files?.[0]?.path)}
+                  disabled={!conflictNotice.files?.[0]?.path}
+                  className="flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  충돌 해결하기
+                  <VscArrowRight size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {isLoading && (
-        <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center">
-          <div className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded shadow-lg font-bold text-sm">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50">
+          <div className="flex items-center gap-2 rounded bg-gray-800 px-4 py-2 text-sm font-bold text-white shadow-lg">
             <VscRefresh className="animate-spin" size={16} /> 처리 중...
           </div>
         </div>
       )}
 
-      {/* 좌측 사이드바 영역 */}
-      <div className="w-64 border-r border-gray-200 bg-[#f8f9fa] flex flex-col shrink-0">
-        <div className="h-14 flex items-center px-4 border-b border-gray-200 bg-white hover:bg-gray-50 transition-colors cursor-pointer">
-          <VscRepo size={18} className="text-blue-600 mr-2 shrink-0" />
+      <div className="flex w-64 shrink-0 flex-col border-r border-gray-200 bg-[#f8f9fa]">
+        <div className="flex h-14 cursor-pointer items-center border-b border-gray-200 bg-white px-4 transition-colors hover:bg-gray-50">
+          <VscRepo size={18} className="mr-2 shrink-0 text-blue-600" />
           <select
             value={activeProject || ""}
             onChange={handleProjectChange}
-            className="font-bold text-sm bg-transparent outline-none cursor-pointer flex-1 truncate text-gray-800"
+            className="flex-1 cursor-pointer truncate bg-transparent text-sm font-bold text-gray-800 outline-none"
           >
             <option value="" disabled>
               프로젝트 선택
             </option>
-            {projectList.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
+            {projectList.map((project) => (
+              <option key={project.name} value={project.name}>
+                {project.name}
               </option>
             ))}
           </select>
         </div>
-        <div className="p-4 flex-1 overflow-y-auto">
+
+        <div className="flex-1 overflow-y-auto p-4">
           <div className="mb-6">
-            <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
+            <div className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">
               Workspace
             </div>
-            <div
+            <button
+              type="button"
               onClick={() => setActiveView("status")}
-              className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer font-medium text-[13px] transition-colors ${activeView === "status" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"}`}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] font-medium transition-colors ${
+                activeView === "status"
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
             >
               <VscRecord size={16} /> File Status
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveView("history")}
-              className={`flex items-center gap-2 px-2 py-1.5 mt-1 rounded cursor-pointer font-medium text-[13px] transition-colors ${activeView === "history" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"}`}
+              className={`mt-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] font-medium transition-colors ${
+                activeView === "history"
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
             >
               <VscHistory size={16} /> History
-            </div>
+            </button>
           </div>
 
           <div>
-            <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-gray-500">
               <span>Branches</span>
-              <span className="bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">
+              <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600">
                 {branchList.length}
               </span>
             </div>
+
             <div className="mt-1 flex flex-col gap-0.5">
               {branchList.map((branch) => (
-                <div
+                <button
+                  type="button"
                   key={branch}
                   onClick={() => handleBranchChange(branch)}
-                  onContextMenu={(e) => handleBranchRightClick(e, branch)}
-                  className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded cursor-pointer text-[13px] transition-colors ${branch === (activeBranch || "master") ? "text-gray-800 font-bold bg-gray-100 border-l-2 border-blue-500" : "text-gray-600 hover:bg-gray-100 hover:text-gray-800"}`}
+                  onContextMenu={(event) => handleBranchRightClick(event, branch)}
+                  className={`flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
+                    branch === currentBranch
+                      ? "border-l-2 border-blue-500 bg-gray-100 font-bold text-gray-800"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+                  }`}
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <span className="flex min-w-0 items-center gap-2 truncate">
                     <VscRepoForked
                       size={16}
-                      className={
-                        branch === (activeBranch || "master")
-                          ? "text-blue-600"
-                          : "text-gray-400"
-                      }
+                      className={branch === currentBranch ? "text-blue-600" : "text-gray-400"}
                     />
                     <span className="truncate">{branch}</span>
-                  </div>
-                </div>
+                  </span>
+                </button>
               ))}
             </div>
           </div>
         </div>
       </div>
 
-      {/* 우측 메인 영역 */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[#fefefe] relative">
-        <div className="h-14 border-b border-gray-200 bg-white flex items-center justify-between px-6 shrink-0">
+      <div className="relative flex min-w-0 flex-1 flex-col bg-[#fefefe]">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6">
           <div className="flex items-center gap-4">
-            <span className="font-bold text-lg">
+            <span className="text-lg font-bold">
               {activeView === "status" ? "File Status" : "Commit History"}
             </span>
-            <div className="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
-              <span className="text-xs font-bold text-gray-700">
-                {activeProject}
-              </span>
-              <span className="text-gray-400 text-xs">/</span>
-              <span className="text-xs text-blue-600 font-mono font-semibold">
-                {activeBranch || "master"}
+            <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-gray-100 px-3 py-1">
+              <span className="text-xs font-bold text-gray-700">{activeProject}</span>
+              <span className="text-xs text-gray-400">/</span>
+              <span className="font-mono text-xs font-semibold text-blue-600">
+                {currentBranch}
               </span>
             </div>
 
             <button
+              type="button"
               onClick={async () => {
-                if (isMerging)
-                  return alert(
-                    "⚠️ 병합 충돌 해결 중입니다. 타임머신을 탈 수 없습니다.",
-                  );
+                if (isMerging) {
+                  showAlert({
+                    title: "병합 충돌 해결 중입니다",
+                    message: "충돌 해결 중에는 최신 HEAD 복귀를 실행할 수 없습니다. 병합을 완료하거나 취소한 뒤 다시 시도하세요.",
+                    variant: "warning",
+                  });
+                  return;
+                }
+
                 try {
                   setIsLoading(true);
-                  const target = activeBranch || "master";
-                  await checkoutCommitApi(
-                    workspaceId,
-                    activeProject,
-                    activeBranch || "master",
-                    target,
-                  );
-                  alert(
-                    `✅ 원래 브랜치(${target})의 최신 상태로 복귀했습니다!`,
-                  );
+                  await checkoutCommitApi(workspaceId, activeProject, currentBranch, currentBranch);
                   await loadGitStatus();
-                } catch (e) {
-                  alert(e.message);
+                  showAlert({
+                    title: "최신 HEAD로 복귀 완료",
+                    message: `원래 브랜치(${currentBranch})의 최신 상태로 복귀했습니다.`,
+                    variant: "success",
+                  });
+                } catch (error) {
+                  showAlert({
+                    title: "최신 HEAD 복귀 실패",
+                    message: error.message,
+                    variant: "danger",
+                  });
                 } finally {
                   setIsLoading(false);
                 }
               }}
-              className="ml-2 px-3 py-1 bg-amber-100 text-amber-700 text-[11px] font-bold rounded hover:bg-amber-200 transition-colors shadow-sm disabled:opacity-50"
+              className="ml-2 rounded bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-700 shadow-sm transition-colors hover:bg-amber-200"
             >
               최신 HEAD로 복귀
             </button>
 
             <VscRefresh
-              className="cursor-pointer text-gray-400 hover:text-blue-600 transition-colors"
+              className="cursor-pointer text-gray-400 transition-colors hover:text-blue-600"
               title="새로고침"
               onClick={loadGitStatus}
             />
           </div>
+
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={() => handleRemoteActionClick("pull")}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shadow-sm transition-colors"
+              className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-4 py-1.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
             >
               <VscCloudDownload size={16} className="text-blue-600" /> Pull
             </button>
             <button
+              type="button"
               onClick={() => handleRemoteActionClick("push")}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shadow-sm transition-colors"
+              className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-4 py-1.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
             >
               <VscCloudUpload size={16} className="text-green-600" /> Push
             </button>
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col p-6 gap-6 overflow-y-auto bg-[#fafbfc]">
+        <div className="flex flex-1 flex-col gap-6 overflow-y-auto bg-[#fafbfc] p-6">
           {activeView === "status" && isMerging && (
-            <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex items-start justify-between shadow-sm">
-              <div className="flex items-start gap-3">
-                <VscWarning className="text-red-500 mt-0.5" size={24} />
-                <div>
-                  <h3 className="font-bold text-red-700 text-sm mb-1">
-                    병합 충돌(Merge Conflict)이 발생했습니다!
-                  </h3>
-                  <p className="text-xs text-red-600 leading-relaxed">
-                    아래 <b>'Conflicted Files'</b> 목록에 있는 파일들을 좌측 탐색기에서 열면
-                    에디터에 충돌 해결 버튼이 나타납니다.
-                    <br />
-                    수정이 완료되면 해당 파일의 <b>Resolve & Stage</b> 버튼을
-                    누르고 커밋하여 병합을 완료할 수 있습니다.
+            <div
+              className={`flex items-start justify-between gap-5 rounded-2xl border p-5 shadow-sm ${
+                conflictedFiles.length > 0
+                  ? "border-red-100 bg-gradient-to-r from-red-50 via-white to-blue-50"
+                  : "border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-blue-50"
+              }`}
+            >
+              <div className="flex min-w-0 items-start gap-4">
+                <div
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${
+                    conflictedFiles.length > 0
+                      ? "border-red-200 bg-red-100 text-red-600"
+                      : "border-emerald-200 bg-emerald-100 text-emerald-700"
+                  }`}
+                >
+                  {conflictedFiles.length > 0 ? <VscWarning size={24} /> : <VscCheck size={24} />}
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-black text-gray-950">
+                      {conflictedFiles.length > 0
+                        ? "병합 충돌 해결이 필요합니다"
+                        : "충돌 파일 해결 완료 — 병합 커밋이 필요합니다"}
+                    </h3>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${
+                        conflictedFiles.length > 0
+                          ? "border-red-200 bg-red-100 text-red-700"
+                          : "border-emerald-200 bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {conflictedFiles.length > 0
+                        ? `${conflictedFiles.length} conflicted`
+                        : `${stagedFiles.length} staged`}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-gray-600">
+                    {conflictedFiles.length > 0 ? (
+                      <>
+                        아래 순서대로 진행하세요. <b>1) 충돌 파일 열기</b> → <b>2) 변경 선택 또는 직접 수정</b> → <b>3) 저장 후 복귀</b> → <b>4) 해결 완료 처리</b> → <b>5) 병합 커밋</b>.
+                      </>
+                    ) : (
+                      <>
+                        Git 기준 충돌 파일은 모두 처리되었습니다. 아래 <b>Merge Commit Message</b>를 확인한 뒤 <b>Merge 완료 커밋</b>을 눌러 병합을 마무리하세요.
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={handleAbortMerge}
-                className="bg-white border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold px-4 py-2 rounded shadow-sm transition-colors flex items-center gap-1 shrink-0"
-              >
-                <VscClose size={16} /> 병합 취소 (Abort)
-              </button>
+
+              <div className="flex shrink-0 items-center gap-2">
+                {conflictedFiles.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenConflictFile(conflictedFiles[0]?.path)}
+                    disabled={!conflictedFiles[0]?.path}
+                    className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    충돌 해결하기
+                    <VscArrowRight size={14} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAbortMerge}
+                  className="flex h-9 items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 text-xs font-bold text-red-600 shadow-sm transition-colors hover:bg-red-50"
+                >
+                  <VscClose size={15} />
+                  병합 취소
+                </button>
+              </div>
             </div>
           )}
 
           {activeView === "history" ? (
-            <div className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden flex flex-col h-full bg-[#fafbfc]">
-              <div className="bg-white px-4 py-2 border-b border-gray-200 flex text-xs font-bold text-gray-600 items-center sticky top-0 z-10">
+            <div className="flex h-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-[#fafbfc] shadow-sm">
+              <div className="sticky top-0 z-10 flex items-center border-b border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600">
                 <div className="w-24 shrink-0 text-center">Graph</div>
                 <div className="flex-1">Description</div>
                 <div className="w-24 shrink-0 text-center">Commit</div>
                 <div className="w-28 shrink-0 text-center">Author</div>
                 <div className="w-32 shrink-0 text-right">Date</div>
               </div>
-              <div className="flex-1 overflow-y-auto pt-2 pb-6">
+              <div className="flex-1 overflow-y-auto pb-6 pt-2">
                 {historyLog.length > 0 ? (
-                  historyLog.map((log, i) => {
+                  historyLog.map((log, index) => {
                     const isCommit = log.hash && log.hash.trim() !== "";
+
                     return (
                       <div
-                        key={i}
-                        onContextMenu={(e) => handleRightClick(e, log)}
-                        className={`flex px-4 hover:bg-blue-50 transition-colors cursor-pointer items-center text-[13px] group h-6`}
+                        key={`${log.hash || "graph"}-${index}`}
+                        onContextMenu={(event) => handleRightClick(event, log)}
+                        className="group flex h-6 cursor-pointer items-center px-4 text-[13px] transition-colors hover:bg-blue-50"
                       >
-                        <div className="w-24 shrink-0 h-full flex items-center justify-start pl-2 font-mono select-none overflow-visible">
+                        <div className="flex h-full w-24 shrink-0 select-none items-center justify-start overflow-visible pl-2 font-mono">
                           {renderGraph(log.graph)}
                         </div>
 
                         {isCommit && (
                           <>
-                            <div className="flex-1 flex items-center gap-2 truncate pr-4 h-full border-b border-gray-100/70 group-hover:border-transparent">
+                            <div className="flex h-full flex-1 items-center gap-2 truncate border-b border-gray-100/70 pr-4 group-hover:border-transparent">
                               {renderRefs(log.refs)}
-                              <span
-                                className="font-semibold text-gray-800 truncate"
-                                title={log.message}
-                              >
+                              <span className="truncate font-semibold text-gray-800" title={log.message}>
                                 {log.message}
                               </span>
                             </div>
-                            <div className="w-24 shrink-0 font-mono text-blue-600 font-medium text-center h-full flex items-center justify-center border-b border-gray-100/70 group-hover:border-transparent">
+                            <div className="flex h-full w-24 shrink-0 items-center justify-center border-b border-gray-100/70 text-center font-mono font-medium text-blue-600 group-hover:border-transparent">
                               {log.hash.substring(0, 7)}
                             </div>
-                            <div className="w-28 shrink-0 text-gray-600 truncate text-center h-full flex items-center justify-center border-b border-gray-100/70 group-hover:border-transparent">
+                            <div className="flex h-full w-28 shrink-0 items-center justify-center truncate border-b border-gray-100/70 text-center text-gray-600 group-hover:border-transparent">
                               {log.author}
                             </div>
-                            <div className="w-32 shrink-0 text-right text-gray-500 text-xs h-full flex items-center justify-end border-b border-gray-100/70 group-hover:border-transparent">
+                            <div className="flex h-full w-32 shrink-0 items-center justify-end border-b border-gray-100/70 text-right text-xs text-gray-500 group-hover:border-transparent">
                               {log.date}
                             </div>
                           </>
@@ -837,7 +1753,7 @@ export default function GitDashboard() {
                     );
                   })
                 ) : (
-                  <div className="p-8 text-center text-gray-400 text-sm">
+                  <div className="p-8 text-center text-sm text-gray-400">
                     커밋 기록이 없습니다.
                   </div>
                 )}
@@ -846,114 +1762,138 @@ export default function GitDashboard() {
           ) : (
             <>
               {conflictedFiles.length > 0 && (
-                <div className="border border-red-300 rounded bg-red-50 shadow-sm overflow-hidden flex flex-col shrink-0 mb-2 animate-pulse-border">
-                  <div className="bg-red-100 px-4 py-2 border-b border-red-200 flex justify-between items-center">
-                    <span className="text-sm font-bold text-red-800 flex items-center gap-2">
-                      <VscWarning /> Conflicted Files ({conflictedFiles.length})
-                    </span>
+                <div className="mb-2 flex shrink-0 flex-col overflow-hidden rounded-2xl border border-red-100 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-red-100 bg-gradient-to-r from-red-50 to-white px-4 py-3">
+                    <div>
+                      <span className="flex items-center gap-2 text-sm font-black text-gray-900">
+                        <VscWarning className="text-red-500" />
+                        Conflicted Files ({conflictedFiles.length})
+                      </span>
+                      <p className="mt-0.5 text-[11px] text-gray-500">
+                        파일을 열어 충돌 마커를 제거하고 저장한 뒤, 여기서 해결 완료 처리를 실행하세요.
+                      </p>
+                    </div>
                   </div>
-                  <div className="max-h-40 overflow-y-auto p-2 bg-white">
-                    {conflictedFiles.map((f, i) => (
+
+                  <div className="max-h-44 space-y-1 overflow-y-auto bg-white p-2">
+                    {conflictedFiles.map((file, index) => (
                       <div
-                        key={i}
-                        className="flex items-center justify-between px-2 py-1.5 hover:bg-red-50 rounded cursor-pointer group text-[13px]"
+                        key={`${file.path}-${index}`}
+                        onClick={() => handleOpenConflictFile(file.path)}
+                        className="group flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-transparent px-3 py-2.5 text-[13px] transition-all hover:border-red-100 hover:bg-red-50/70"
                       >
-                        <div className="flex items-center gap-2 truncate pr-2">
-                          {getStatusIcon(f.status)}
-                          <span className="font-mono text-red-700 font-semibold truncate">
-                            {f.path}
+                        <div className="flex min-w-0 items-center gap-2 pr-2">
+                          {getStatusIcon(file.status)}
+                          <span className="truncate font-mono font-bold text-red-700">
+                            {file.path}
                           </span>
                         </div>
-                        <button
-                          onClick={() => handleStage(f.path)}
-                          className="opacity-0 group-hover:opacity-100 shrink-0 bg-white border border-red-300 text-red-600 px-2 py-0.5 rounded text-xs hover:bg-red-50 flex items-center gap-1 shadow-sm font-bold"
-                        >
-                          <VscCheck size={12} /> Resolve & Stage
-                        </button>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="flex items-center gap-1 text-[11px] font-bold text-blue-600 opacity-0 group-hover:opacity-100">
+                            열기 <VscArrowRight size={12} />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleMarkConflictResolved(file.path);
+                            }}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 shadow-sm hover:bg-red-50"
+                          >
+                            <VscCheck size={12} />
+                            해결 완료 처리
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-6 min-h-[250px]">
-                <div className="flex-1 flex flex-col border border-gray-200 rounded bg-white shadow-sm overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+              <div className="flex min-h-[250px] gap-6">
+                <div className="flex flex-1 flex-col overflow-hidden rounded border border-gray-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2">
                     <span className="text-sm font-bold text-gray-700">
                       Unstaged Files ({unstagedFiles.length})
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleStage(".")}
                       disabled={unstagedFiles.length === 0}
-                      className="text-xs text-blue-600 hover:underline disabled:text-gray-400 disabled:no-underline font-semibold"
+                      className="text-xs font-semibold text-blue-600 hover:underline disabled:text-gray-400 disabled:no-underline"
                     >
                       Stage All
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2">
                     {unstagedFiles.length > 0 ? (
-                      unstagedFiles.map((f, i) => (
+                      unstagedFiles.map((file, index) => (
                         <div
-                          key={i}
-                          className="flex items-center justify-between px-2 py-1.5 hover:bg-blue-50 rounded cursor-pointer group text-[13px]"
+                          key={`${file.path}-${index}`}
+                          className="group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-[13px] hover:bg-blue-50"
                         >
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            {getStatusIcon(f.status)}
-                            <span className="font-mono text-gray-700 truncate">
-                              {f.path}
+                          <div className="flex truncate pr-2 items-center gap-2">
+                            {getStatusIcon(file.status)}
+                            <span className="truncate font-mono text-gray-700">
+                              {file.path}
                             </span>
                           </div>
                           <button
-                            onClick={() => handleStage(f.path)}
-                            className="opacity-0 group-hover:opacity-100 shrink-0 bg-white border border-gray-300 px-2 py-0.5 rounded text-xs hover:bg-gray-100 flex items-center gap-1 shadow-sm"
+                            type="button"
+                            onClick={() => handleStage(file.path)}
+                            className="flex shrink-0 items-center gap-1 rounded border border-gray-300 bg-white px-2 py-0.5 text-xs opacity-0 shadow-sm hover:bg-gray-100 group-hover:opacity-100"
                           >
                             <VscArrowUp size={12} /> Stage
                           </button>
                         </div>
                       ))
                     ) : (
-                      <div className="text-xs text-gray-400 flex items-center justify-center h-full">
+                      <div className="flex h-full items-center justify-center text-xs text-gray-400">
                         변경/추가된 파일이 없습니다.
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="flex-1 flex flex-col border border-gray-200 rounded bg-white shadow-sm overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+
+                <div className="flex flex-1 flex-col overflow-hidden rounded border border-gray-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2">
                     <span className="text-sm font-bold text-gray-700">
                       Staged Files ({stagedFiles.length})
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleUnstage(".")}
                       disabled={stagedFiles.length === 0}
-                      className="text-xs text-red-600 hover:underline disabled:text-gray-400 disabled:no-underline font-semibold"
+                      className="text-xs font-semibold text-red-600 hover:underline disabled:text-gray-400 disabled:no-underline"
                     >
                       Unstage All
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2">
                     {stagedFiles.length > 0 ? (
-                      stagedFiles.map((f, i) => (
+                      stagedFiles.map((file, index) => (
                         <div
-                          key={i}
-                          className="flex items-center justify-between px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer group text-[13px]"
+                          key={`${file.path}-${index}`}
+                          className="group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-[13px] hover:bg-gray-100"
                         >
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            {getStatusIcon(f.status)}
-                            <span className="font-mono text-gray-700 truncate">
-                              {f.path}
+                          <div className="flex truncate pr-2 items-center gap-2">
+                            {getStatusIcon(file.status)}
+                            <span className="truncate font-mono text-gray-700">
+                              {file.path}
                             </span>
                           </div>
                           <button
-                            onClick={() => handleUnstage(f.path)}
-                            className="opacity-0 group-hover:opacity-100 shrink-0 bg-white border border-gray-300 px-2 py-0.5 rounded text-xs hover:bg-gray-100 flex items-center gap-1 shadow-sm"
+                            type="button"
+                            onClick={() => handleUnstage(file.path)}
+                            className="flex shrink-0 items-center gap-1 rounded border border-gray-300 bg-white px-2 py-0.5 text-xs opacity-0 shadow-sm hover:bg-gray-100 group-hover:opacity-100"
                           >
                             <VscArrowDown size={12} /> Unstage
                           </button>
                         </div>
                       ))
                     ) : (
-                      <div className="text-xs text-gray-400 flex items-center justify-center h-full">
+                      <div className="flex h-full items-center justify-center text-xs text-gray-400">
                         커밋할 파일이 없습니다.
                       </div>
                     )}
@@ -961,25 +1901,26 @@ export default function GitDashboard() {
                 </div>
               </div>
 
-              <div className="border border-gray-200 rounded bg-white shadow-sm overflow-hidden flex flex-col shrink-0 mt-2">
-                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+              <div className="mt-2 flex shrink-0 flex-col overflow-hidden rounded border border-gray-200 bg-white shadow-sm">
+                <div className="border-b border-gray-200 bg-gray-50 px-4 py-2">
                   <span className="text-sm font-bold text-gray-700">
                     {isMerging ? "Merge Commit Message" : "Commit Message"}
                   </span>
                 </div>
-                <div className="p-4 flex gap-4">
+                <div className="flex gap-4 p-4">
                   <textarea
-                    className="flex-1 h-24 border border-gray-300 rounded p-3 text-sm resize-none outline-none focus:border-blue-500 font-mono"
+                    className="h-24 flex-1 resize-none rounded border border-gray-300 p-3 font-mono text-sm outline-none focus:border-blue-500"
                     placeholder="커밋 메시지를 입력하세요 [Ctrl+Enter]"
                     value={commitMessage}
-                    onChange={(e) => setCommitMessage(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.ctrlKey && e.key === "Enter") handleCommit();
+                    onChange={(event) => setCommitMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.ctrlKey && event.key === "Enter") handleCommit();
                     }}
                     disabled={isLoading}
                   />
-                  <div className="w-48 flex flex-col gap-2">
+                  <div className="flex w-48 flex-col gap-2">
                     <button
+                      type="button"
                       onClick={handleCommit}
                       disabled={
                         !commitMessage.trim() ||
@@ -987,12 +1928,14 @@ export default function GitDashboard() {
                         conflictedFiles.length > 0 ||
                         isLoading
                       }
-                      className={`flex-1 text-white font-bold rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm ${isMerging ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                      className={`flex flex-1 items-center justify-center gap-2 rounded font-bold text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        isMerging ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"
+                      }`}
                     >
-                      <VscCheck size={18} />{" "}
-                      {isMerging ? "Merge 완료 커밋" : "Commit"}
+                      <VscCheck size={18} /> {isMerging ? "Merge 완료 커밋" : "Commit"}
                     </button>
                     <button
+                      type="button"
                       onClick={handleCommitAndPush}
                       disabled={
                         !commitMessage.trim() ||
@@ -1000,7 +1943,7 @@ export default function GitDashboard() {
                         conflictedFiles.length > 0 ||
                         isLoading
                       }
-                      className="h-10 bg-gray-800 hover:bg-black text-white text-xs font-bold rounded transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="h-10 rounded bg-gray-800 text-xs font-bold text-white shadow-sm transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Commit & Push
                     </button>

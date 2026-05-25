@@ -38,6 +38,8 @@ const initialState = {
 
   isPreviewVisible: false,
   previewUrl: "",
+
+  conflictNavigationTarget: null,
 };
 
 export const uiSlice = createSlice({
@@ -194,6 +196,18 @@ export const uiSlice = createSlice({
     setPreviewUrl: (state, action) => {
       state.previewUrl = action.payload;
     },
+
+    requestConflictNavigation: (state, action) => {
+      const payload = action.payload || {};
+      state.conflictNavigationTarget = {
+        filePath: payload.filePath || "",
+        requestedAt: payload.requestedAt || Date.now(),
+      };
+    },
+
+    clearConflictNavigation: (state) => {
+      state.conflictNavigationTarget = null;
+    },
   },
 });
 
@@ -240,6 +254,9 @@ export const {
 
   setIsPreviewVisible,
   setPreviewUrl,
+
+  requestConflictNavigation,
+  clearConflictNavigation,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;

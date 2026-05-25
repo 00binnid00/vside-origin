@@ -1,8 +1,11 @@
 "use client";
 
+// 경로: src/lib/auth/authClient.js
+
 import {
   clearAuth,
   getAccessToken,
+  setAccessToken,
   setAuthSnapshot,
   setAuthUser,
 } from "@/lib/auth/tokenStore";
@@ -39,13 +42,15 @@ const normalizeTokenResponse = (data) => {
 const parseErrorMessage = async (response, fallback) => {
   try {
     const text = await response.text();
-
-    if (text) return text;
-
-    return fallback;
+    return text || fallback;
   } catch {
     return fallback;
   }
+};
+
+const getAuthHeaders = () => {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 export const authClient = {
@@ -53,13 +58,8 @@ export const authClient = {
     const response = await fetch(`${AUTH_BASE_URL}/login`, {
       method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        password,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
     });
 
     if (!response.ok) {
@@ -78,7 +78,6 @@ export const authClient = {
     }
 
     setAuthSnapshot(data);
-
     return data;
   },
 
@@ -101,22 +100,15 @@ export const authClient = {
     }
 
     setAuthSnapshot(data);
-
     return data;
   },
 
   async logout() {
     try {
-      const token = getAccessToken();
-
       await fetch(`${AUTH_BASE_URL}/logout`, {
         method: "POST",
         credentials: "include",
-        headers: token
-          ? {
-              Authorization: `Bearer ${token}`,
-            }
-          : {},
+        headers: getAuthHeaders(),
       });
     } finally {
       clearAuth();
@@ -124,28 +116,48 @@ export const authClient = {
   },
 
   async me() {
-    const token = getAccessToken();
+    let token = getAccessToken();
 
     if (!token) {
-      throw new Error("accessToken이 없습니다.");
+      try {
+        const refreshed = await this.refresh();
+        token = refreshed.accessToken;
+      } catch {
+        throw new Error("accessToken이 없습니다.");
+      }
     }
 
-    const response = await fetch(`${AUTH_BASE_URL}/me`, {
+    let response = await fetch(`${AUTH_BASE_URL}/me`, {
       method: "GET",
       credentials: "include",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
+
+    if (response.status === 401) {
+      try {
+        const refreshed = await this.refresh();
+
+        if (refreshed?.accessToken) {
+          setAccessToken(refreshed.accessToken);
+        }
+
+        response = await fetch(`${AUTH_BASE_URL}/me`, {
+          method: "GET",
+          credentials: "include",
+          headers: { Authorization: `Bearer ${refreshed.accessToken}` },
+        });
+      } catch {
+        clearAuth();
+        throw new Error("로그인 세션이 만료되었습니다. 다시 로그인해주세요.");
+      }
+    }
 
     if (!response.ok) {
       throw new Error("사용자 정보를 불러오지 못했습니다.");
     }
 
     const user = await response.json();
-
     setAuthUser(user);
-
     return user;
   },
 
@@ -153,14 +165,8 @@ export const authClient = {
     const response = await fetch(`${USER_BASE_URL}`, {
       method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        nickname,
-        password,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, nickname, password }),
     });
 
     if (!response.ok) {

@@ -1000,12 +1000,10 @@ export const abortMergeApi = async (workspaceId, projectName, branchName) => {
 };
 
 export const deleteBranchApi = async (workspaceId, projectName, branchName) => {
-  const response = await authFetch(
-    `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(projectName)}/branches/${encodeURIComponent(branchName)}`,
-    {
-      method: "DELETE",
-    },
-  );
+  const response = await authFetch(`${GIT_API_BASE}/branches`, {
+    method: "DELETE",
+    body: JSON.stringify({ workspaceId, projectName, branchName }),
+  });
 
   if (!response.ok) {
     const msg = await response.text();

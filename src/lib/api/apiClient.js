@@ -1,5 +1,7 @@
 "use client";
 
+// 경로: src/lib/api/apiClient.js
+
 import { authClient } from "@/lib/auth/authClient";
 import {
   clearAuth,
@@ -10,17 +12,18 @@ import {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 
-const isAbsoluteUrl = (url) => {
-  return /^https?:\/\//i.test(url);
-};
+let refreshPromise = null;
+
+const isAbsoluteUrl = (url) => /^https?:\/\//i.test(url);
 
 const buildUrl = (url) => {
   if (isAbsoluteUrl(url)) return url;
 
   const normalizedPath = url.startsWith("/") ? url : `/${url}`;
-
   return `${API_BASE_URL}${normalizedPath}`;
 };
+
+const isRefreshRequest = (url) => String(url).includes("/api/auth/refresh");
 
 const buildHeaders = (options = {}) => {
   const headers = new Headers(options.headers || {});
@@ -37,6 +40,24 @@ const buildHeaders = (options = {}) => {
   return headers;
 };
 
+const refreshAccessTokenOnce = async () => {
+  if (!refreshPromise) {
+    refreshPromise = authClient
+      .refresh()
+      .then((refreshed) => {
+        if (refreshed?.accessToken) {
+          setAccessToken(refreshed.accessToken);
+        }
+        return refreshed;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+};
+
 export const apiFetch = async (url, options = {}) => {
   const requestUrl = buildUrl(url);
 
@@ -50,12 +71,13 @@ export const apiFetch = async (url, options = {}) => {
     return firstResponse;
   }
 
-  try {
-    const refreshed = await authClient.refresh();
+  if (isRefreshRequest(requestUrl)) {
+    clearAuth();
+    return firstResponse;
+  }
 
-    if (refreshed?.accessToken) {
-      setAccessToken(refreshed.accessToken);
-    }
+  try {
+    await refreshAccessTokenOnce();
   } catch {
     clearAuth();
     return firstResponse;
@@ -76,9 +98,7 @@ export const apiJson = async (url, options = {}) => {
     throw new Error(message || "API 요청에 실패했습니다.");
   }
 
-  if (response.status === 204) {
-    return null;
-  }
+  if (response.status === 204) return null;
 
   return response.json();
 };
