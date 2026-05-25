@@ -53,6 +53,16 @@ export type UpdateSchedulePeriodRequest = {
   endDate: string;
 };
 
+
+export type UpdateScheduleRequest = {
+  scheduleId: string;
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  status: ScheduleStatus;
+};
+
 function getToken() {
   if (typeof window === "undefined") return null;
 
@@ -185,6 +195,41 @@ export async function createWorkspaceScheduleApi({
   );
 }
 
+export async function updateScheduleApi({
+  scheduleId,
+  title,
+  description,
+  startDate,
+  endDate,
+  status,
+}: UpdateScheduleRequest) {
+  if (!scheduleId) {
+    throw new Error("scheduleId가 없습니다.");
+  }
+
+  const response = await authFetch(
+    `${API_BASE}/schedules/${encodeURIComponent(scheduleId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        title,
+        description,
+        startDate,
+        endDate,
+        status,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "일정 수정 실패"));
+  }
+
+  return normalizeScheduleFromApi(
+    (await response.json()) as BackendScheduleResponse,
+  );
+}
+
 export async function updateScheduleStatusApi({
   scheduleId,
   status,
@@ -239,7 +284,11 @@ export async function updateSchedulePeriodApi({
   );
 }
 
-export async function deleteScheduleApi(scheduleId: string) {
+export async function deleteScheduleApi(
+  value: string | { scheduleId: string },
+) {
+  const scheduleId = typeof value === "string" ? value : value.scheduleId;
+
   if (!scheduleId) {
     throw new Error("scheduleId가 없습니다.");
   }
