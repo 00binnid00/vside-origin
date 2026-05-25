@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Menu, X, LogOut, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,17 @@ type DemoNotif = {
 };
 
 type WorkspaceMode = "personal" | "team";
+
+type NavItemKey =
+  | "dashboard"
+  | "project"
+  | "aivs"
+  | "design"
+  | "schedules"
+  | "devlogs"
+  | "archive"
+  | "community"
+  | "my";
 
 function normalizeMode(value: string | null): WorkspaceMode {
   return value === "team" ? "team" : "personal";
@@ -40,23 +51,15 @@ export default function TopNav() {
   const [openMobileNav, setOpenMobileNav] = useState(false);
   const [openNotif, setOpenNotif] = useState(false);
 
+  const [rememberedWorkspaceId, setRememberedWorkspaceId] = useState<
+    string | null
+  >(null);
+  const [rememberedWorkspaceMode, setRememberedWorkspaceMode] =
+    useState<WorkspaceMode>("personal");
+
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const notifRef = useRef<HTMLDivElement | null>(null);
 
-  /*
-    현재 URL path에서 workspaceId를 추출한다.
-
-    예:
-    /main/abc123
-    /projects/abc123
-    /schedules/abc123
-    /devlogs/abc123
-
-    주의:
-    여기서는 localStorage의 currentWorkspaceId를 사용하지 않는다.
-    헤더는 "현재 화면이 프로젝트 선택 상태인지"만 보고 링크를 만들어야 한다.
-    localStorage를 쓰면 프로젝트를 선택하지 않은 상태에서도 이전 프로젝트로 이동할 수 있다.
-  */
   const workspaceIdFromPath = useMemo(() => {
     const parts = pathname?.split("/").filter(Boolean) ?? [];
 
@@ -77,48 +80,46 @@ export default function TopNav() {
     return null;
   }, [pathname]);
 
-  /*
-    쿼리스트링에서 workspaceId를 추출한다.
-
-    예:
-    /schedules?view=personal&workspaceId=abc123
-    /devlogs?workspaceId=abc123
-    /relocation?workspaceId=abc123&mode=personal
-  */
   const workspaceIdFromQuery =
     searchParams.get("workspaceId") ??
     searchParams.get("workspaceid") ??
     searchParams.get("workspace");
 
-  /*
-    현재 선택된 프로젝트 ID.
+  const workspaceIdFromUrl = workspaceIdFromPath || workspaceIdFromQuery;
 
-    localStorage를 fallback으로 쓰지 않는다.
-    즉, 현재 URL에 workspaceId가 없으면 프로젝트가 선택되지 않은 상태로 본다.
-  */
-  const currentWorkspaceId = workspaceIdFromPath || workspaceIdFromQuery;
-
-  /*
-    mode는 URL query에서 가져온다.
-    mode가 없으면 personal로 둔다.
-
-    팀 프로젝트에서 정확한 이동을 원하면
-    메인 프로젝트 선택 링크가 /main/[workspaceId]?mode=team 형태로 들어와야 한다.
-  */
-  const currentMode = normalizeMode(
+  const modeFromUrl = normalizeMode(
     searchParams.get("mode") ?? searchParams.get("view"),
   );
 
+  const currentWorkspaceId = workspaceIdFromUrl || rememberedWorkspaceId;
+  const currentMode = workspaceIdFromUrl ? modeFromUrl : rememberedWorkspaceMode;
+
   const hasSelectedWorkspace = Boolean(currentWorkspaceId);
 
-  /*
-    프로젝트 선택이 필요한 메뉴:
-    HOME, AIVS, 설계단계, 일정관리, 개발일지
+  useEffect(() => {
+    const savedWorkspaceId = localStorage.getItem("currentWorkspaceId");
+    const savedWorkspaceMode = normalizeMode(
+      localStorage.getItem("currentWorkspaceMode"),
+    );
 
-    프로젝트가 선택되어 있으면 해당 프로젝트 기준 경로로 이동한다.
-    프로젝트가 선택되어 있지 않으면 /main으로 보내서 프로젝트를 먼저 선택하게 한다.
-  */
-  const homeHref = hasSelectedWorkspace
+    if (savedWorkspaceId) {
+      setRememberedWorkspaceId(savedWorkspaceId);
+    }
+
+    setRememberedWorkspaceMode(savedWorkspaceMode);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceIdFromUrl) return;
+
+    localStorage.setItem("currentWorkspaceId", workspaceIdFromUrl);
+    localStorage.setItem("currentWorkspaceMode", modeFromUrl);
+
+    setRememberedWorkspaceId(workspaceIdFromUrl);
+    setRememberedWorkspaceMode(modeFromUrl);
+  }, [workspaceIdFromUrl, modeFromUrl]);
+
+  const projectHref = hasSelectedWorkspace
     ? withModeQuery(`/main/${currentWorkspaceId}`, currentMode)
     : "/main";
 
@@ -135,26 +136,15 @@ export default function TopNav() {
     : "/main";
 
   const devlogsHref = hasSelectedWorkspace
-    ? `/devlogs?workspaceId=${currentWorkspaceId}`
+    ? `/devlogs?workspaceId=${currentWorkspaceId}&mode=${currentMode}`
     : "/main";
 
-  /*
-    프로젝트 선택 없이 접근 가능한 메뉴.
-  */
+  const archiveHref = hasSelectedWorkspace
+    ? `/archive?workspaceId=${currentWorkspaceId}&mode=${currentMode}`
+    : "/main";
+
   const communityHref = "/community";
   const myPageHref = "/my";
-
-  /*
-    현재 URL에 workspaceId가 있을 때만 localStorage에 저장한다.
-    이 값은 IDE나 모달 등 다른 기능에서 사용할 수 있지만,
-    헤더 링크 생성에는 직접 사용하지 않는다.
-  */
-  useEffect(() => {
-    if (!currentWorkspaceId) return;
-
-    localStorage.setItem("currentWorkspaceId", currentWorkspaceId);
-    localStorage.setItem("currentWorkspaceMode", currentMode);
-  }, [currentWorkspaceId, currentMode]);
 
   const demoNotifs: DemoNotif[] = [
     {
@@ -187,7 +177,7 @@ export default function TopNav() {
       body: "빌드 프로세스에서 오류가 발생했습니다. 로그를 확인하세요",
       time: "4시간 전",
       unread: false,
-      href: homeHref,
+      href: projectHref,
     },
   ];
 
@@ -219,6 +209,10 @@ export default function TopNav() {
 
   const onLogout = async () => {
     logout();
+
+    localStorage.removeItem("currentWorkspaceId");
+    localStorage.removeItem("currentWorkspaceMode");
+
     router.replace("/");
   };
 
@@ -227,47 +221,64 @@ export default function TopNav() {
     setOpenNotif((v) => !v);
   };
 
-  const NAV_ITEMS = [
+  const NAV_ITEMS: Array<{
+    key: NavItemKey;
+    href: string;
+    label: string;
+    requiresWorkspace: boolean;
+  }> = [
     {
-      href: homeHref,
-      label: "HOME",
-      matchPath: "/main",
-      requiresWorkspace: true,
-    },
-    {
-      href: aivsHref,
-      label: "AIVS",
-      matchPath: "/projects",
-      requiresWorkspace: true,
-    },
-    {
-      href: designHref,
-      label: "설계관리",
-      matchPath: "/design",
-      requiresWorkspace: true,
-    },
-    {
-      href: schedulesHref,
-      label: "일정관리",
-      matchPath: "/schedules",
-      requiresWorkspace: true,
-    },
-    {
-      href: devlogsHref,
-      label: "개발일지",
-      matchPath: "/devlogs",
-      requiresWorkspace: true,
-    },
-    {
-      href: communityHref,
-      label: "게시판",
-      matchPath: "/community",
+      key: "dashboard",
+      href: "/main",
+      label: "대시보드",
       requiresWorkspace: false,
     },
     {
+      key: "project",
+      href: projectHref,
+      label: "프로젝트",
+      requiresWorkspace: true,
+    },
+    {
+      key: "aivs",
+      href: aivsHref,
+      label: "AIVS",
+      requiresWorkspace: true,
+    },
+    {
+      key: "design",
+      href: designHref,
+      label: "설계관리",
+      requiresWorkspace: true,
+    },
+    {
+      key: "schedules",
+      href: schedulesHref,
+      label: "일정관리",
+      requiresWorkspace: true,
+    },
+    {
+      key: "devlogs",
+      href: devlogsHref,
+      label: "개발일지",
+      requiresWorkspace: true,
+    },
+    {
+      key: "archive",
+      href: archiveHref,
+      label: "자료실",
+      requiresWorkspace: true,
+    },
+    {
+      key: "community",
+      href: communityHref,
+      label: "게시판",
+      requiresWorkspace: false,
+    },
+    {
+      key: "my",
       href: myPageHref,
       label: "마이페이지",
-      matchPath: "/my",
       requiresWorkspace: false,
     },
   ];
@@ -275,11 +286,37 @@ export default function TopNav() {
   const isNavItemActive = (item: (typeof NAV_ITEMS)[number]) => {
     if (!pathname) return false;
 
-    if (item.label === "HOME") {
-      return pathname === "/main" || pathname.startsWith("/main/");
-    }
+    switch (item.key) {
+      case "dashboard":
+        return pathname === "/main";
 
-    return pathname.startsWith(item.matchPath);
+      case "project":
+        return /^\/main\/[^/]+/.test(pathname);
+
+      case "aivs":
+        return pathname.startsWith("/projects");
+
+      case "design":
+        return pathname.startsWith("/design");
+
+      case "schedules":
+        return pathname.startsWith("/schedules");
+
+      case "devlogs":
+        return pathname.startsWith("/devlogs");
+
+      case "archive":
+        return pathname.startsWith("/archive");
+
+      case "community":
+        return pathname.startsWith("/community");
+
+      case "my":
+        return pathname.startsWith("/my");
+
+      default:
+        return false;
+    }
   };
 
   const handleGuardedNavClick = (
@@ -289,28 +326,27 @@ export default function TopNav() {
     if (!item.requiresWorkspace) return;
     if (hasSelectedWorkspace) return;
 
-    /*
-      프로젝트가 필요한 메뉴인데 아직 선택된 프로젝트가 없으면
-      실제 기능 페이지로 들어가지 않고 /main에서 프로젝트를 선택하게 한다.
-    */
     event.preventDefault();
     router.push("/main");
   };
 
   return (
     <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between  py-2 text-xl">
-        <Link href="/main" className="font-black tracking-tight">
+      <div className="mx-auto flex max-w-6xl items-center justify-between py-2 text-xl">
+        <Link
+          href="/main"
+          className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text text-xl font-extrabold px-2 text-transparent"
+        >
           WEVAIS
         </Link>
 
-        <nav className="hidden items-center gap-8 text-sm text-gray-600 md:flex">
+        <nav className="hidden items-center gap-6 text-sm text-gray-600 md:flex">
           {NAV_ITEMS.map((item) => {
             const active = isNavItemActive(item);
 
             return (
               <Link
-                key={item.label}
+                key={item.key}
                 href={item.href}
                 onClick={(event) => handleGuardedNavClick(event, item)}
                 className={cn(
@@ -518,7 +554,7 @@ export default function TopNav() {
 
               return (
                 <Link
-                  key={item.label}
+                  key={item.key}
                   href={item.href}
                   onClick={(event) => handleGuardedNavClick(event, item)}
                   className={cn(

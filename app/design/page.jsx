@@ -31,6 +31,7 @@ import {
 import {
   ArrowRight,
   ChevronRight,
+  Download,
   FolderOpen,
   PanelLeftClose,
   PanelLeftOpen,
@@ -88,6 +89,30 @@ const TAB_ITEMS = [
     id: "api",
     label: "API 명세서",
     description: "요청/응답 정리",
+  },
+];
+
+
+const DESIGN_PDF_SECTION_ITEMS = [
+  {
+    id: "requirements",
+    label: "요구사항",
+    printTitle: "요구사항 정의",
+  },
+  {
+    id: "api",
+    label: "API 명세",
+    printTitle: "API 명세",
+  },
+  {
+    id: "erd",
+    label: "ERD",
+    printTitle: "ERD",
+  },
+  {
+    id: "flow",
+    label: "데이터 플로우",
+    printTitle: "데이터 플로우",
   },
 ];
 
@@ -202,6 +227,286 @@ function parseJsonArray(value, fallback = []) {
     return fallback;
   }
 }
+
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeHtmlWithLineBreaks(value) {
+  return escapeHtml(value).replaceAll("\n", "<br />");
+}
+
+function getPrintDateLabel() {
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+}
+
+function formatApiPayload(value) {
+  if (!value || !String(value).trim()) return "-";
+
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function getNodeData(node) {
+  const data = node?.data;
+
+  return typeof data === "object" && data !== null && !Array.isArray(data)
+    ? data
+    : {};
+}
+
+function getNodeLabel(node, fallback) {
+  const data = getNodeData(node);
+  const label = data.label ?? data.name ?? node?.label ?? node?.name;
+
+  return typeof label === "string" && label.trim() ? label.trim() : fallback;
+}
+
+function getNodeSubText(node) {
+  const data = getNodeData(node);
+  const type = data.type;
+  const techStack = data.techStack;
+
+  const typeLabel =
+    type === "client"
+      ? "화면"
+      : type === "server"
+        ? "서버/API"
+        : type === "db"
+          ? "DB"
+          : type === "external"
+            ? "외부 서비스"
+            : typeof type === "string" && type.trim()
+              ? type.trim()
+              : "설계 노드";
+
+  const techText =
+    typeof techStack === "string" && techStack.trim()
+      ? techStack.trim()
+      : "설명 없음";
+
+  return `${typeLabel} · ${techText}`;
+}
+
+function getNodeColumns(node) {
+  const data = getNodeData(node);
+  const columns = data.columns;
+
+  return Array.isArray(columns)
+    ? columns.filter(
+        (column) =>
+          typeof column === "object" &&
+          column !== null &&
+          !Array.isArray(column),
+      )
+    : [];
+}
+
+function getNodePosition(node, index) {
+  const position = node?.position;
+
+  if (
+    typeof position === "object" &&
+    position !== null &&
+    !Array.isArray(position)
+  ) {
+    const x = Number(position.x);
+    const y = Number(position.y);
+
+    return {
+      x: Number.isFinite(x) ? x : 120 + (index % 3) * 280,
+      y: Number.isFinite(y) ? y : 100 + Math.floor(index / 3) * 190,
+    };
+  }
+
+  return {
+    x: 120 + (index % 3) * 280,
+    y: 100 + Math.floor(index / 3) * 190,
+  };
+}
+
+function getEdgeSourceTarget(edge) {
+  const source = edge?.source;
+  const target = edge?.target;
+
+  return {
+    source: typeof source === "string" ? source : "",
+    target: typeof target === "string" ? target : "",
+  };
+}
+
+function buildSvgPath(sourceX, sourceY, targetX, targetY) {
+  const midX = (sourceX + targetX) / 2;
+
+  return `M ${sourceX} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${targetX} ${targetY}`;
+}
+
+function normalizeDiagramNodes(nodes, type) {
+  return nodes.map((node, index) => {
+    const position = getNodePosition(node, index);
+
+    return {
+      id: String(node.id ?? `node-${index}`),
+      label: getNodeLabel(
+        node,
+        type === "erd" ? `TABLE_${index + 1}` : `NODE_${index + 1}`,
+      ),
+      x: position.x,
+      y: position.y,
+      columns: getNodeColumns(node),
+      subText: getNodeSubText(node),
+    };
+  });
+}
+
+function getDiagramLayout(nodes, type) {
+  const nodeWidth = type === "erd" ? 220 : 270;
+  const nodeHeight = type === "erd" ? 138 : 92;
+  const padding = 80;
+
+  if (nodes.length === 0) {
+    return {
+      nodes: [],
+      width: 760,
+      height: 420,
+      nodeWidth,
+      nodeHeight,
+    };
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const minY = Math.min(...nodes.map((node) => node.y));
+  const maxX = Math.max(...nodes.map((node) => node.x));
+  const maxY = Math.max(...nodes.map((node) => node.y));
+
+  const offsetX = padding - minX;
+  const offsetY = padding - minY;
+
+  return {
+    nodes: nodes.map((node) => ({
+      ...node,
+      x: node.x + offsetX,
+      y: node.y + offsetY,
+    })),
+    width: Math.max(860, maxX - minX + nodeWidth + padding * 2),
+    height: Math.max(460, maxY - minY + nodeHeight + padding * 2),
+    nodeWidth,
+    nodeHeight,
+  };
+}
+
+function buildPrintDiagramSvg({ nodes, edges, type }) {
+  if (!nodes.length) {
+    return `<div class="empty small-empty">표시할 다이어그램이 없습니다.</div>`;
+  }
+
+  const layout = getDiagramLayout(normalizeDiagramNodes(nodes, type), type);
+  const nodeMap = new Map(layout.nodes.map((node) => [node.id, node]));
+  const strokeColor = type === "erd" ? "#2563eb" : "#7c3aed";
+
+  const edgeSvg = edges
+    .map((edge) => {
+      const { source, target } = getEdgeSourceTarget(edge);
+      const sourceNode = nodeMap.get(source);
+      const targetNode = nodeMap.get(target);
+
+      if (!sourceNode || !targetNode) return "";
+
+      const sourceX = sourceNode.x + layout.nodeWidth;
+      const sourceY = sourceNode.y + layout.nodeHeight / 2;
+      const targetX = targetNode.x;
+      const targetY = targetNode.y + layout.nodeHeight / 2;
+
+      return `
+        <path
+          d="${buildSvgPath(sourceX, sourceY, targetX, targetY)}"
+          fill="none"
+          stroke="${strokeColor}"
+          stroke-width="2"
+          stroke-dasharray="${type === "flow" ? "6 5" : "0"}"
+          marker-end="url(#arrow-${type})"
+        />
+      `;
+    })
+    .join("");
+
+  const nodeSvg = layout.nodes
+    .map((node) => {
+      if (type === "erd") {
+        const columnRows = node.columns.length
+          ? node.columns
+              .slice(0, 4)
+              .map((column, columnIndex) => {
+                const columnName =
+                  typeof column.name === "string" ? column.name : "column";
+                const columnType =
+                  typeof column.type === "string" ? column.type : "TYPE";
+
+                return `
+                  <text x="${node.x + 16}" y="${node.y + 74 + columnIndex * 18}" class="diagram-column">
+                    ${escapeHtml(columnName)} · ${escapeHtml(columnType)}
+                  </text>
+                `;
+              })
+              .join("")
+          : `<text x="${node.x + 16}" y="${node.y + 78}" class="diagram-muted">컬럼 없음</text>`;
+
+        return `
+          <g>
+            <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="${layout.nodeHeight}" rx="14" fill="#ffffff" stroke="#bfdbfe" />
+            <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="42" rx="14" fill="#020617" />
+            <text x="${node.x + 16}" y="${node.y + 27}" class="diagram-title diagram-white">${escapeHtml(node.label)}</text>
+            ${columnRows}
+          </g>
+        `;
+      }
+
+      return `
+        <g>
+          <rect x="${node.x}" y="${node.y}" width="${layout.nodeWidth}" height="${layout.nodeHeight}" rx="16" fill="#eff6ff" stroke="#bfdbfe" />
+          <circle cx="${node.x + 28}" cy="${node.y + 32}" r="14" fill="#ffffff" stroke="#dbeafe" />
+          <text x="${node.x + 52}" y="${node.y + 33}" class="diagram-title">${escapeHtml(node.label)}</text>
+          <text x="${node.x + 52}" y="${node.y + 58}" class="diagram-muted">${escapeHtml(node.subText)}</text>
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 ${layout.width} ${layout.height}" class="diagram-svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow-${type}" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="${strokeColor}" />
+          </marker>
+          <pattern id="dot-grid-${type}" width="18" height="18" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="#dbeafe" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="#f8fbff" />
+        <rect width="100%" height="100%" fill="url(#dot-grid-${type})" />
+        ${edgeSvg}
+        ${nodeSvg}
+      </svg>
+    </div>
+  `;
+}
+
 
 function FieldInput({ value, onChange, placeholder, className = "" }) {
   return (
@@ -1075,6 +1380,10 @@ export default function Page() {
   const [saveMessage, setSaveMessage] = useState("");
   const [requirementSearch, setRequirementSearch] = useState("");
   const [apiSearch, setApiSearch] = useState("");
+  const [isPdfMenuOpen, setIsPdfMenuOpen] = useState(false);
+  const [selectedPdfSections, setSelectedPdfSections] = useState(
+    DESIGN_PDF_SECTION_ITEMS.map((item) => item.id),
+  );
 
   const [allWorkspaces, setAllWorkspaces] = useState([]);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(true);
@@ -1536,10 +1845,502 @@ export default function Page() {
     );
   });
 
+  const selectedPdfSectionLabels = DESIGN_PDF_SECTION_ITEMS.filter((item) =>
+    selectedPdfSections.includes(item.id),
+  ).map((item) => item.label);
+
+
+  const togglePdfSection = (sectionId) => {
+    setSelectedPdfSections((prev) => {
+      if (prev.includes(sectionId)) {
+        return prev.filter((id) => id !== sectionId);
+      }
+
+      return [...prev, sectionId];
+    });
+  };
+
+  const selectAllPdfSections = () => {
+    setSelectedPdfSections(DESIGN_PDF_SECTION_ITEMS.map((item) => item.id));
+  };
+
+  const clearPdfSections = () => {
+    setSelectedPdfSections([]);
+  };
+
+  const handlePrintDesignPdf = useCallback(() => {
+    const selectedSections = DESIGN_PDF_SECTION_ITEMS.filter((item) =>
+      selectedPdfSections.includes(item.id),
+    );
+
+    if (selectedSections.length === 0) {
+      alert("PDF로 출력할 항목을 1개 이상 선택해주세요.");
+      setIsPdfMenuOpen(true);
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=920,height=1000");
+
+    if (!printWindow) {
+      alert("팝업이 차단되어 PDF 저장 창을 열 수 없습니다.");
+      return;
+    }
+
+    const documentTitle =
+      selectedSections.length === DESIGN_PDF_SECTION_ITEMS.length
+        ? "설계 문서"
+        : `설계 문서 - ${selectedSections.map((item) => item.label).join(", ")}`;
+    const selectedProjectName = currentWorkspaceName || "선택된 프로젝트";
+    const selectedSectionText = selectedSections
+      .map((item) => item.label)
+      .join(", ");
+
+    const requirementHtml = requirements.length
+      ? requirements
+          .map(
+            (item, index) => `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(item.name || "이름 없는 요구사항")}</h2>
+                    <p class="meta">${escapeHtml(item.category || "기본")}</p>
+                  </div>
+                </div>
+                <p class="body-text">${escapeHtmlWithLineBreaks(item.description || "설명이 없습니다.")}</p>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 요구사항이 없습니다.</div>`;
+
+    const apiHtml = apiSpecs.length
+      ? apiSpecs
+          .map(
+            (item) => `
+              <article class="print-card compact-card">
+                <h2>
+                  <span class="method">${escapeHtml(item.method || "GET")}</span>
+                  ${escapeHtml(item.endpoint || "/api/example")}
+                </h2>
+                <p class="body-text">${escapeHtmlWithLineBreaks(
+                  item.description || "설명이 없습니다.",
+                )}</p>
+
+                <div class="api-payload-grid">
+                  <div>
+                    <p class="payload-title">요청 데이터</p>
+                    <pre class="code-block">${escapeHtml(formatApiPayload(item.request))}</pre>
+                  </div>
+
+                  <div>
+                    <p class="payload-title">응답 데이터</p>
+                    <pre class="code-block">${escapeHtml(formatApiPayload(item.response))}</pre>
+                  </div>
+                </div>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
+
+    const erdDiagramHtml = buildPrintDiagramSvg({
+      nodes: erdNodes,
+      edges: erdEdges,
+      type: "erd",
+    });
+
+    const flowDiagramHtml = buildPrintDiagramSvg({
+      nodes: flowNodes,
+      edges: flowEdges,
+      type: "flow",
+    });
+
+    const erdHtml = erdNodes.length
+      ? erdNodes
+          .map((node, index) => {
+            const columns = getNodeColumns(node);
+
+            return `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(getNodeLabel(node, `TABLE_${index + 1}`))}</h2>
+                    <p class="meta">컬럼 ${columns.length}개</p>
+                  </div>
+                </div>
+                <p class="body-text">${
+                  columns.length
+                    ? columns
+                        .slice(0, 12)
+                        .map((column) => {
+                          const name =
+                            typeof column.name === "string"
+                              ? column.name
+                              : "column";
+                          const type =
+                            typeof column.type === "string"
+                              ? column.type
+                              : "TYPE";
+
+                          return `${escapeHtml(name)} (${escapeHtml(type)})`;
+                        })
+                        .join(", ")
+                    : "컬럼이 없습니다."
+                }</p>
+              </article>
+            `;
+          })
+          .join("")
+      : `<div class="empty small-empty">작성된 ERD 테이블이 없습니다.</div>`;
+
+    const flowHtml = flowNodes.length
+      ? flowNodes
+          .map(
+            (node, index) => `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(getNodeLabel(node, `NODE_${index + 1}`))}</h2>
+                    <p class="meta">${escapeHtml(getNodeSubText(node))}</p>
+                  </div>
+                </div>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 데이터 플로우가 없습니다.</div>`;
+
+    const sectionHtmlMap = {
+      requirements: requirementHtml,
+      api: apiHtml,
+      erd: `
+        <p class="body-text section-description">설계단계에서 작성한 테이블과 관계선을 시각화한 다이어그램입니다.</p>
+        ${erdDiagramHtml}
+        ${erdHtml}
+      `,
+      flow: `
+        <p class="body-text section-description">화면, 서버, DB, 외부 서비스 사이의 데이터 흐름을 시각화한 다이어그램입니다.</p>
+        ${flowDiagramHtml}
+        ${flowHtml}
+      `,
+    };
+
+    const printBody = selectedSections
+      .map(
+        (section, index) => `
+          <section class="print-section">
+            <h2 class="section-title">${index + 1}. ${escapeHtml(section.printTitle)}</h2>
+            ${sectionHtmlMap[section.id]}
+          </section>
+        `,
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="ko">
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(documentTitle)}</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 18mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              margin: 0;
+              background: #ffffff;
+              color: #111827;
+              font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              line-height: 1.65;
+            }
+
+            .document {
+              width: 100%;
+            }
+
+            .document-header {
+              padding-bottom: 18px;
+              margin-bottom: 22px;
+              border-bottom: 2px solid #1d4ed8;
+            }
+
+            .eyebrow {
+              margin: 0 0 6px;
+              color: #2563eb;
+              font-size: 12px;
+              font-weight: 800;
+              letter-spacing: 0.08em;
+            }
+
+            h1 {
+              margin: 0;
+              font-size: 28px;
+              font-weight: 900;
+              letter-spacing: -0.04em;
+            }
+
+            .header-meta {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+              margin-top: 16px;
+            }
+
+            .meta-box {
+              padding: 10px 12px;
+              border: 1px solid #dbeafe;
+              border-radius: 12px;
+              background: #eff6ff;
+            }
+
+            .meta-label {
+              display: block;
+              margin-bottom: 2px;
+              color: #64748b;
+              font-size: 10px;
+              font-weight: 800;
+            }
+
+            .meta-value {
+              color: #0f172a;
+              font-size: 13px;
+              font-weight: 800;
+            }
+
+            .print-section {
+              margin-bottom: 22px;
+            }
+
+            .section-title {
+              margin: 0 0 8px;
+              color: #1d4ed8;
+              font-size: 18px;
+              font-weight: 900;
+            }
+
+            .print-card {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              padding: 18px 0;
+              border-bottom: 1px solid #e5e7eb;
+            }
+
+            .compact-card {
+              padding: 12px 0;
+            }
+
+            .print-card:first-of-type {
+              padding-top: 0;
+            }
+
+            .print-card-header {
+              display: flex;
+              gap: 10px;
+              align-items: flex-start;
+              margin-bottom: 10px;
+            }
+
+            .index {
+              display: inline-flex;
+              width: 26px;
+              height: 26px;
+              align-items: center;
+              justify-content: center;
+              border-radius: 8px;
+              background: #2563eb;
+              color: #ffffff;
+              font-size: 12px;
+              font-weight: 900;
+              flex-shrink: 0;
+            }
+
+            h2 {
+              margin: 0;
+              color: #111827;
+              font-size: 17px;
+              font-weight: 900;
+              letter-spacing: -0.02em;
+            }
+
+            .method {
+              display: inline-block;
+              margin-right: 6px;
+              border-radius: 7px;
+              background: #dbeafe;
+              color: #1d4ed8;
+              padding: 2px 7px;
+              font-size: 11px;
+            }
+
+            .meta {
+              margin: 3px 0 0;
+              color: #64748b;
+              font-size: 11px;
+              font-weight: 700;
+            }
+
+            .body-text {
+              margin: 0;
+              color: #374151;
+              font-size: 13px;
+              font-weight: 600;
+              white-space: normal;
+            }
+
+            .empty {
+              padding: 40px 0;
+              color: #64748b;
+              font-size: 14px;
+              font-weight: 700;
+              text-align: center;
+            }
+
+            .small-empty {
+              padding: 14px 0;
+              text-align: left;
+            }
+
+            .section-description {
+              margin-bottom: 10px;
+            }
+
+            .diagram-wrap {
+              width: 100%;
+              margin: 12px 0 18px;
+              border: 1px solid #dbeafe;
+              border-radius: 16px;
+              overflow: hidden;
+              background: #f8fbff;
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+
+            .diagram-svg {
+              display: block;
+              width: 100%;
+              min-height: 360px;
+            }
+
+            .diagram-title {
+              fill: #0f172a;
+              font-size: 13px;
+              font-weight: 900;
+            }
+
+            .diagram-white {
+              fill: #ffffff;
+            }
+
+            .diagram-column {
+              fill: #334155;
+              font-size: 11px;
+              font-weight: 700;
+            }
+
+            .diagram-muted {
+              fill: #64748b;
+              font-size: 10px;
+              font-weight: 700;
+            }
+
+            .code-block {
+              margin: 8px 0 0;
+              padding: 12px;
+              border: 1px solid #dbeafe;
+              border-radius: 12px;
+              background: #f8fbff;
+              color: #1e293b;
+              font-size: 11px;
+              font-weight: 700;
+              line-height: 1.6;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+
+            .api-payload-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-top: 10px;
+            }
+
+            .payload-title {
+              margin: 0 0 4px;
+              color: #2563eb;
+              font-size: 11px;
+              font-weight: 900;
+            }
+
+            @media print {
+              body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+
+              .api-payload-grid {
+                grid-template-columns: 1fr;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <main class="document">
+            <header class="document-header">
+              <p class="eyebrow">DESIGN DOCUMENT</p>
+              <h1>${escapeHtml(documentTitle)}</h1>
+              <section class="header-meta">
+                <div class="meta-box">
+                  <span class="meta-label">프로젝트</span>
+                  <span class="meta-value">${escapeHtml(selectedProjectName)}</span>
+                </div>
+                <div class="meta-box">
+                  <span class="meta-label">출력 항목</span>
+                  <span class="meta-value">${escapeHtml(selectedSectionText)}</span>
+                </div>
+                <div class="meta-box">
+                  <span class="meta-label">저장일</span>
+                  <span class="meta-value">${escapeHtml(getPrintDateLabel())}</span>
+                </div>
+              </section>
+            </header>
+
+            ${printBody}
+          </main>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  }, [
+    currentWorkspaceName,
+    requirements,
+    apiSpecs,
+    erdNodes,
+    erdEdges,
+    flowNodes,
+    flowEdges,
+    selectedPdfSections,
+  ]);
+
+
   const activeTabInfo = TAB_ITEMS.find((tab) => tab.id === activeTab);
 
   return (
-    <div className="flex h-[calc(100dvh-60px)] w-full min-w-0 gap-4 overflow-hidden bg-[#f4f6fb] p-4 font-sans text-slate-900">
+    <div className="flex h-[calc(100dvh-60px)] w-full min-w-0 gap-4 overflow-hidden bg-[#f4f6fb] p-4 font-sans text-slate-900 md:p-5">
       <ProjectSidebar
         allWorkspaces={allWorkspaces}
         currentWorkspaceId={currentWorkspaceId}
@@ -1582,7 +2383,7 @@ export default function Page() {
                       onClick={() => setActiveTab(tab.id)}
                       className={`h-8 shrink-0 rounded-xl px-3 text-xs font-extrabold transition ${
                         isActive
-                          ? "bg-white text-slate-950 shadow-sm"
+                          ? "bg-blue-500 text-white shadow-sm"
                           : "text-slate-500 hover:bg-white/70 hover:text-slate-900"
                       }`}
                     >
@@ -1599,6 +2400,102 @@ export default function Page() {
                   {saveMessage}
                 </span>
               )}
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfMenuOpen((prev) => !prev)}
+                  disabled={isDesignLoading || !isDesignReady}
+                  className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-blue-100 bg-white px-3.5 text-xs font-extrabold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download size={14} />
+                  PDF 저장
+                  <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600">
+                    {selectedPdfSections.length}
+                  </span>
+                </button>
+
+                {isPdfMenuOpen && (
+                  <div className="absolute right-0 top-11 z-50 w-[280px] rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-slate-950">
+                          PDF 출력 항목
+                        </p>
+                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">
+                          선택한 항목만 문서에 포함됩니다.
+                        </p>
+                      </div>
+
+                      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">
+                        {selectedPdfSections.length}개 선택
+                      </span>
+                    </div>
+
+                    <div className="mb-3 flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={selectAllPdfSections}
+                        className="h-7 rounded-lg bg-blue-50 px-2.5 text-[11px] font-black text-blue-700 transition hover:bg-blue-100"
+                      >
+                        전체 선택
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearPdfSections}
+                        className="h-7 rounded-lg bg-slate-50 px-2.5 text-[11px] font-black text-slate-500 transition hover:bg-slate-100"
+                      >
+                        선택 해제
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {DESIGN_PDF_SECTION_ITEMS.map((item) => {
+                        const checked = selectedPdfSections.includes(item.id);
+
+                        return (
+                          <label
+                            key={item.id}
+                            className={cn(
+                              "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm transition",
+                              checked
+                                ? "border-blue-200 bg-blue-50 text-blue-800"
+                                : "border-slate-100 bg-white text-slate-600 hover:bg-slate-50",
+                            )}
+                          >
+                            <span className="font-black">{item.label}</span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => togglePdfSection(item.id)}
+                              className="h-4 w-4 accent-blue-600"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handlePrintDesignPdf();
+                        if (selectedPdfSections.length > 0) {
+                          setIsPdfMenuOpen(false);
+                        }
+                      }}
+                      disabled={selectedPdfSections.length === 0}
+                      className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-extrabold text-white shadow-sm shadow-blue-100 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Download size={14} />
+                      선택 항목 PDF 저장
+                    </button>
+
+                    <p className="mt-2 truncate text-[11px] font-bold text-slate-400">
+                      선택됨: {selectedPdfSectionLabels.length > 0 ? selectedPdfSectionLabels.join(", ") : "없음"}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <button
                 type="button"
