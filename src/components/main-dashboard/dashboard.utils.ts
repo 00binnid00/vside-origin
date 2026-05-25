@@ -236,6 +236,11 @@ export function getDevlogHref(workspaceId: string) {
   return `/devlogs?workspaceId=${workspaceId}`;
 }
 
+export function getArchiveHref(workspaceId: string) {
+  return `/archive?workspaceId=${workspaceId}`;
+}
+
+
 export function getScheduleTitle(schedule: RawSchedule) {
   return schedule.title?.trim() || "제목 없는 일정";
 }

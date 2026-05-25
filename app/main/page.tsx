@@ -7,6 +7,7 @@ import {
   BookOpenText,
   CalendarDays,
   Code2,
+  FileText,
   LayoutDashboard,
   Plus,
   RefreshCw,
@@ -33,14 +34,12 @@ type WorkspaceProject = {
 };
 
 type RawWorkspaceItem = {
-  // 백엔드 Workspace 엔티티 기준
   uuid?: string;
   name?: string;
   description?: string | null;
   updatedAt?: string | null;
   type?: "PERSONAL" | "TEAM" | "personal" | "team";
 
-  // 기존 프론트/DTO 호환용
   id?: string;
   mode?: ProjectType;
   teamName?: string | null;
@@ -64,6 +63,7 @@ type ScheduleProgressResponse = {
   doneCount: number;
   progress: number;
 };
+
 type RawScheduleItem = {
   id?: string;
   uuid?: string;
@@ -73,37 +73,6 @@ type RawScheduleItem = {
   endDate?: string;
 };
 
-function isDoneScheduleStatus(status: unknown) {
-  const normalized = String(status ?? "")
-    .trim()
-    .toLowerCase();
-
-  return (
-    normalized === "done" ||
-    normalized === "completed" ||
-    normalized === "complete" ||
-    normalized === "완료"
-  );
-}
-
-function calculateScheduleProgress(
-  workspace: WorkspaceItem,
-  schedules: RawScheduleItem[],
-): ScheduleProgressResponse {
-  const totalCount = schedules.length;
-  const doneCount = schedules.filter((schedule) =>
-    isDoneScheduleStatus(schedule.status),
-  ).length;
-
-  return {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    type: workspace.type,
-    totalCount,
-    doneCount,
-    progress: totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100),
-  };
-}
 type ProjectStatus = "active" | "completed";
 
 type DashboardCardItem = {
@@ -128,6 +97,12 @@ type FilterType = (typeof FILTERS)[number]["key"];
 
 function getDashboardHref(project: DashboardCardItem) {
   return `/main/${project.id}?mode=${project.type}`;
+}
+
+function getAiReportHref(project: DashboardCardItem) {
+  return `/ai-report?workspaceId=${encodeURIComponent(project.id)}&mode=${
+    project.type
+  }`;
 }
 
 function getStoredUserId(): string | null {
@@ -189,6 +164,38 @@ function normalizeWorkspace(workspace: RawWorkspaceItem): WorkspaceItem {
     type,
     updatedAt: workspace.updatedAt || "-",
     projectCount,
+  };
+}
+
+function isDoneScheduleStatus(status: unknown) {
+  const normalized = String(status ?? "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    normalized === "done" ||
+    normalized === "completed" ||
+    normalized === "complete" ||
+    normalized === "완료"
+  );
+}
+
+function calculateScheduleProgress(
+  workspace: WorkspaceItem,
+  schedules: RawScheduleItem[],
+): ScheduleProgressResponse {
+  const totalCount = schedules.length;
+  const doneCount = schedules.filter((schedule) =>
+    isDoneScheduleStatus(schedule.status),
+  ).length;
+
+  return {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    type: workspace.type,
+    totalCount,
+    doneCount,
+    progress: totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100),
   };
 }
 
@@ -332,21 +339,12 @@ export default function DashboardProjectSelectPage() {
 
         return {
           id: workspace.id,
-
-          // 최상위 Workspace 이름을 카드 제목으로 사용
           title: workspace.name,
-
           description: workspace.description,
-
-          // 하위 프로젝트는 개수만 보조 정보로 표시
           tech: `하위 ${workspace.projectCount}개`,
-
           type: workspace.type,
           progress,
-
-          // 진행률이 100%면 완료 프로젝트로 표시
           status: progress >= 100 ? "completed" : "active",
-
           lastModified: workspace.updatedAt,
           memberCount: undefined,
         };
@@ -401,11 +399,11 @@ export default function DashboardProjectSelectPage() {
         );
 
   return (
-    <main className="min-h-screen bg-[#f5f6fa] px-6 py-6 text-slate-900 md:px-8">
-      <div className="mx-auto flex max-w-[1480px] flex-col gap-5">
+    <main className="min-h-screen bg-[#f5f6fa] p-4 text-slate-900 md:p-5">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
         <section className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h1 className="text-2xl font-black tracking-tight text-slate-950">
                   프로젝트 선택
@@ -413,7 +411,8 @@ export default function DashboardProjectSelectPage() {
 
                 <p className="mt-1.5 text-sm font-medium text-slate-500">
                   작업할 최상위 프로젝트를 선택하세요. 선택 후 해당 프로젝트의
-                  메인, AIVS, 일정관리, 개발일지로 이동할 수 있습니다.
+                  메인, AIVS, 일정관리, 개발일지, AI 보고서로 이동할 수
+                  있습니다.
                 </p>
               </div>
 
@@ -431,7 +430,8 @@ export default function DashboardProjectSelectPage() {
                   href="/new/workspace"
                   className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
                 >
-                  <Plus size={17} />새 프로젝트 생성
+                  <Plus size={17} />
+                  새 프로젝트 생성
                 </Link>
               </div>
             </div>
@@ -540,7 +540,7 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
 
   return (
     <article
-      className={`group flex min-h-[320px] flex-col rounded-[26px] border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+      className={`group flex min-h-[350px] flex-col rounded-[26px] border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
         isCompleted
           ? "border-purple-200 hover:border-purple-300"
           : "border-slate-200 hover:border-blue-200"
@@ -581,9 +581,9 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
         </div>
       </div>
 
-      <div className="mt-5 flex-1">
+      <div className=" flex-1">
         <h3
-          className={`mt-8 line-clamp-2 text-2xl font-black leading-tight transition ${
+          className={`mt-3 line-clamp-2 text-2xl font-black leading-tight transition ${
             isCompleted ? "text-purple-700" : "text-slate-950"
           }`}
         >
@@ -621,18 +621,13 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <div className="grid grid-cols-2 gap-2 ">
+        <div className="grid grid-cols-2 gap-2">
           <CardActionLink
             href={getDashboardHref(project)}
-            icon={<LayoutDashboard size={15} />}
+            icon={<LayoutDashboard size={16} />}
             label="프로젝트 열기"
             primary
-          />
-
-          <CardActionLink
-            href={getAivsHref(project.id, project.type)}
-            icon={<Code2 size={15} />}
-            label="AIVS"
+            className="col-span-2"
           />
 
           <CardActionLink
@@ -646,6 +641,18 @@ function ProjectDashboardCard({ project }: { project: DashboardCardItem }) {
             icon={<BookOpenText size={15} />}
             label="개발일지"
           />
+
+          <CardActionLink
+            href={getAivsHref(project.id, project.type)}
+            icon={<Code2 size={15} />}
+            label="AIVS"
+          />
+
+          <CardActionLink
+            href={getAiReportHref(project)}
+            icon={<FileText size={15} />}
+            label="AI 보고서"
+          />
         </div>
       </div>
     </article>
@@ -657,26 +664,28 @@ function CardActionLink({
   icon,
   label,
   primary = false,
+  className = "",
 }: {
   href: string;
   icon: React.ReactNode;
   label: string;
   primary?: boolean;
+  className?: string;
 }) {
   return (
     <Link
       href={href}
-      className={`flex h-10 items-center justify-center gap-1.5 rounded-2xl text-xs font-black transition ${
+      className={`flex items-center justify-center gap-1.5 rounded-2xl text-xs font-black transition ${className} ${
         primary
-          ? "bg-blue-600 text-white hover:bg-blue-700"
-          : "border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+          ? "h-10 bg-blue-600 text-white shadow-sm hover:bg-blue-700"
+          : "h-10 border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
       }`}
     >
       {icon}
       <span>{label}</span>
       {primary && <ArrowRight size={14} />}
     </Link>
-  );
+  );   
 }
 
 function ProjectCardSkeleton() {
@@ -693,6 +702,7 @@ function ProjectCardSkeleton() {
       <div className="mt-6 h-2 w-full animate-pulse rounded-full bg-slate-100" />
 
       <div className="mt-6 grid grid-cols-2 gap-2">
+        <div className="col-span-2 h-12 animate-pulse rounded-2xl bg-slate-100" />
         <div className="h-10 animate-pulse rounded-2xl bg-slate-100" />
         <div className="h-10 animate-pulse rounded-2xl bg-slate-100" />
         <div className="h-10 animate-pulse rounded-2xl bg-slate-100" />

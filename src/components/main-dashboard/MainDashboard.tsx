@@ -22,6 +22,7 @@ import {
 import type {
   MainDashboardProps,
   RecentProject,
+  ScheduleProgressApiResponse,
   ScheduleProgressResponse,
   SummaryStat,
   WorkspaceListResponse,
@@ -34,6 +35,7 @@ import { MAX_RECENT_PROJECTS } from "./dashboard.types";
 import {
   formatDateKey,
   getAivsHref,
+  getArchiveHref,
   getDevlogHref,
   getIdeHref,
   getScheduleHref,
@@ -54,16 +56,10 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-/**
- * 최상위 프로젝트 이름은 Workspace.name 기준으로 표시
- */
 function getWorkspaceTitle(workspace?: WorkspaceListResponse | null) {
   return workspace?.name?.trim() || "이름 없는 프로젝트";
 }
 
-/**
- * 하위 Project 개수만 보조 정보로 표시
- */
 function getWorkspaceSubProjectCount(workspace?: WorkspaceListResponse | null) {
   return Array.isArray(workspace?.projects) ? workspace.projects.length : 0;
 }
@@ -107,9 +103,6 @@ export default function MainDashboard({
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // =========================================================
-  // 노션형 사이드바 상태
-  // =========================================================
   const [isSidebarPinned, setIsSidebarPinned] = useState(true);
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [canSidebarHoverExpand, setCanSidebarHoverExpand] = useState(true);
@@ -163,7 +156,6 @@ export default function MainDashboard({
           Promise.allSettled(
             targetWorkspaces.map((workspace) =>
               fetchScheduleProgressApi({
-                view: workspace.mode,
                 workspaceId: workspace.id,
               }),
             ),
@@ -181,20 +173,21 @@ export default function MainDashboard({
           if (!workspace) return;
 
           if (result.status === "fulfilled") {
-            const progressData = result.value as ScheduleProgressResponse;
+            const progressData = result.value as ScheduleProgressApiResponse;
 
-            nextProgressMap[workspace.id] =
-              typeof progressData.progress === "number"
-                ? progressData.progress
-                : 0;
+            const progress = Number(progressData.progressRate ?? 0);
+            const totalCount = Number(progressData.total ?? 0);
+            const doneCount = Number(progressData.done ?? 0);
+
+            nextProgressMap[workspace.id] = progress;
 
             nextProgressDetailMap[workspace.id] = {
-              workspaceId: progressData.workspaceId ?? workspace.id,
-              workspaceName: progressData.workspaceName ?? workspace.name,
-              type: progressData.type ?? workspace.mode,
-              totalCount: Number(progressData.totalCount ?? 0),
-              doneCount: Number(progressData.doneCount ?? 0),
-              progress: Number(progressData.progress ?? 0),
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              type: workspace.mode,
+              totalCount,
+              doneCount,
+              progress,
             };
           } else {
             nextProgressMap[workspace.id] = 0;
@@ -263,9 +256,7 @@ export default function MainDashboard({
     : undefined;
 
   const projectProgress = selectedWorkspace
-    ? (selectedProgressDetail?.progress ??
-      progressMap[selectedWorkspace.id] ??
-      0)
+    ? (selectedProgressDetail?.progress ?? progressMap[selectedWorkspace.id] ?? 0)
     : 0;
 
   const totalScheduleCount = selectedProgressDetail?.totalCount ?? 0;
@@ -470,7 +461,6 @@ export default function MainDashboard({
   return (
     <main className="min-h-screen bg-[#F8F9FA] p-4 font-sans text-gray-800 md:p-5">
       <div className="mx-auto flex max-w-[1680px] gap-5">
-        {/* 왼쪽 노션형 프로젝트 사이드바 */}
         <aside
           onMouseEnter={() => {
             if (!isSidebarPinned && canSidebarHoverExpand) {
@@ -482,7 +472,7 @@ export default function MainDashboard({
             setCanSidebarHoverExpand(true);
           }}
           className={cn(
-            "sticky top-5 hidden h-[calc(100vh-40px)] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-[#FBFBFA] shadow-sm transition-all duration-900 md:flex",
+            "sticky top-5 hidden h-[calc(100vh-40px)] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-[#FBFBFA] shadow-sm transition-all duration-300 md:flex",
             sidebarExpanded ? "w-72" : "w-16",
           )}
         >
@@ -675,27 +665,22 @@ export default function MainDashboard({
           </div>
         </aside>
 
-        {/* 오른쪽 메인 콘텐츠 */}
         <div className="min-w-0 flex-1 space-y-5">
           <section className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white px-6 py-4 shadow-sm md:flex-row md:items-center">
             <div className="min-w-0">
-              <div className="mb-1.5 flex items-center gap-3">
-                <div>
-                  <h1 className="text-xl font-black leading-none tracking-tight text-[#5873F9] md:text-xl">
-                    {safeWorkspaceId
-                      ? isLoading
-                        ? "프로젝트 불러오는 중"
-                        : selectedProjectName
-                      : "Devw"}
-                  </h1>
+              <h1 className="text-xl font-black leading-none tracking-tight text-[#5873F9] md:text-xl">
+                {safeWorkspaceId
+                  ? isLoading
+                    ? "프로젝트 불러오는 중"
+                    : selectedProjectName
+                  : "Devw"}
+              </h1>
 
-                  <p className="mt-1 text-sm text-gray-500">
-                    {safeWorkspaceId
-                      ? `${selectedProjectName} 프로젝트 메인`
-                      : "프로젝트 구조 중심 협업을 위한 웹 IDE 플랫폼"}
-                  </p>
-                </div>
-              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                {safeWorkspaceId
+                  ? `${selectedProjectName} 프로젝트 메인`
+                  : "프로젝트 구조 중심 협업을 위한 웹 IDE 플랫폼"}
+              </p>
             </div>
 
             <div className="flex w-full flex-col gap-2.5 sm:flex-row md:w-auto">
@@ -971,6 +956,7 @@ function ProjectWorkStatusSection({
                   개 · 최근 수정일{" "}
                   <span className="font-black text-gray-800">{updatedAt}</span>
                 </p>
+
                 <Link
                   href={getIdeHref(workspaceId, mode)}
                   className="flex items-center justify-between rounded-xl bg-[#5873F9] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#4863E8]"
@@ -1017,6 +1003,14 @@ function ProjectWorkStatusSection({
                 className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 transition hover:border-[#5873F9] hover:bg-[#F7F9FF] hover:text-[#5873F9]"
               >
                 <span>개발일지 작성</span>
+                <ArrowRight size={17} strokeWidth={2.4} />
+              </Link>
+
+              <Link
+                href={getArchiveHref(workspaceId)}
+                className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 transition hover:border-[#5873F9] hover:bg-[#F7F9FF] hover:text-[#5873F9]"
+              >
+                <span>AI 최종 보고서 작성</span>
                 <ArrowRight size={17} strokeWidth={2.4} />
               </Link>
             </div>

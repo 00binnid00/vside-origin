@@ -43,10 +43,23 @@ export type WorkspaceListResponse = {
   projects: ProjectSummaryResponse[];
 };
 
+/**
+ * 백엔드 일정 진행률 API 실제 응답 타입
+ * 예: { total: 10, done: 3, progressRate: 30 }
+ */
+export type ScheduleProgressApiResponse = {
+  total: number;
+  done: number;
+  progressRate: number;
+};
+
+/**
+ * 프론트 화면에서 사용하기 좋게 변환한 진행률 타입
+ */
 export type ScheduleProgressResponse = {
   workspaceId: string;
   workspaceName: string;
-  type: string;
+  type: WorkspaceMode;
   totalCount: number;
   doneCount: number;
   progress: number;
