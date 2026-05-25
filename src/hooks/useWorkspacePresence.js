@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Client } from "@stomp/stompjs";
-import { getAccessToken } from "@/lib/auth/tokenStore";
+import { getFreshAccessTokenForSocket } from "@/lib/auth/webSocketToken";
 
 const WS_BASE_URL =
   process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
@@ -49,84 +49,129 @@ export function useWorkspacePresence({ workspaceId, enabled = true, user }) {
       return undefined;
     }
 
-    const accessToken = getAccessToken();
-
-    if (!accessToken) {
-      setOnlineMembers([]);
-      setConnected(false);
-      return undefined;
-    }
-
     let cancelled = false;
     let heartbeatTimerId = null;
+    let client = null;
 
-    const client = new Client({
-      brokerURL: `${WS_BASE_URL}/ws/presence`,
-      connectHeaders: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      reconnectDelay: 5000,
-      debug: () => {},
-      onConnect: () => {
-        if (cancelled) {
-          client.deactivate().catch(() => {});
+    const connectPresenceSocket = async () => {
+      try {
+        const initialAccessToken = await getFreshAccessTokenForSocket();
+
+        if (cancelled) return;
+
+        if (!initialAccessToken) {
+          setOnlineMembers([]);
+          setConnected(false);
           return;
         }
 
-        setConnected(true);
+        client = new Client({
+          brokerURL: `${WS_BASE_URL}/ws/presence`,
+          connectHeaders: {
+            Authorization: `Bearer ${initialAccessToken}`,
+          },
+          beforeConnect: async () => {
+            const freshAccessToken = await getFreshAccessTokenForSocket();
 
-        client.subscribe(
-          `/topic/workspace/${workspaceId}/presence`,
-          (stompMessage) => {
+            if (!freshAccessToken) {
+              throw new Error("Presence access token refresh failed.");
+            }
+
+            client.connectHeaders = {
+              Authorization: `Bearer ${freshAccessToken}`,
+            };
+          },
+          reconnectDelay: 5000,
+          debug: () => {},
+          onConnect: () => {
+            if (cancelled) {
+              client.deactivate().catch(() => {});
+              return;
+            }
+
+            setConnected(true);
+
+            client.subscribe(
+              `/topic/workspace/${workspaceId}/presence`,
+              (stompMessage) => {
+                try {
+                  const message = JSON.parse(stompMessage.body);
+
+                  if (message.type === "STATE" && Array.isArray(message.members)) {
+                    setOnlineMembers(message.members);
+                  }
+
+                  if (message.type === "ERROR") {
+                    console.warn("[Presence ERROR]", message.errorMessage);
+                  }
+                } catch (error) {
+                  console.error("Presence 메시지 파싱 실패:", error);
+                }
+              },
+            );
+
+            client.publish({
+              destination: `/app/presence/${workspaceId}`,
+              body: JSON.stringify({
+                type: "JOIN",
+                workspaceId,
+              }),
+            });
+
+            heartbeatTimerId = window.setInterval(() => {
+              if (!client.connected) return;
+
+              client.publish({
+                destination: `/app/presence/${workspaceId}`,
+                body: JSON.stringify({
+                  type: "HEARTBEAT",
+                  workspaceId,
+                }),
+              });
+            }, 25000);
+          },
+          onDisconnect: () => {
+            setConnected(false);
+          },
+          onWebSocketClose: () => {
+            setConnected(false);
+          },
+          onStompError: async (frame) => {
+            const message = frame?.headers?.message || "";
+            const body = frame?.body || "";
+
+            console.error("Presence STOMP 에러:", {
+              message,
+              body,
+              headers: frame?.headers,
+            });
+
             try {
-              const message = JSON.parse(stompMessage.body);
-
-              if (message.type === "STATE" && Array.isArray(message.members)) {
-                setOnlineMembers(message.members);
+              await getFreshAccessTokenForSocket({ marginMs: 0 });
+            } catch {
+              if (client) {
+                client.reconnectDelay = 0;
+                client.deactivate().catch(() => {});
               }
 
-              if (message.type === "ERROR") {
-                console.warn("[Presence ERROR]", message.errorMessage);
-              }
-            } catch (error) {
-              console.error("Presence 메시지 파싱 실패:", error);
+              setConnected(false);
+              setOnlineMembers([]);
             }
           },
-        );
-
-        client.publish({
-          destination: `/app/presence/${workspaceId}`,
-          body: JSON.stringify({
-            type: "JOIN",
-            workspaceId,
-          }),
         });
 
-        heartbeatTimerId = window.setInterval(() => {
-          if (!client.connected) return;
+        clientRef.current = client;
+        client.activate();
+      } catch (error) {
+        if (cancelled) return;
 
-          client.publish({
-            destination: `/app/presence/${workspaceId}`,
-            body: JSON.stringify({
-              type: "HEARTBEAT",
-              workspaceId,
-            }),
-          });
-        }, 25000);
-      },
-      onDisconnect: () => {
+        console.error("Presence 소켓 인증 준비 실패:", error);
         setConnected(false);
-      },
-      onWebSocketClose: () => {
-        setConnected(false);
-      },
-      onStompError: (frame) => {
-        console.error("Presence STOMP 에러:", frame);
-      },
-    });
+        setOnlineMembers([]);
+      }
+    };
 
-    clientRef.current = client;
-    client.activate();
+    connectPresenceSocket();
 
     const handleBeforeUnload = () => {
       publish("LEAVE");
@@ -148,6 +193,10 @@ export function useWorkspacePresence({ workspaceId, enabled = true, user }) {
       if (clientRef.current) {
         clientRef.current.deactivate().catch(() => {});
         clientRef.current = null;
+      }
+
+      if (client && clientRef.current !== client) {
+        client.deactivate().catch(() => {});
       }
 
       setConnected(false);

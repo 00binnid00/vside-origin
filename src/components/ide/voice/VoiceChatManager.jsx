@@ -1,227 +1,151 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
+import { useAuth } from "@/lib/ide/AuthContext";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { setIsPIPMode, setVoiceConnected } from "@/store/slices/uiSlice";
 
 import VoiceChatPIP from "./VoiceChatPIP";
 import VoiceChatRoom from "./VoiceChatRoom";
 
-const DEFAULT_CHANNEL_ID = "general";
-
 const normalizeId = (value) => {
   if (value === null || value === undefined) return "";
   return String(value);
 };
 
-const normalizeChannelId = (value) => {
-  if (!value || String(value).trim() === "") return DEFAULT_CHANNEL_ID;
-  return String(value).trim();
-};
-
 const clampVolume = (value, fallback = 1.0) => {
   const numberValue = Number(value);
 
-  if (Number.isNaN(numberValue)) return fallback;
-
-  return Math.max(0, Math.min(numberValue, 1.0));
-};
-
-const parseJsonSafely = (value) => {
-  if (!value) return null;
-
-  try {
-    const parsed = JSON.parse(value);
-
-    if (parsed && typeof parsed === "object") {
-      return parsed;
-    }
-
-    return null;
-  } catch {
-    return null;
+  if (Number.isNaN(numberValue)) {
+    return fallback;
   }
-};
 
-const getStorageItem = (key) => {
-  if (typeof window === "undefined") return null;
-
-  return (
-    window.localStorage.getItem(key) ||
-    window.sessionStorage.getItem(key) ||
-    null
-  );
+  return Math.max(0, Math.min(numberValue, 5.0));
 };
 
 const getStoredUser = () => {
   if (typeof window === "undefined") return null;
 
-  const candidateKeys = [
-    "user",
-    "loginUser",
-    "currentUser",
-    "authUser",
-    "userInfo",
-    "member",
-    "profile",
-  ];
-
-  for (const key of candidateKeys) {
-    const parsed = parseJsonSafely(getStorageItem(key));
-
-    if (parsed) {
-      return parsed;
-    }
-  }
-
-  return null;
-};
-
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") return null;
-
-  const candidateKeys = [
-    "accessToken",
-    "token",
-    "jwt",
-    "authToken",
-    "Authorization",
-  ];
-
-  for (const key of candidateKeys) {
-    const value = getStorageItem(key);
-
-    if (!value) continue;
-
-    return value.replace(/^Bearer\s+/i, "");
-  }
-
-  return null;
-};
-
-const decodeJwtPayload = (token) => {
-  if (!token || typeof token !== "string") return null;
-
-  const parts = token.split(".");
-
-  if (parts.length < 2) return null;
-
   try {
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    const binary = window.atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-
-    return JSON.parse(json);
+    return JSON.parse(window.localStorage.getItem("user") || "null");
   } catch {
     return null;
   }
 };
 
-const resolveNumericUserId = (...sources) => {
-  const candidates = [];
+const getDisplayName = ({ user, storedUser, teamMembers }) => {
+  const currentUserId = user?.id || storedUser?.id;
 
-  sources.forEach((source) => {
-    if (!source || typeof source !== "object") return;
+  const member = teamMembers.find(
+    (item) => normalizeId(item.userId) === normalizeId(currentUserId)
+  );
 
-    candidates.push(
-      source.id,
-      source.userId,
-      source.user_id,
-      source.memberId,
-      source.member_id,
-      source.uid,
-      source.sub,
-    );
-  });
+  if (member?.nickname) return member.nickname;
+  if (user?.nickname) return user.nickname;
+  if (storedUser?.nickname) return storedUser.nickname;
 
-  for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined || candidate === "") {
-      continue;
-    }
+  const email = user?.email || storedUser?.email;
+  if (email) return email.split("@")[0];
 
-    const numberValue = Number(candidate);
-
-    if (Number.isFinite(numberValue)) {
-      return numberValue;
-    }
-  }
-
-  return null;
+  return "나";
 };
 
-const getDisplayName = (...sources) => {
-  const candidates = [];
-
-  sources.forEach((source) => {
-    if (!source || typeof source !== "object") return;
-
-    candidates.push(
-      source.nickname,
-      source.name,
-      source.username,
-      source.loginId,
-      source.email,
-      source.sub,
-    );
-  });
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-
-    const value = String(candidate).trim();
-
-    if (!value) continue;
-
-    if (value.includes("@")) {
-      return value.split("@")[0];
-    }
-
-    return value;
-  }
-
-  return "User";
-};
-
-function RemoteAudioRenderer({
-  peerId,
+const RemoteAudioRenderer = React.memo(function RemoteAudioRenderer({
   stream,
-  volume = 1.0,
-  deafened = false,
+  volume,
+  isDeafened,
 }) {
-  const audioRef = React.useRef(null);
+  const audioRef = useRef(null);
 
   useEffect(() => {
-    const audioElement = audioRef.current;
+    const audioEl = audioRef.current;
 
-    if (!audioElement) return;
+    if (!audioEl || !stream) return undefined;
 
-    audioElement.srcObject = stream || null;
+    let cancelled = false;
+    const safeVolume = isDeafened
+      ? 0
+      : Math.max(0, Math.min(Number(volume) || 1.0, 1.0));
+
+    const attachAndPlay = async () => {
+      if (cancelled || !audioEl) return;
+
+      audioEl.srcObject = stream;
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      audioEl.muted = Boolean(isDeafened);
+      audioEl.volume = safeVolume;
+
+      try {
+        await audioEl.play();
+        console.info("[WebRTC] remote audio element playing", {
+          volume: safeVolume,
+          muted: audioEl.muted,
+          paused: audioEl.paused,
+          audioTracks: stream.getAudioTracks?.().map((track) => ({
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+          })),
+        });
+      } catch (error) {
+        console.warn("원격 음성 자동 재생이 차단되었습니다. 다음 사용자 입력 때 재시도합니다:", error);
+
+        const retry = () => {
+          if (cancelled) return;
+
+          audioEl.play().catch((retryError) => {
+            console.warn("원격 음성 재생 재시도 실패:", retryError);
+          });
+        };
+
+        window.addEventListener("pointerdown", retry, { once: true });
+        window.addEventListener("keydown", retry, { once: true });
+      }
+    };
+
+    attachAndPlay();
+
+    return () => {
+      cancelled = true;
+
+      if (audioEl) {
+        audioEl.pause();
+        audioEl.srcObject = null;
+      }
+    };
   }, [stream]);
 
   useEffect(() => {
-    const audioElement = audioRef.current;
+    const audioEl = audioRef.current;
 
-    if (!audioElement) return;
+    if (!audioEl) return;
 
-    audioElement.volume = deafened ? 0 : clampVolume(volume, 1.0);
-    audioElement.muted = Boolean(deafened);
-  }, [volume, deafened]);
+    const safeVolume = isDeafened
+      ? 0
+      : Math.max(0, Math.min(Number(volume) || 1.0, 1.0));
+
+    audioEl.muted = Boolean(isDeafened);
+    audioEl.volume = safeVolume;
+
+    if (!isDeafened && audioEl.paused && audioEl.srcObject) {
+      audioEl.play().catch(() => {});
+    }
+  }, [volume, isDeafened]);
 
   return (
     <audio
       ref={audioRef}
-      data-peer-id={peerId}
       autoPlay
       playsInline
+      controls={false}
       style={{ display: "none" }}
     />
   );
-}
+});
 
 export default function VoiceChatManager({
   teamMembers = [],
@@ -229,185 +153,167 @@ export default function VoiceChatManager({
   onCloseModal,
 }) {
   const dispatch = useDispatch();
+  const { user } = useAuth();
 
   const { workspaceId } = useSelector((state) => state.fileSystem);
   const { isVoiceConnected, isPIPMode } = useSelector((state) => state.ui);
 
-  const reduxUser = useSelector((state) => {
-    return (
-      state.auth?.user ||
-      state.user?.user ||
-      state.login?.user ||
-      state.member?.user ||
-      null
-    );
-  });
-
-  const [authSnapshot, setAuthSnapshot] = useState({
-    storedUser: null,
-    tokenPayload: null,
-  });
-
-  const [selectedChannelId, setSelectedChannelId] =
-    useState(DEFAULT_CHANNEL_ID);
   const [peerVolumes, setPeerVolumes] = useState({});
+  const [storedUser, setStoredUser] = useState(null);
+  const [activeVoiceChannelId, setActiveVoiceChannelId] = useState("general");
 
   useEffect(() => {
-    const storedUser = getStoredUser();
-    const token = getStoredAccessToken();
-    const tokenPayload = decodeJwtPayload(token);
-
-    setAuthSnapshot({
-      storedUser,
-      tokenPayload,
-    });
+    setStoredUser(getStoredUser());
   }, []);
 
   const myUserId = useMemo(() => {
-    return resolveNumericUserId(
-      reduxUser,
-      authSnapshot.storedUser,
-      authSnapshot.tokenPayload,
-    );
-  }, [reduxUser, authSnapshot]);
+    return user?.id || storedUser?.id || null;
+  }, [user?.id, storedUser?.id]);
 
   const myNickname = useMemo(() => {
-    return getDisplayName(
-      reduxUser,
-      authSnapshot.storedUser,
-      authSnapshot.tokenPayload,
-    );
-  }, [reduxUser, authSnapshot]);
+    return getDisplayName({
+      user,
+      storedUser,
+      teamMembers,
+    });
+  }, [user, storedUser, teamMembers]);
 
   const {
-    channels,
-    participants,
+    channels: serverVoiceChannels,
     peers,
+    participants,
     remoteMutedUsers,
 
     isConnected,
     isVoiceJoined,
-
     isMuted,
     isDeafened,
-    speakingUsers,
 
+    speakingUsers,
     micVolume,
     mediaError,
 
-    requestChannels,
     createVoiceChannel,
     updateVoiceChannel,
     deleteVoiceChannel,
-
     toggleMute,
     toggleDeafen,
     changeMicVolume,
-
     leaveRoom,
   } = useWebRTC({
-    workspaceId: isModalOpen || isVoiceConnected ? workspaceId : null,
-    channelId: selectedChannelId,
+    workspaceId,
     myUserId,
     myNickname,
+    channelId: activeVoiceChannelId,
     voiceEnabled: isVoiceConnected,
   });
 
-  const safeChannels = useMemo(() => {
-    if (Array.isArray(channels) && channels.length > 0) {
-      return channels;
+
+  const voiceChannels = useMemo(() => {
+    const list = Array.isArray(serverVoiceChannels) && serverVoiceChannels.length > 0
+      ? serverVoiceChannels
+      : [{ channelId: "general", id: "general", name: "일반 회의실", icon: "💬" }];
+
+    return list.map((channel) => ({
+      ...channel,
+      id: channel.id || channel.channelId || "general",
+      channelId: channel.channelId || channel.id || "general",
+      name: channel.name || "음성 채널",
+      icon: channel.icon || "💬",
+    }));
+  }, [serverVoiceChannels]);
+
+  useEffect(() => {
+    const exists = voiceChannels.some((channel) => normalizeId(channel.id) === normalizeId(activeVoiceChannelId));
+
+    if (!exists) {
+      setActiveVoiceChannelId("general");
+    }
+  }, [voiceChannels, activeVoiceChannelId]);
+
+  const amISpeaking = useMemo(() => {
+    return speakingUsers.has(normalizeId(myUserId));
+  }, [speakingUsers, myUserId]);
+
+  const effectiveParticipants = useMemo(() => {
+    const list = Array.isArray(participants) ? [...participants] : [];
+
+    if (!isVoiceConnected || !myUserId) {
+      return list;
     }
 
-    return [
-      {
-        channelId: DEFAULT_CHANNEL_ID,
-        name: "일반 회의실",
-        icon: "💬",
-      },
-    ];
-  }, [channels]);
+    const myKey = normalizeId(myUserId);
+    const hasMe = list.some((participant) => normalizeId(participant.userId) === myKey);
 
-  const selectedChannel = useMemo(() => {
-    const safeSelectedChannelId = normalizeChannelId(selectedChannelId);
+    if (!hasMe) {
+      list.unshift({
+        userId: myUserId,
+        nickname: myNickname,
+        name: myNickname,
+        channelId: activeVoiceChannelId,
+        muted: isMuted,
+      });
+    }
 
-    return (
-      safeChannels.find(
-        (channel) =>
-          normalizeChannelId(channel.channelId) === safeSelectedChannelId,
-      ) ||
-      safeChannels[0] ||
-      {
-        channelId: DEFAULT_CHANNEL_ID,
-        name: "일반 회의실",
-        icon: "💬",
-      }
-    );
-  }, [safeChannels, selectedChannelId]);
+    return list;
+  }, [isVoiceConnected, myUserId, participants, myNickname, activeVoiceChannelId, isMuted]);
 
   const mergedTeamMembers = useMemo(() => {
-    const memberMap = new Map();
+    const map = new Map();
 
     teamMembers.forEach((member) => {
-      const key = normalizeId(member.userId ?? member.id);
+      const key = normalizeId(member.userId);
 
       if (!key) return;
 
-      memberMap.set(key, {
-        ...member,
-        userId: member.userId ?? member.id,
+      map.set(key, {
+        userId: member.userId,
+        nickname: member.nickname || member.name || "User",
+        email: member.email,
       });
     });
 
-    participants.forEach((participant) => {
+    effectiveParticipants.forEach((participant) => {
       const key = normalizeId(participant.userId);
 
       if (!key) return;
 
-      const previous = memberMap.get(key) || {};
+      const previous = map.get(key);
 
-      memberMap.set(key, {
+      map.set(key, {
         ...previous,
-        ...participant,
         userId: participant.userId,
+        nickname:
+          participant.nickname ||
+          previous?.nickname ||
+          participant.name ||
+          "User",
+        muted: Boolean(participant.muted),
+        joinedAt: participant.joinedAt,
       });
     });
 
-    return Array.from(memberMap.values());
-  }, [teamMembers, participants]);
+    return Array.from(map.values());
+  }, [teamMembers, effectiveParticipants]);
 
-  const amISpeaking = useMemo(() => {
-    const myKey = normalizeId(myUserId);
+  const handlePeerVolumeChange = useCallback((peerId, volume) => {
+    const safeVolume = clampVolume(volume, 1.0);
 
-    if (!myKey || !speakingUsers) return false;
+    setPeerVolumes((prev) => ({
+      ...prev,
+      [normalizeId(peerId)]: safeVolume,
+    }));
+  }, []);
 
-    if (typeof speakingUsers.has === "function") {
-      return speakingUsers.has(myKey);
+  const handleCloseModal = useCallback(() => {
+    if (typeof onCloseModal === "function") {
+      onCloseModal();
     }
+  }, [onCloseModal]);
 
-    if (Array.isArray(speakingUsers)) {
-      return speakingUsers.includes(myKey);
-    }
-
-    return false;
-  }, [myUserId, speakingUsers]);
-
-  const handleSelectChannel = useCallback(
-    (channelId) => {
-      if (isVoiceConnected) return;
-
-      setSelectedChannelId(normalizeChannelId(channelId));
-    },
-    [isVoiceConnected],
-  );
-
-  const handleConnectVoice = useCallback(() => {
-    if (!workspaceId) {
-      console.warn("[VoiceChat] workspaceId가 없어 음성 연결을 시작할 수 없습니다.");
-      return;
-    }
-
-    if (myUserId === null || myUserId === undefined) {
-      console.warn("[VoiceChat] userId가 없어 음성 연결을 시작할 수 없습니다.");
+  const handleJoinCall = useCallback(() => {
+    if (!workspaceId || !myUserId) {
+      console.warn("워크스페이스 또는 사용자 정보가 없어 음성 연결을 시작할 수 없습니다.");
       return;
     }
 
@@ -415,120 +321,102 @@ export default function VoiceChatManager({
     dispatch(setVoiceConnected(true));
   }, [dispatch, workspaceId, myUserId]);
 
-  const handleDisconnectVoice = useCallback(() => {
-    leaveRoom();
+  const handleDisconnect = useCallback(() => {
+    if (isVoiceConnected) {
+      leaveRoom();
+    }
 
     dispatch(setVoiceConnected(false));
     dispatch(setIsPIPMode(false));
 
     setPeerVolumes({});
-  }, [dispatch, leaveRoom]);
 
-  const handleCreateChannel = useCallback(
-    ({ name, icon }) => {
-      if (typeof createVoiceChannel !== "function") return false;
+    if (typeof onCloseModal === "function") {
+      onCloseModal();
+    }
+  }, [dispatch, isVoiceConnected, leaveRoom, onCloseModal]);
 
-      return createVoiceChannel({
-        name,
-        icon,
-      });
-    },
-    [createVoiceChannel],
-  );
+  const handleCreateChannel = useCallback((channelInput) => {
+    const safeName = String(
+      typeof channelInput === "object"
+        ? channelInput?.name
+        : channelInput || "",
+    ).trim();
 
-  const handleUpdateChannel = useCallback(
-    (channelId, { name, icon }) => {
-      const safeChannelId = normalizeChannelId(channelId);
+    const safeIcon = String(
+      typeof channelInput === "object"
+        ? channelInput?.icon || "💬"
+        : "💬",
+    ).trim() || "💬";
 
-      if (!safeChannelId) return false;
-      if (typeof updateVoiceChannel !== "function") return false;
+    if (!safeName) return false;
 
-      return updateVoiceChannel(safeChannelId, {
-        name,
-        icon,
-      });
-    },
-    [updateVoiceChannel],
-  );
+    const created = createVoiceChannel({
+      name: safeName,
+      icon: safeIcon,
+    });
 
-  const handleDeleteChannel = useCallback(
+    if (!created) {
+      console.warn("음성 채널 생성 요청을 서버에 보내지 못했습니다.");
+    }
+
+    return created;
+  }, [createVoiceChannel]);
+
+  const handleUpdateChannel = useCallback((channelId, payload) => {
+    if (!channelId) return false;
+
+    const updated = updateVoiceChannel(channelId, payload || {});
+
+    if (!updated) {
+      console.warn("음성 채널 수정 요청을 서버에 보내지 못했습니다.");
+    }
+
+    return updated;
+  }, [updateVoiceChannel]);
+
+  const handleDeleteChannel = useCallback((channelId) => {
+    if (!channelId) return false;
+
+    const deleted = deleteVoiceChannel(channelId);
+
+    if (!deleted) {
+      console.warn("음성 채널 삭제 요청을 서버에 보내지 못했습니다.");
+    }
+
+    return deleted;
+  }, [deleteVoiceChannel]);
+
+  const handleSelectChannel = useCallback(
     (channelId) => {
-      const safeChannelId = normalizeChannelId(channelId);
-
-      if (safeChannelId === DEFAULT_CHANNEL_ID) {
-        return false;
-      }
+      if (!channelId) return;
 
       if (isVoiceConnected) {
-        return false;
+        console.warn("통화 중에는 채널을 변경할 수 없습니다. 먼저 통화를 종료하세요.");
+        return;
       }
 
-      const result = deleteVoiceChannel(safeChannelId);
-
-      if (safeChannelId === normalizeChannelId(selectedChannelId)) {
-        setSelectedChannelId(DEFAULT_CHANNEL_ID);
-      }
-
-      return result;
+      setActiveVoiceChannelId(channelId);
     },
-    [deleteVoiceChannel, isVoiceConnected, selectedChannelId],
+    [isVoiceConnected]
   );
 
-  const handlePeerVolumeChange = useCallback((peerId, nextVolume) => {
-    const key = normalizeId(peerId);
-
-    if (!key) return;
-
-    setPeerVolumes((prev) => ({
-      ...prev,
-      [key]: clampVolume(nextVolume, 1.0),
-    }));
-  }, []);
-
   useEffect(() => {
-    if (!isModalOpen && !isVoiceConnected) return;
-
-    requestChannels();
-  }, [isModalOpen, isVoiceConnected, requestChannels]);
-
-  useEffect(() => {
-    const selectedExists = safeChannels.some(
-      (channel) =>
-        normalizeChannelId(channel.channelId) ===
-        normalizeChannelId(selectedChannelId),
-    );
-
-    if (!selectedExists) {
-      setSelectedChannelId(DEFAULT_CHANNEL_ID);
+    if (!isVoiceConnected) {
+      setPeerVolumes({});
+      return;
     }
-  }, [safeChannels, selectedChannelId]);
 
-  useEffect(() => {
-    if (!mediaError) return;
-    if (!isVoiceConnected) return;
-
-    dispatch(setVoiceConnected(false));
-    dispatch(setIsPIPMode(false));
-  }, [dispatch, mediaError, isVoiceConnected]);
-
-  useEffect(() => {
-    if (isVoiceConnected) return;
-
-    setPeerVolumes({});
-  }, [isVoiceConnected]);
-
-  useEffect(() => {
-    if (!isVoiceConnected) return;
-
-    if (!workspaceId || myUserId === null || myUserId === undefined) {
-      handleDisconnectVoice();
+    if (!workspaceId || !myUserId) {
+      dispatch(setVoiceConnected(false));
+      dispatch(setIsPIPMode(false));
     }
-  }, [isVoiceConnected, workspaceId, myUserId, handleDisconnectVoice]);
+  }, [dispatch, isVoiceConnected, workspaceId, myUserId]);
 
   useEffect(() => {
-    if (!isVoiceConnected) return;
-
     const handleKeyDown = (event) => {
+      if (!isVoiceConnected) return;
+
       if (!event.ctrlKey || !event.altKey) return;
 
       const key = event.key.toLowerCase();
@@ -536,16 +424,18 @@ export default function VoiceChatManager({
       if (key === "m") {
         event.preventDefault();
         toggleMute();
+        return;
       }
 
       if (key === "d") {
         event.preventDefault();
         toggleDeafen();
+        return;
       }
 
       if (key === "e") {
         event.preventDefault();
-        handleDisconnectVoice();
+        handleDisconnect();
       }
     };
 
@@ -554,38 +444,40 @@ export default function VoiceChatManager({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isVoiceConnected, toggleMute, toggleDeafen, handleDisconnectVoice]);
+  }, [
+    isVoiceConnected,
+    toggleMute,
+    toggleDeafen,
+    handleDisconnect,
+  ]);
 
-  const shouldRender = isModalOpen || isVoiceConnected || isPIPMode;
-
-  if (!shouldRender) {
+  if (!isModalOpen && !isVoiceConnected) {
     return null;
   }
 
   return (
     <>
-      {Object.entries(peers || {}).map(([peerId, stream]) => (
-        <RemoteAudioRenderer
-          key={`remote-audio-${peerId}`}
-          peerId={peerId}
-          stream={stream}
-          volume={peerVolumes[normalizeId(peerId)] ?? 1.0}
-          deafened={isDeafened}
-        />
-      ))}
+      {isVoiceConnected &&
+        Object.entries(peers).map(([peerId, stream]) => {
+          const volume = peerVolumes[normalizeId(peerId)] ?? 1.0;
 
-      {isPIPMode && isVoiceConnected ? (
+          return (
+            <RemoteAudioRenderer
+              key={`remote-audio-${peerId}`}
+              stream={stream}
+              volume={volume}
+              isDeafened={isDeafened}
+            />
+          );
+        })}
+
+      {isVoiceConnected && isPIPMode ? (
         <VoiceChatPIP
           myNickname={myNickname}
           peers={peers}
-          participants={participants}
-          channels={safeChannels}
-          selectedChannel={selectedChannel}
-          selectedChannelId={selectedChannelId}
+          participants={effectiveParticipants}
           remoteMutedUsers={remoteMutedUsers}
           isConnected={isConnected}
-          isVoiceConnected={isVoiceConnected}
-          isVoiceJoined={isVoiceJoined}
           isMuted={isMuted}
           isDeafened={isDeafened}
           amISpeaking={amISpeaking}
@@ -594,41 +486,39 @@ export default function VoiceChatManager({
           teamMembers={mergedTeamMembers}
           onMuteToggle={toggleMute}
           onDeafenToggle={toggleDeafen}
-          onDisconnect={handleDisconnectVoice}
+          onDisconnect={handleDisconnect}
         />
-      ) : null}
-
-      {!isPIPMode && isModalOpen ? (
+      ) : isModalOpen ? (
         <VoiceChatRoom
           myNickname={myNickname}
-          channels={safeChannels}
-          selectedChannel={selectedChannel}
-          selectedChannelId={selectedChannelId}
-          participants={participants}
-          peers={peers}
+          peers={isVoiceConnected ? peers : {}}
+          participants={effectiveParticipants}
           remoteMutedUsers={remoteMutedUsers}
-          isConnected={isConnected}
+          isConnected={isVoiceConnected ? isConnected : false}
           isVoiceConnected={isVoiceConnected}
           isVoiceJoined={isVoiceJoined}
           isMuted={isMuted}
           isDeafened={isDeafened}
-          amISpeaking={amISpeaking}
+          amISpeaking={isVoiceConnected ? amISpeaking : false}
           speakingUsers={speakingUsers}
           peerVolumes={peerVolumes}
           teamMembers={mergedTeamMembers}
+          myUserId={myUserId}
           micVolume={micVolume}
           mediaError={mediaError}
+          channels={voiceChannels}
+          selectedChannelId={activeVoiceChannelId}
           onSelectChannel={handleSelectChannel}
           onCreateChannel={handleCreateChannel}
           onUpdateChannel={handleUpdateChannel}
           onDeleteChannel={handleDeleteChannel}
-          onConnectVoice={handleConnectVoice}
+          onConnectVoice={handleJoinCall}
           onMuteToggle={toggleMute}
           onDeafenToggle={toggleDeafen}
-          onDisconnect={handleDisconnectVoice}
+          onDisconnect={handleDisconnect}
           onMicVolumeChange={changeMicVolume}
           onPeerVolumeChange={handlePeerVolumeChange}
-          onCloseModal={onCloseModal}
+          onCloseModal={handleCloseModal}
         />
       ) : null}
     </>

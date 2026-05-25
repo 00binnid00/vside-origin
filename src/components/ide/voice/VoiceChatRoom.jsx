@@ -159,7 +159,7 @@ function ParticipantCard({
       </div>
 
       {!isMe && typeof onVolumeChange === "function" && (
-        <div className="mt-3 hidden w-full group-hover:block">
+        <div className="mt-3 w-full">
           <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-gray-400">
             <span>음량</span>
             <span>{Math.round((volume ?? 1) * 100)}%</span>
@@ -373,6 +373,7 @@ function EmptyVoiceState({ isVoiceConnected }) {
 
 export default function VoiceChatRoom({
   myNickname = "나",
+  myUserId = null,
 
   channels = [],
   selectedChannel = null,
@@ -449,26 +450,98 @@ export default function VoiceChatRoom({
   const activeChannelName = getChannelName(activeChannel);
   const activeChannelIcon = getChannelIcon(activeChannel);
 
+  const myUserKey = normalizeId(myUserId);
+
+  const participantsByChannel = useMemo(() => {
+    const map = new Map();
+
+    const pushParticipant = (channelId, participant) => {
+      const safeChannelId = normalizeChannelId(channelId);
+
+      if (!map.has(safeChannelId)) {
+        map.set(safeChannelId, []);
+      }
+
+      const list = map.get(safeChannelId);
+      const participantKey = normalizeId(participant.userId);
+
+      if (!participantKey) return;
+
+      const exists = list.some(
+        (item) => normalizeId(item.userId) === participantKey,
+      );
+
+      if (!exists) {
+        list.push(participant);
+      }
+    };
+
+    participants.forEach((participant) => {
+      pushParticipant(
+        participant.channelId || selectedChannelId || DEFAULT_CHANNEL_ID,
+        participant,
+      );
+    });
+
+    if (isVoiceConnected && myUserKey) {
+      const activeParticipant = {
+        userId: myUserId,
+        nickname: myNickname,
+        name: myNickname,
+        channelId: selectedChannelId,
+        muted: isMuted,
+        deafened: isDeafened,
+      };
+
+      pushParticipant(selectedChannelId, activeParticipant);
+    }
+
+    return map;
+  }, [
+    participants,
+    selectedChannelId,
+    isVoiceConnected,
+    myUserKey,
+    myUserId,
+    myNickname,
+    isMuted,
+    isDeafened,
+  ]);
+
+  const activeChannelParticipants =
+    participantsByChannel.get(normalizeChannelId(selectedChannelId)) || [];
+
   const remotePeerIds = useMemo(() => {
     const ids = new Set();
 
     Object.keys(peers || {}).forEach((peerId) => {
       const key = normalizeId(peerId);
-      if (key) ids.add(key);
+
+      if (!key || key === myUserKey) return;
+
+      ids.add(key);
     });
+
+    const activeChannelId = normalizeChannelId(selectedChannelId);
 
     participants.forEach((participant) => {
       const key = normalizeId(participant.userId);
-      const nickname = participant.nickname || participant.name;
+      const participantChannelId = normalizeChannelId(
+        participant.channelId || DEFAULT_CHANNEL_ID,
+      );
 
-      if (!key) return;
-      if (nickname && nickname === myNickname) return;
+      if (!key || key === myUserKey) return;
+      if (participantChannelId !== activeChannelId) return;
 
       ids.add(key);
     });
 
     return Array.from(ids);
-  }, [peers, participants, myNickname]);
+  }, [peers, participants, myUserKey, selectedChannelId]);
+
+  const activeParticipantCount = isVoiceConnected
+    ? Math.max(activeChannelParticipants.length, remotePeerIds.length + 1)
+    : activeChannelParticipants.length;
 
   const resetCreateForm = () => {
     setNewChannelName("");
@@ -700,6 +773,70 @@ export default function VoiceChatRoom({
                         onCancel={resetEditForm}
                       />
                     )}
+
+                    {(participantsByChannel.get(channelId) || []).length > 0 && (
+                        <div className="ml-6 mt-1 space-y-1 pb-1">
+                          {(participantsByChannel.get(channelId) || []).map(
+                            (participant) => {
+                              const participantKey = normalizeId(participant.userId);
+                              const member = findMemberById(
+                                teamMembers,
+                                participants,
+                                participant.userId,
+                              );
+
+                              const nickname =
+                                participant.nickname ||
+                                participant.name ||
+                                member?.nickname ||
+                                member?.name ||
+                                member?.email?.split("@")?.[0] ||
+                                "User";
+
+                              const muted =
+                                Boolean(participant.muted) ||
+                                Boolean(remoteMutedUsers[participantKey]);
+
+                              const speaking = speakingUsers.has(participantKey);
+                              const isMe = participantKey === myUserKey;
+
+                              return (
+                                <div
+                                  key={`channel-user-${channelId}-${participantKey}`}
+                                  className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px] font-bold text-gray-500"
+                                  title={nickname}
+                                >
+                                  <span
+                                    className={[
+                                      "h-2 w-2 rounded-full",
+                                      speaking && !muted
+                                        ? "bg-emerald-500"
+                                        : "bg-gray-300",
+                                    ].join(" ")}
+                                  />
+
+                                  <span
+                                    className={[
+                                      "max-w-[140px] truncate",
+                                      muted ? "text-gray-400" : "text-gray-600",
+                                    ].join(" ")}
+                                  >
+                                    {nickname}
+                                    {isMe ? " (나)" : ""}
+                                  </span>
+
+                                  {muted && (
+                                    <VscMute
+                                      size={11}
+                                      className="shrink-0 text-rose-400"
+                                    />
+                                  )}
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                      )}
                   </div>
                 );
               })}
@@ -830,7 +967,7 @@ export default function VoiceChatRoom({
               </span>
 
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-black text-gray-500">
-                {isVoiceConnected ? remotePeerIds.length + 1 : 0}명
+                {activeParticipantCount}명
               </span>
 
               {isVoiceConnected && !isVoiceJoined && (
@@ -951,9 +1088,45 @@ export default function VoiceChatRoom({
                   );
                 })}
               </div>
+            ) : activeChannelParticipants.length > 0 ? (
+              <div className="flex flex-wrap content-start gap-8">
+                {activeChannelParticipants.map((participant, index) => {
+                  const participantKey = normalizeId(participant.userId);
+                  const member = findMemberById(
+                    teamMembers,
+                    participants,
+                    participant.userId,
+                  );
+
+                  const nickname =
+                    participant.nickname ||
+                    participant.name ||
+                    member?.nickname ||
+                    member?.name ||
+                    member?.email?.split("@")?.[0] ||
+                    "User";
+
+                  const muted =
+                    Boolean(participant.muted) ||
+                    Boolean(remoteMutedUsers[participantKey]);
+
+                  return (
+                    <ParticipantCard
+                      key={`waiting-participant-${participantKey}`}
+                      nickname={nickname}
+                      isMe={participantKey === myUserKey}
+                      muted={muted}
+                      deafened={false}
+                      speaking={false}
+                      colorClass={avatarColors[index % avatarColors.length]}
+                    />
+                  );
+                })}
+              </div>
             ) : null}
 
-            {(!isVoiceConnected || remotePeerIds.length === 0) && (
+            {((!isVoiceConnected && activeChannelParticipants.length === 0) ||
+              (isVoiceConnected && remotePeerIds.length === 0)) && (
               <EmptyVoiceState isVoiceConnected={isVoiceConnected} />
             )}
           </section>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Client } from "@stomp/stompjs";
-import { getAccessToken } from "@/lib/auth/tokenStore";
+import { getFreshAccessTokenForSocket } from "@/lib/auth/webSocketToken";
 
 const DEFAULT_CHANNEL_ID = "general";
 
@@ -23,7 +23,6 @@ const parseCsv = (value) => {
     .map((item) => item.trim())
     .filter(Boolean);
 };
-
 
 const buildRtcConfig = () => {
   const stunUrls = parseCsv(
@@ -87,6 +86,40 @@ const clampVolume = (value, fallback = 1.0) => {
   return Math.max(0, Math.min(numberValue, 5.0));
 };
 
+const AUDIO_CONSTRAINTS = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: { ideal: 1 },
+  sampleRate: { ideal: 48000 },
+  sampleSize: { ideal: 16 },
+};
+
+const tuneAudioSender = (sender) => {
+  if (!sender || typeof sender.getParameters !== "function" || typeof sender.setParameters !== "function") {
+    return;
+  }
+
+  try {
+    const params = sender.getParameters();
+
+    if (!params.encodings || params.encodings.length === 0) {
+      params.encodings = [{}];
+    }
+
+    params.encodings = params.encodings.map((encoding) => ({
+      ...encoding,
+      maxBitrate: 128_000,
+    }));
+
+    sender.setParameters(params).catch((error) => {
+      console.warn("[WebRTC] audio sender parameter tuning failed", error);
+    });
+  } catch (error) {
+    console.warn("[WebRTC] audio sender parameter tuning failed", error);
+  }
+};
+
 const sleep = (ms) =>
   new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -110,6 +143,89 @@ const upsertChannel = (channels, channel) => {
   }
 
   return [...channels, channel];
+};
+
+const normalizeParticipantForChannel = (participant, channelId) => {
+  if (!participant) return null;
+
+  const userId = participant.userId ?? participant.id ?? participant.senderId;
+
+  if (userId === null || userId === undefined || userId === "") {
+    return null;
+  }
+
+  return {
+    ...participant,
+    userId,
+    nickname:
+      participant.nickname ||
+      participant.name ||
+      participant.senderName ||
+      participant.email?.split?.("@")?.[0] ||
+      "User",
+    channelId: normalizeChannelId(participant.channelId || channelId),
+    muted: Boolean(participant.muted),
+  };
+};
+
+const mergeParticipantsForChannel = (previous, channelId, nextParticipants) => {
+  const safeChannelId = normalizeChannelId(channelId);
+  const next = new Map();
+
+  previous.forEach((participant) => {
+    const participantChannelId = normalizeChannelId(
+      participant.channelId || DEFAULT_CHANNEL_ID,
+    );
+
+    if (participantChannelId === safeChannelId) {
+      return;
+    }
+
+    const key = `${participantChannelId}:${normalizeId(participant.userId)}`;
+
+    if (key && !key.endsWith(":")) {
+      next.set(key, participant);
+    }
+  });
+
+  nextParticipants.forEach((participant) => {
+    const normalized = normalizeParticipantForChannel(participant, safeChannelId);
+
+    if (!normalized) return;
+
+    const key = `${safeChannelId}:${normalizeId(normalized.userId)}`;
+    next.set(key, normalized);
+  });
+
+  return Array.from(next.values());
+};
+
+const upsertParticipant = (previous, participant, channelId) => {
+  const normalized = normalizeParticipantForChannel(participant, channelId);
+
+  if (!normalized) return previous;
+
+  const safeChannelId = normalizeChannelId(normalized.channelId);
+  const userKey = normalizeId(normalized.userId);
+  let updated = false;
+
+  const next = previous.map((item) => {
+    const itemChannelId = normalizeChannelId(item.channelId || DEFAULT_CHANNEL_ID);
+    const itemUserKey = normalizeId(item.userId);
+
+    if (itemChannelId === safeChannelId && itemUserKey === userKey) {
+      updated = true;
+      return { ...item, ...normalized };
+    }
+
+    return item;
+  });
+
+  if (!updated) {
+    next.push(normalized);
+  }
+
+  return next;
 };
 
 export const useWebRTC = (arg1, arg2, arg3) => {
@@ -244,6 +360,17 @@ export const useWebRTC = (arg1, arg2, arg3) => {
       channelId: selectedChannelIdRef.current || DEFAULT_CHANNEL_ID,
     });
   }, [sendSignalingMessage]);
+
+  const requestRoomUsers = useCallback(
+    (targetChannelId = null) => {
+      return sendSignalingMessage("ROOM_USERS", {
+        channelId: normalizeChannelId(
+          targetChannelId || selectedChannelIdRef.current || DEFAULT_CHANNEL_ID,
+        ),
+      });
+    },
+    [sendSignalingMessage],
+  );
 
   const createVoiceChannel = useCallback(
     ({ name, icon = "💬" }) => {
@@ -477,13 +604,17 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     try {
       const analyser = audioCtx.createAnalyser();
 
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.3;
 
       sourceNode.connect(analyser);
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const dataArray = new Uint8Array(analyser.fftSize);
       let lastSpeakingTime = 0;
+      let lastDebugTime = 0;
+      let noiseFloor = 0.0015;
+      let speakingFrameCount = 0;
+      let silenceFrameCount = 0;
 
       const updateSpeakingState = (isSpeaking) => {
         const myKey = normalizeId(myUserIdRef.current);
@@ -513,30 +644,63 @@ export const useWebRTC = (arg1, arg2, arg3) => {
           audioCtx.resume().catch(() => {});
         }
 
-        analyser.getByteFrequencyData(dataArray);
+        analyser.getByteTimeDomainData(dataArray);
 
-        let sum = 0;
+        let sumSquares = 0;
 
         for (let i = 0; i < dataArray.length; i += 1) {
-          sum += dataArray[i];
+          const normalized = (dataArray[i] - 128) / 128;
+          sumSquares += normalized * normalized;
         }
 
-        const averageVolume = sum / dataArray.length;
-        const isSpeakingNow = averageVolume > 5;
+        const rms = Math.sqrt(sumSquares / dataArray.length);
+
+        /*
+         * 고정 threshold만 쓰면 팬 소리/노이즈가 계속 speaking으로 잡힐 수 있습니다.
+         * 조용한 구간의 noiseFloor를 천천히 추적하고, 그보다 충분히 큰 입력만 말하는 중으로 봅니다.
+         */
+        const dynamicThreshold = Math.max(0.006, noiseFloor * 4.0);
+        const isVoiceLike = rms > dynamicThreshold;
+
+        if (!isVoiceLike) {
+          noiseFloor = noiseFloor * 0.96 + rms * 0.04;
+        }
+
+        if (window.__WEBRTC_VOICE_DEBUG__ && Date.now() - lastDebugTime > 1000) {
+          lastDebugTime = Date.now();
+          console.info("[WebRTC] local mic rms", {
+            rms,
+            noiseFloor,
+            dynamicThreshold,
+            isVoiceLike,
+          });
+        }
 
         const rawAudioTrack = rawStreamRef.current?.getAudioTracks?.()[0];
         const currentlyMuted = rawAudioTrack?.enabled === false;
 
         if (currentlyMuted) {
+          speakingFrameCount = 0;
+          silenceFrameCount += 1;
           updateSpeakingState(false);
-        } else if (isSpeakingNow) {
+        } else if (isVoiceLike) {
+          speakingFrameCount += 1;
+          silenceFrameCount = 0;
           lastSpeakingTime = Date.now();
-          updateSpeakingState(true);
-        } else if (Date.now() - lastSpeakingTime > 800) {
-          updateSpeakingState(false);
+
+          if (speakingFrameCount >= 1) {
+            updateSpeakingState(true);
+          }
+        } else {
+          speakingFrameCount = 0;
+          silenceFrameCount += 1;
+
+          if (silenceFrameCount >= 4 && Date.now() - lastSpeakingTime > 350) {
+            updateSpeakingState(false);
+          }
         }
 
-        localSpeakingTimerRef.current = window.setTimeout(checkVolume, 150);
+        localSpeakingTimerRef.current = window.setTimeout(checkVolume, 120);
       };
 
       checkVolume();
@@ -565,12 +729,12 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         const source = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
 
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.5;
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.3;
 
         source.connect(analyser);
 
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const dataArray = new Uint8Array(analyser.fftSize);
         let lastSpeakingTime = 0;
         let lastState = false;
 
@@ -595,16 +759,17 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         const checkVolume = () => {
           if (audioCtx.state === "closed") return;
 
-          analyser.getByteFrequencyData(dataArray);
+          analyser.getByteTimeDomainData(dataArray);
 
-          let sum = 0;
+          let sumSquares = 0;
 
           for (let i = 0; i < dataArray.length; i += 1) {
-            sum += dataArray[i];
+            const normalized = (dataArray[i] - 128) / 128;
+            sumSquares += normalized * normalized;
           }
 
-          const averageVolume = sum / dataArray.length;
-          const isSpeakingNow = averageVolume > 5;
+          const rms = Math.sqrt(sumSquares / dataArray.length);
+          const isSpeakingNow = rms > 0.006;
 
           if (isSpeakingNow) {
             lastSpeakingTime = Date.now();
@@ -613,7 +778,7 @@ export const useWebRTC = (arg1, arg2, arg3) => {
             updateSpeakingState(false);
           }
 
-          const timerId = window.setTimeout(checkVolume, 180);
+          const timerId = window.setTimeout(checkVolume, 150);
 
           if (remoteAnalyzersRef.current[key]) {
             remoteAnalyzersRef.current[key].timerId = timerId;
@@ -670,7 +835,11 @@ export const useWebRTC = (arg1, arg2, arg3) => {
 
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => {
-          pc.addTrack(track, localStreamRef.current);
+          const sender = pc.addTrack(track, localStreamRef.current);
+
+          if (track.kind === "audio") {
+            tuneAudioSender(sender);
+          }
         });
       }
 
@@ -678,6 +847,16 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         const [remoteStream] = event.streams;
 
         if (!remoteStream) return;
+
+        console.info("[WebRTC] remote track received", {
+          remoteUserId: key,
+          audioTracks: remoteStream.getAudioTracks?.().map((track) => ({
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+          })),
+        });
 
         setPeers((prev) => ({
           ...prev,
@@ -705,13 +884,29 @@ export const useWebRTC = (arg1, arg2, arg3) => {
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
 
-        if (
-          state === "failed" ||
-          state === "closed" ||
-          state === "disconnected"
-        ) {
+        console.info("[WebRTC] peer connection state", { remoteUserId: key, state });
+
+        if (state === "failed" || state === "closed") {
           removePeer(key);
+          return;
         }
+
+        if (state === "disconnected") {
+          window.setTimeout(() => {
+            const currentPc = peerConnectionsRef.current[key];
+
+            if (currentPc?.connectionState === "disconnected") {
+              removePeer(key);
+            }
+          }, 8000);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.info("[WebRTC] ICE connection state", {
+          remoteUserId: key,
+          state: pc.iceConnectionState,
+        });
       };
 
       return pc;
@@ -734,26 +929,41 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     const myKey = normalizeId(myUserIdRef.current);
     const receiverKey = normalizeId(message.receiverId);
     const messageChannelId = normalizeChannelId(message.channelId);
-    const currentJoinedChannelId = normalizeChannelId(joinedChannelIdRef.current);
+    const currentSelectedChannelId = normalizeChannelId(selectedChannelIdRef.current);
+    const currentJoinedChannelId = joinedChannelIdRef.current
+      ? normalizeChannelId(joinedChannelIdRef.current)
+      : null;
 
     if (receiverKey && receiverKey !== myKey) return;
-    if (messageChannelId !== currentJoinedChannelId) return;
 
-    const list = Array.isArray(message.participants) ? message.participants : [];
+    if (
+      messageChannelId !== currentSelectedChannelId &&
+      (!currentJoinedChannelId || messageChannelId !== currentJoinedChannelId)
+    ) {
+      return;
+    }
 
-    setParticipants(list);
+    const list = Array.isArray(message.participants)
+      ? message.participants
+      : [];
 
-    const mutedMap = {};
+    setParticipants((prev) =>
+      mergeParticipantsForChannel(prev, messageChannelId, list),
+    );
 
-    list.forEach((participant) => {
-      const userKey = normalizeId(participant.userId);
+    setRemoteMutedUsers((prev) => {
+      const next = { ...prev };
 
-      if (!userKey || userKey === myKey) return;
+      list.forEach((participant) => {
+        const userKey = normalizeId(participant.userId ?? participant.id);
 
-      mutedMap[userKey] = Boolean(participant.muted);
+        if (!userKey || userKey === myKey) return;
+
+        next[userKey] = Boolean(participant.muted);
+      });
+
+      return next;
     });
-
-    setRemoteMutedUsers(mutedMap);
 
     if (Array.isArray(message.channels)) {
       setChannels(message.channels.length > 0 ? message.channels : [DEFAULT_CHANNEL]);
@@ -769,7 +979,9 @@ export const useWebRTC = (arg1, arg2, arg3) => {
       const senderKey = normalizeId(message.senderId);
       const receiverKey = normalizeId(message.receiverId);
       const messageChannelId = normalizeChannelId(message.channelId);
-      const currentJoinedChannelId = normalizeChannelId(joinedChannelIdRef.current);
+      const currentJoinedChannelId = joinedChannelIdRef.current
+        ? normalizeChannelId(joinedChannelIdRef.current)
+        : null;
 
       if (!myKey) return;
 
@@ -840,32 +1052,28 @@ export const useWebRTC = (arg1, arg2, arg3) => {
           }
 
           case "USER_JOINED": {
-            if (!joinedChannelIdRef.current) break;
-            if (messageChannelId !== currentJoinedChannelId) break;
             if (!senderKey || senderKey === myKey) break;
 
-            setParticipants((prev) => {
-              const exists = prev.some(
-                (participant) => normalizeId(participant.userId) === senderKey,
-              );
-
-              if (exists) return prev;
-
-              return [
-                ...prev,
+            setParticipants((prev) =>
+              upsertParticipant(
+                prev,
                 {
                   userId: message.senderId,
                   nickname: message.senderName || "User",
                   channelId: messageChannelId,
                   muted: Boolean(message.muted),
                 },
-              ];
-            });
+                messageChannelId,
+              ),
+            );
 
             setRemoteMutedUsers((prev) => ({
               ...prev,
               [senderKey]: Boolean(message.muted),
             }));
+
+            if (!currentJoinedChannelId) break;
+            if (messageChannelId !== currentJoinedChannelId) break;
 
             const pc = createPeerConnection(message.senderId);
 
@@ -888,15 +1096,23 @@ export const useWebRTC = (arg1, arg2, arg3) => {
 
           case "USER_LEFT":
           case "LEAVE": {
-            if (messageChannelId !== currentJoinedChannelId) break;
             if (!senderKey || senderKey === myKey) break;
 
-            removePeer(senderKey);
+            if (currentJoinedChannelId && messageChannelId === currentJoinedChannelId) {
+              removePeer(senderKey);
+            }
 
             setParticipants((prev) =>
-              prev.filter(
-                (participant) => normalizeId(participant.userId) !== senderKey,
-              ),
+              prev.filter((participant) => {
+                const participantChannelId = normalizeChannelId(
+                  participant.channelId || DEFAULT_CHANNEL_ID,
+                );
+
+                return !(
+                  participantChannelId === messageChannelId &&
+                  normalizeId(participant.userId) === senderKey
+                );
+              }),
             );
 
             break;
@@ -977,7 +1193,6 @@ export const useWebRTC = (arg1, arg2, arg3) => {
 
           case "MUTE":
           case "UNMUTE": {
-            if (messageChannelId !== currentJoinedChannelId) break;
             if (!senderKey || senderKey === myKey) break;
 
             const muted = type === "MUTE";
@@ -988,11 +1203,20 @@ export const useWebRTC = (arg1, arg2, arg3) => {
             }));
 
             setParticipants((prev) =>
-              prev.map((participant) =>
-                normalizeId(participant.userId) === senderKey
-                  ? { ...participant, muted }
-                  : participant,
-              ),
+              prev.map((participant) => {
+                const participantChannelId = normalizeChannelId(
+                  participant.channelId || DEFAULT_CHANNEL_ID,
+                );
+
+                if (
+                  participantChannelId === messageChannelId &&
+                  normalizeId(participant.userId) === senderKey
+                ) {
+                  return { ...participant, muted };
+                }
+
+                return participant;
+              }),
             );
 
             if (muted) {
@@ -1042,54 +1266,106 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     }
 
     let cancelled = false;
+    let client = null;
 
-    const accessToken = getAccessToken();
+    const connectWebRtcSocket = async () => {
+      try {
+        const initialAccessToken = await getFreshAccessTokenForSocket();
 
-    const client = new Client({
-      brokerURL: `${WS_BASE_URL}/ws/webrtc`,
-      connectHeaders: accessToken
-        ? {
-            Authorization: `Bearer ${accessToken}`,
-          }
-        : {},
-      reconnectDelay: 5000,
-      debug: () => {},
-      onConnect: () => {
-        if (cancelled) {
-          client.deactivate().catch(() => {});
+        if (cancelled) return;
+
+        if (!initialAccessToken) {
+          setMediaError("로그인 세션이 만료되었습니다. 다시 로그인해 주세요.");
+          setIsConnected(false);
           return;
         }
 
-        setIsConnected(true);
+        client = new Client({
+          brokerURL: `${WS_BASE_URL}/ws/webrtc`,
+          connectHeaders: {
+            Authorization: `Bearer ${initialAccessToken}`,
+          },
+          beforeConnect: async () => {
+            const freshAccessToken = await getFreshAccessTokenForSocket();
 
-        client.subscribe(
-          `/topic/workspace/${workspaceId}/webrtc`,
-          (stompMessage) => {
+            if (!freshAccessToken) {
+              throw new Error("WebRTC access token refresh failed.");
+            }
+
+            client.connectHeaders = {
+              Authorization: `Bearer ${freshAccessToken}`,
+            };
+          },
+          reconnectDelay: 5000,
+          debug: () => {},
+          onConnect: () => {
+            if (cancelled) {
+              client.deactivate().catch(() => {});
+              return;
+            }
+
+            setMediaError(null);
+            setIsConnected(true);
+
+            client.subscribe(
+              `/topic/workspace/${workspaceId}/webrtc`,
+              (stompMessage) => {
+                try {
+                  const parsedMessage = JSON.parse(stompMessage.body);
+                  handleSignalingMessage(parsedMessage);
+                } catch (error) {
+                  console.error("WebRTC STOMP 메시지 파싱 실패:", error);
+                }
+              },
+            );
+
+            window.setTimeout(() => {
+              if (!cancelled) {
+                requestChannels();
+                requestRoomUsers(selectedChannelIdRef.current || DEFAULT_CHANNEL_ID);
+              }
+            }, 100);
+          },
+          onWebSocketClose: () => {
+            setIsConnected(false);
+          },
+          onStompError: async (frame) => {
+            const message = frame?.headers?.message || "";
+            const body = frame?.body || "";
+
+            console.error("WebRTC STOMP 에러:", {
+              message,
+              body,
+              headers: frame?.headers,
+            });
+
             try {
-              const parsedMessage = JSON.parse(stompMessage.body);
-              handleSignalingMessage(parsedMessage);
-            } catch (error) {
-              console.error("WebRTC STOMP 메시지 파싱 실패:", error);
+              await getFreshAccessTokenForSocket({ marginMs: 0 });
+            } catch {
+              if (client) {
+                client.reconnectDelay = 0;
+                client.deactivate().catch(() => {});
+              }
+
+              cleanupVoiceResources({ sendLeave: false });
+              setIsConnected(false);
+              setMediaError("로그인 세션이 만료되었습니다. 다시 로그인해 주세요.");
             }
           },
-        );
+        });
 
-        window.setTimeout(() => {
-          if (!cancelled) {
-            requestChannels();
-          }
-        }, 100);
-      },
-      onWebSocketClose: () => {
+        stompClientRef.current = client;
+        client.activate();
+      } catch (error) {
+        if (cancelled) return;
+
+        console.error("WebRTC 소켓 인증 준비 실패:", error);
         setIsConnected(false);
-      },
-      onStompError: (frame) => {
-        console.error("WebRTC STOMP 에러:", frame);
-      },
-    });
+        setMediaError("음성 서버 인증에 실패했습니다. 다시 로그인해 주세요.");
+      }
+    };
 
-    stompClientRef.current = client;
-    client.activate();
+    connectWebRtcSocket();
 
     return () => {
       cancelled = true;
@@ -1101,6 +1377,10 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         stompClientRef.current = null;
       }
 
+      if (client && stompClientRef.current !== client) {
+        client.deactivate().catch(() => {});
+      }
+
       setIsConnected(false);
       setChannels([DEFAULT_CHANNEL]);
     };
@@ -1109,17 +1389,39 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     myUserId,
     handleSignalingMessage,
     requestChannels,
+    requestRoomUsers,
     cleanupVoiceResources,
   ]);
 
+
   useEffect(() => {
-    if (
-      !workspaceId ||
-      myUserId === null ||
-      myUserId === undefined ||
-      !resolvedVoiceEnabled
-    ) {
+    if (!workspaceId || myUserId === null || myUserId === undefined) {
+      return;
+    }
+
+    if (!stompClientRef.current?.connected) {
+      return;
+    }
+
+    requestRoomUsers(selectedChannelId);
+  }, [workspaceId, myUserId, selectedChannelId, requestRoomUsers]);
+
+  useEffect(() => {
+    if (!workspaceId || myUserId === null || myUserId === undefined) {
       cleanupVoiceResources({ sendLeave: true });
+      return undefined;
+    }
+
+    if (!resolvedVoiceEnabled) {
+      if (
+        joinedChannelIdRef.current ||
+        rawStreamRef.current ||
+        localStreamRef.current ||
+        Object.keys(peerConnectionsRef.current).length > 0
+      ) {
+        cleanupVoiceResources({ sendLeave: true });
+      }
+
       return undefined;
     }
 
@@ -1147,13 +1449,7 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         }
 
         const rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: false,
-            sampleRate: 48000,
-            channelCount: 1,
-          },
+          audio: AUDIO_CONSTRAINTS,
           video: false,
         });
 
@@ -1163,6 +1459,22 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         }
 
         rawStreamRef.current = rawStream;
+
+        const audioTrack = rawStream.getAudioTracks?.()[0];
+        console.info("[WebRTC] local microphone track", {
+          exists: Boolean(audioTrack),
+          label: audioTrack?.label,
+          enabled: audioTrack?.enabled,
+          muted: audioTrack?.muted,
+          readyState: audioTrack?.readyState,
+          settings: typeof audioTrack?.getSettings === "function" ? audioTrack.getSettings() : null,
+        });
+
+        if (audioTrack) {
+          audioTrack.onmute = () => console.warn("[WebRTC] local microphone track muted by browser/device");
+          audioTrack.onunmute = () => console.info("[WebRTC] local microphone track unmuted");
+          audioTrack.onended = () => console.warn("[WebRTC] local microphone track ended");
+        }
 
         const AudioContextClass =
           window.AudioContext || window.webkitAudioContext;
@@ -1174,19 +1486,54 @@ export const useWebRTC = (arg1, arg2, arg3) => {
           audioCtx.resume().catch(() => {});
         }
 
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume().catch(() => {});
+        }
+
         const source = audioCtx.createMediaStreamSource(rawStream);
         const gainNode = audioCtx.createGain();
-        const destination = audioCtx.createMediaStreamDestination();
 
         gainNode.gain.value = micVolumeRef.current;
-
-        source.connect(gainNode);
-        gainNode.connect(destination);
-
         gainNodeRef.current = gainNode;
-        localStreamRef.current = destination.stream;
 
-        startLocalSpeakingMonitor(audioCtx, gainNode);
+        /*
+         * 중요:
+         * 기존에는 Web Audio destination.stream을 WebRTC 송신용 stream으로 사용했습니다.
+         * 일부 브라우저/장치 조합에서 이 processed stream이 silent track처럼 동작할 수 있어
+         * 실제 마이크 raw stream을 peer connection에 직접 전달합니다.
+         */
+        localStreamRef.current = rawStream;
+
+        console.info("[WebRTC] outbound audio uses raw microphone stream", {
+          audioConstraints: AUDIO_CONSTRAINTS,
+          audioTracks: rawStream.getAudioTracks?.().map((track) => ({
+            id: track.id,
+            label: track.label,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            settings:
+              typeof track.getSettings === "function" ? track.getSettings() : null,
+          })),
+        });
+
+        Object.values(peerConnectionsRef.current).forEach((pc) => {
+          localStreamRef.current.getTracks().forEach((track) => {
+            const alreadyAdded = pc
+              .getSenders()
+              .some((sender) => sender.track && sender.track.id === track.id);
+
+            if (!alreadyAdded) {
+              const sender = pc.addTrack(track, localStreamRef.current);
+
+              if (track.kind === "audio") {
+                tuneAudioSender(sender);
+              }
+            }
+          });
+        });
+
+        startLocalSpeakingMonitor(audioCtx, source);
 
         const joinChannelId = normalizeChannelId(selectedChannelIdRef.current);
 
@@ -1196,6 +1543,10 @@ export const useWebRTC = (arg1, arg2, arg3) => {
         sendSignalingMessage("JOIN", {
           channelId: joinChannelId,
         });
+
+        window.setTimeout(() => {
+          requestRoomUsers(joinChannelId);
+        }, 250);
       } catch (error) {
         console.error("마이크 또는 WebRTC 초기화 실패:", error);
 
@@ -1228,6 +1579,7 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     sendSignalingMessage,
     startLocalSpeakingMonitor,
     waitForStompConnected,
+    requestRoomUsers,
   ]);
 
   const toggleMute = useCallback(() => {
@@ -1303,6 +1655,7 @@ export const useWebRTC = (arg1, arg2, arg3) => {
     mediaError,
 
     requestChannels,
+    requestRoomUsers,
     createVoiceChannel,
     updateVoiceChannel,
     deleteVoiceChannel,
