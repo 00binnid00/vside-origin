@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { authClient } from "@/lib/auth/authClient";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -12,8 +13,6 @@ function cn(...classes: Array<string | false | null | undefined>) {
 function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
-
-const API_BASE = "http://localhost:8080";
 
 export default function SignupPage() {
   const [form, setForm] = useState({
@@ -77,32 +76,24 @@ export default function SignupPage() {
   ) => {
     const next = { ...agree, [key]: checked };
     const allChecked = next.terms && next.privacy && next.marketing;
+
     setAgree({ ...next, all: allChecked });
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!canSubmit) return;
 
     try {
       setLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE}/api/users`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: form.email.trim(),
-          password: form.password,
-          nickname: form.nickname.trim(),
-        }),
+      await authClient.register({
+        email: form.email.trim(),
+        password: form.password,
+        nickname: form.nickname.trim(),
       });
-
-      if (!res.ok) {
-        throw new Error("회원가입에 실패했습니다. 입력값을 다시 확인해주세요.");
-      }
 
       router.replace("/auth/login");
     } catch (err) {
@@ -124,22 +115,13 @@ export default function SignupPage() {
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">회원가입</h2>
               </div>
+
               <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gray-900 font-bold text-white">
                 V
               </div>
             </div>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
-              {/* <Field
-                label="이름"
-                value={form.name}
-                placeholder="예) 이효주"
-                onChange={(v) => setForm((p) => ({ ...p, name: v }))}
-                hint="2글자 이상"
-                ok={form.name.trim().length >= 2}
-                showOkWhenFilled
-              /> */}
-
               <Field
                 label="닉네임"
                 value={form.nickname}
@@ -167,6 +149,7 @@ export default function SignupPage() {
                   ok={passwordOk}
                   showOkWhenFilled={!!form.password}
                 />
+
                 <div className="relative mt-1">
                   <input
                     type={showPw ? "text" : "password"}
@@ -184,6 +167,7 @@ export default function SignupPage() {
                         : "border-gray-200 focus:ring-2 focus:ring-gray-100",
                     )}
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowPw((s) => !s)}
@@ -193,6 +177,7 @@ export default function SignupPage() {
                     {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+
                 <p
                   className={cn(
                     "mt-1 text-xs",
@@ -217,6 +202,7 @@ export default function SignupPage() {
                   ok={passwordMatch}
                   showOkWhenFilled={!!form.password2}
                 />
+
                 <div className="relative mt-1">
                   <input
                     type={showPw2 ? "text" : "password"}
@@ -234,6 +220,7 @@ export default function SignupPage() {
                         : "border-gray-200 focus:ring-2 focus:ring-gray-100",
                     )}
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowPw2((s) => !s)}
@@ -243,6 +230,7 @@ export default function SignupPage() {
                     {showPw2 ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+
                 <p
                   className={cn(
                     "mt-1 text-xs",
@@ -272,6 +260,7 @@ export default function SignupPage() {
                     />
                     전체 동의
                   </label>
+
                   <span className="text-xs text-gray-500">선택 포함</span>
                 </div>
 
@@ -282,20 +271,26 @@ export default function SignupPage() {
                     label={
                       <>
                         (필수) 이용약관 동의
-                        <span className="ml-2 text-xs text-gray-500">보기</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          보기
+                        </span>
                       </>
                     }
                   />
+
                   <AgreeRow
                     checked={agree.privacy}
                     onChange={(v) => setAgreeItem("privacy", v)}
                     label={
                       <>
                         (필수) 개인정보 처리방침 동의
-                        <span className="ml-2 text-xs text-gray-500">보기</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          보기
+                        </span>
                       </>
                     }
                   />
+
                   <AgreeRow
                     checked={agree.marketing}
                     onChange={(v) => setAgreeItem("marketing", v)}
@@ -362,6 +357,7 @@ function LabelRow({
   return (
     <div className="flex items-center justify-between">
       <label className="text-sm font-semibold text-gray-800">{label}</label>
+
       {showOkWhenFilled ? (
         <span
           className={cn(
@@ -404,6 +400,7 @@ function Field({
         ok={ok}
         showOkWhenFilled={showOkWhenFilled && filled}
       />
+
       <input
         type={type}
         value={value}
@@ -418,6 +415,7 @@ function Field({
             : "border-gray-200 focus:ring-2 focus:ring-gray-100",
         )}
       />
+
       {hint ? (
         <p
           className={cn(
@@ -448,6 +446,7 @@ function AgreeRow({
   return (
     <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
       <span className="text-sm text-gray-700">{label}</span>
+
       <input
         type="checkbox"
         checked={checked}

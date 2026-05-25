@@ -42,39 +42,10 @@ import {
   saveFileApi, 
 } from "@/lib/ide/api";
 
-// 💡 [협업 동기화 추가] 전역 파일트리 갱신 이벤트를 위한 Yjs 모듈 임포트
-import * as Y from "yjs";
-import { WebsocketProvider } from "y-websocket";
+// 💡 [핵심 수정] 위에서 새로 작성한 싱글톤 인스턴스 훅을 가져옵니다.
+import { globalSyncInstance } from "@/hooks/useWorkspaceGlobalSync";
 
 const API_BASE = typeof window !== "undefined" ? `http://${window.location.hostname}:8080` : "http://localhost:8080";
-const WS_BASE = typeof window !== "undefined" ? `ws://${window.location.hostname}:8080` : "ws://localhost:8080";
-
-// 💡 [협업 동기화 추가] 전역 브로드캐스트 헬퍼 함수
-const broadcastTreeUpdate = (workspaceId, activeProject) => {
-  if (!workspaceId || !activeProject) return;
-
-  const globalDoc = new Y.Doc();
-  const globalRoomName = `global-${workspaceId}-${activeProject}`;
-  
-  const provider = new WebsocketProvider(
-    `${WS_BASE}/ws/collab`,
-    globalRoomName,
-    globalDoc
-  );
-
-  const eventsMap = globalDoc.getMap("workspaceEvents");
-
-  // 웹소켓 동기화가 완료되면 이벤트를 트리거하고 소켓을 안전하게 닫습니다.
-  provider.on("sync", (isSynced) => {
-    if (isSynced) {
-      eventsMap.set("lastTreeUpdate", Date.now());
-      setTimeout(() => {
-        provider.disconnect();
-        globalDoc.destroy();
-      }, 500);
-    }
-  });
-};
 
 const CustomNode = ({ data }) => {
   let roleColor = "text-gray-500";
@@ -578,8 +549,8 @@ export default function CodeMap() {
       dispatch(mergeProjectFiles({ projectName: activeProject, files }));
       await fetchAndLayoutCodeMap(true);
 
-      // 💡 [협업 동기화 트리거] 파일 생성 후 B 사용자의 탐색기 갱신 지시
-      broadcastTreeUpdate(workspaceId, activeProject);
+      // 💡 [협업 동기화 추가] 생성 성공 후 즉시 브로드캐스트
+      globalSyncInstance.trigger();
 
     } catch (e) {
       alert("생성 실패: " + e.message);
@@ -610,6 +581,9 @@ export default function CodeMap() {
       const newContent = await fetchFileContentApi(workspaceId, activeProject, activeBranch || "master", sourcePath);
       dispatch(updateFileContent({ filePath: sourcePath, content: newContent }));
       
+      // 💡 [협업 동기화 추가] 주입 성공 후 즉시 브로드캐스트
+      globalSyncInstance.trigger();
+
     } catch (e) {
       alert(e.message);
       setPendingRelation(null);
@@ -637,8 +611,8 @@ export default function CodeMap() {
       if (selectedNode && selectedNode.id === nodeData.id) setSelectedNode(null);
       await fetchAndLayoutCodeMap(true);
 
-      // 💡 [협업 동기화 트리거] 파일 삭제 후 B 사용자의 탐색기 갱신 지시
-      broadcastTreeUpdate(workspaceId, activeProject);
+      // 💡 [협업 동기화 추가] 삭제 성공 후 즉시 브로드캐스트
+      globalSyncInstance.trigger();
 
     } catch (e) {
       alert("삭제 실패: " + e.message);
@@ -657,6 +631,10 @@ export default function CodeMap() {
       await deleteCodeMapRelationApi(workspaceId, activeProject, activeBranch || "master", source, target, data?.relationType || "COMPOSITION");
       setEdgeContextMenu(null);
       await fetchAndLayoutCodeMap(true);
+
+      // 💡 [협업 동기화 추가] 관계 삭제 후 즉시 브로드캐스트
+      globalSyncInstance.trigger();
+
     } catch (e) {
       alert(e.message);
     } finally {
@@ -720,6 +698,9 @@ export default function CodeMap() {
 
       const newContent = await fetchFileContentApi(workspaceId, activeProject, activeBranch || "master", targetFilePath);
       dispatch(updateFileContent({ filePath: targetFilePath, content: newContent }));
+
+      // 💡 [협업 동기화 추가] 생성 성공 후 즉시 브로드캐스트
+      globalSyncInstance.trigger();
 
     } catch (e) {
       alert(e.message);

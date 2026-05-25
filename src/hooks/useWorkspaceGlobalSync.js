@@ -1,47 +1,75 @@
-// src/hooks/useWorkspaceGlobalSync.js
+"use client";
+
 import { useEffect } from "react";
-import { useDispatch } from "react-redux";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
-import { fetchProjectFilesApi } from "@/lib/ide/api";
-import { mergeProjectFiles } from "@/store/slices/fileSystemSlice";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
 
-export const useWorkspaceGlobalSync = (workspaceId, activeProject) => {
-    const dispatch = useDispatch();
+class WorkspaceSyncManager {
+    constructor() {
+        this.provider = null;
+        this.doc = null;
+        this.eventsMap = null;
+        this.currentWorkspaceId = null;
+    }
 
-    useEffect(() => {
-        if (!workspaceId || !activeProject) return;
+    init(workspaceId) {
+        if (this.currentWorkspaceId === workspaceId && this.provider?.connected) return;
+        this.destroy();
 
-        // 1. 특정 파일에 종속되지 않은, 프로젝트 전체 공유용 Global Room 생성
-        const globalDoc = new Y.Doc();
-        const globalRoomName = `global-${workspaceId}-${activeProject}`;
-        
-        const provider = new WebsocketProvider(
+        this.currentWorkspaceId = workspaceId;
+        this.doc = new Y.Doc();
+        const globalRoomName = `global-workspace-room-${workspaceId}`;
+
+        this.provider = new WebsocketProvider(
             `${WS_BASE}/ws/collab`,
             globalRoomName,
-            globalDoc
+            this.doc
         );
 
-        // 2. 전역 이벤트 감지용 공유 Map 생성
-        const eventsMap = globalDoc.getMap("workspaceEvents");
+        this.eventsMap = this.doc.getMap("workspaceGlobalEvents");
 
-        // 3. A 사용자가 파일 생성 이벤트를 날리면 B 사용자가 여기서 감지!
-        eventsMap.observe((event) => {
-            const lastUpdate = eventsMap.get("lastTreeUpdate");
-            if (lastUpdate) {
-                console.log("🔄 글로벌 파일 트리 업데이트 감지, 새로고침을 시작합니다.");
-                // 백엔드로부터 최신 트리 구조를 다시 불러와 B의 화면을 동기화
-                fetchProjectFilesApi(workspaceId, activeProject, "master")
-                    .then(files => dispatch(mergeProjectFiles({ projectName: activeProject, files })))
-                    .catch(console.error);
-            }
+        this.eventsMap.observe((event, transaction) => {
+            // 내가 보낸 신호는 무시하고, 타인이 보낸 신호만 캐치합니다.
+            if (transaction.local) return;
+            
+            console.log("🔄 [SyncManager] 팀원의 파일 변경이 감지되었습니다! (0.3초 후 동기화)");
+            
+            // 💡 [핵심] DB 커밋 대기시간 300ms 부여 후, 브라우저 전역에 네이티브 이벤트를 발송!
+            setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('workspace-sync-triggered'));
+            }, 300);
         });
+    }
 
+    trigger() {
+        if (this.eventsMap) {
+            console.log("📢 [SyncManager] 변경 신호 브로드캐스트 전송!");
+            // 타임스탬프와 난수를 섞어 무조건 새로운 값으로 인식하게 만들어 옵저버를 강제 실행합니다.
+            this.eventsMap.set("sync_token", Date.now() + Math.random());
+        }
+    }
+
+    destroy() {
+        if (this.provider) this.provider.disconnect();
+        if (this.doc) this.doc.destroy();
+        this.provider = null;
+        this.doc = null;
+        this.eventsMap = null;
+        this.currentWorkspaceId = null;
+    }
+}
+
+// 외부에서 임포트할 단일 싱글톤 인스턴스
+export const globalSyncInstance = new WorkspaceSyncManager();
+
+export const useWorkspaceGlobalSync = (workspaceId) => {
+    useEffect(() => {
+        if (workspaceId) globalSyncInstance.init(workspaceId);
+        
         return () => {
-            provider.disconnect();
-            globalDoc.destroy();
+            // SPA 라우팅 이탈 시에만 소켓 해제
         };
-    }, [workspaceId, activeProject, dispatch]);
+    }, [workspaceId]);
 };

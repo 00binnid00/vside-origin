@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Menu, X, LogOut, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,12 +29,34 @@ function withModeQuery(href: string, mode: WorkspaceMode) {
   return `${href}?mode=${mode}`;
 }
 
+function getDisplayName(user: any) {
+  if (!user) return "사용자";
+
+  return user.nickname || user.name || user.username || user.email || "사용자";
+}
+
+function getDisplayEmail(user: any) {
+  if (!user) return "";
+
+  return user.email || "";
+}
+
+function getInitial(user: any) {
+  const displayName = getDisplayName(user);
+
+  return displayName.trim().charAt(0).toUpperCase() || "U";
+}
+
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const { user, isLoggedIn, logout } = useAuth();
+  /*
+   * 기존 isLoggedIn 대신 통합 AuthContext의 isAuthenticated를 사용합니다.
+   * 이렇게 해야 로그인 후 상단에 로그인/회원가입이 계속 뜨는 문제가 사라집니다.
+   */
+  const { user, isAuthenticated, loading, logout } = useAuth();
 
   const [openUserMenu, setOpenUserMenu] = useState(false);
   const [openMobileNav, setOpenMobileNav] = useState(false);
@@ -44,7 +66,7 @@ export default function TopNav() {
   const notifRef = useRef<HTMLDivElement | null>(null);
 
   /*
-    현재 URL path에서 workspaceId를 추출한다.
+    현재 URL path에서 workspaceId를 추출합니다.
 
     예:
     /main/abc123
@@ -52,10 +74,8 @@ export default function TopNav() {
     /schedules/abc123
     /devlogs/abc123
 
-    주의:
-    여기서는 localStorage의 currentWorkspaceId를 사용하지 않는다.
-    헤더는 "현재 화면이 프로젝트 선택 상태인지"만 보고 링크를 만들어야 한다.
-    localStorage를 쓰면 프로젝트를 선택하지 않은 상태에서도 이전 프로젝트로 이동할 수 있다.
+    localStorage의 currentWorkspaceId를 사용하지 않습니다.
+    헤더는 현재 화면이 프로젝트 선택 상태인지 URL 기준으로 판단합니다.
   */
   const workspaceIdFromPath = useMemo(() => {
     const parts = pathname?.split("/").filter(Boolean) ?? [];
@@ -78,7 +98,7 @@ export default function TopNav() {
   }, [pathname]);
 
   /*
-    쿼리스트링에서 workspaceId를 추출한다.
+    쿼리스트링에서 workspaceId를 추출합니다.
 
     예:
     /schedules?view=personal&workspaceId=abc123
@@ -90,20 +110,11 @@ export default function TopNav() {
     searchParams.get("workspaceid") ??
     searchParams.get("workspace");
 
-  /*
-    현재 선택된 프로젝트 ID.
-
-    localStorage를 fallback으로 쓰지 않는다.
-    즉, 현재 URL에 workspaceId가 없으면 프로젝트가 선택되지 않은 상태로 본다.
-  */
   const currentWorkspaceId = workspaceIdFromPath || workspaceIdFromQuery;
 
   /*
-    mode는 URL query에서 가져온다.
-    mode가 없으면 personal로 둔다.
-
-    팀 프로젝트에서 정확한 이동을 원하면
-    메인 프로젝트 선택 링크가 /main/[workspaceId]?mode=team 형태로 들어와야 한다.
+    mode는 URL query에서 가져옵니다.
+    mode가 없으면 personal로 둡니다.
   */
   const currentMode = normalizeMode(
     searchParams.get("mode") ?? searchParams.get("view"),
@@ -113,10 +124,10 @@ export default function TopNav() {
 
   /*
     프로젝트 선택이 필요한 메뉴:
-    HOME, AIVS, 설계단계, 일정관리, 개발일지
+    HOME, AIVS, 설계관리, 일정관리, 개발일지
 
-    프로젝트가 선택되어 있으면 해당 프로젝트 기준 경로로 이동한다.
-    프로젝트가 선택되어 있지 않으면 /main으로 보내서 프로젝트를 먼저 선택하게 한다.
+    프로젝트가 선택되어 있으면 해당 프로젝트 기준 경로로 이동합니다.
+    프로젝트가 선택되어 있지 않으면 /main으로 보내서 프로젝트를 먼저 선택하게 합니다.
   */
   const homeHref = hasSelectedWorkspace
     ? withModeQuery(`/main/${currentWorkspaceId}`, currentMode)
@@ -145,9 +156,9 @@ export default function TopNav() {
   const myPageHref = "/my";
 
   /*
-    현재 URL에 workspaceId가 있을 때만 localStorage에 저장한다.
+    현재 URL에 workspaceId가 있을 때만 localStorage에 저장합니다.
     이 값은 IDE나 모달 등 다른 기능에서 사용할 수 있지만,
-    헤더 링크 생성에는 직접 사용하지 않는다.
+    헤더 링크 생성에는 직접 사용하지 않습니다.
   */
   useEffect(() => {
     if (!currentWorkspaceId) return;
@@ -218,7 +229,8 @@ export default function TopNav() {
   }, [pathname]);
 
   const onLogout = async () => {
-    logout();
+    await logout();
+
     router.replace("/");
   };
 
@@ -291,7 +303,7 @@ export default function TopNav() {
 
     /*
       프로젝트가 필요한 메뉴인데 아직 선택된 프로젝트가 없으면
-      실제 기능 페이지로 들어가지 않고 /main에서 프로젝트를 선택하게 한다.
+      실제 기능 페이지로 들어가지 않고 /main에서 프로젝트를 선택하게 합니다.
     */
     event.preventDefault();
     router.push("/main");
@@ -299,7 +311,7 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between  py-2 text-xl">
+      <div className="mx-auto flex max-w-6xl items-center justify-between py-2 text-xl">
         <Link href="/main" className="font-black tracking-tight">
           WEVAIS
         </Link>
@@ -338,7 +350,9 @@ export default function TopNav() {
             )}
           </button>
 
-          {!isLoggedIn ? (
+          {loading ? (
+            <div className="hidden h-8 w-36 animate-pulse rounded-xl bg-gray-100 md:block" />
+          ) : !isAuthenticated ? (
             <div className="hidden items-center gap-4 text-sm font-semibold md:flex">
               <Link
                 href="/auth/login"
@@ -463,11 +477,11 @@ export default function TopNav() {
                   aria-label="유저 메뉴"
                 >
                   <div className="grid h-8 w-8 place-items-center rounded-full bg-gray-200 text-sm font-bold text-gray-600">
-                    {(user?.name?.trim()?.[0] ?? "U").toUpperCase()}
+                    {getInitial(user)}
                   </div>
 
-                  <span className="hidden text-sm font-semibold text-gray-800 sm:inline">
-                    {user?.name ?? "사용자"}
+                  <span className="hidden max-w-[160px] truncate text-sm font-semibold text-gray-800 sm:inline">
+                    {getDisplayName(user)}
                   </span>
                 </button>
 
@@ -475,11 +489,11 @@ export default function TopNav() {
                   <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
                     <div className="border-b border-gray-100 px-4 py-3">
                       <p className="text-sm font-semibold text-gray-900">
-                        {user?.name ?? "사용자"}
+                        {getDisplayName(user)}
                       </p>
 
-                      <p className="text-xs text-gray-500">
-                        {user?.email ?? ""}
+                      <p className="truncate text-xs text-gray-500">
+                        {getDisplayEmail(user)}
                       </p>
                     </div>
 
@@ -533,7 +547,9 @@ export default function TopNav() {
               );
             })}
 
-            {!isLoggedIn ? (
+            {loading ? (
+              <div className="mt-2 h-10 animate-pulse rounded-xl bg-gray-100" />
+            ) : !isAuthenticated ? (
               <div className="flex gap-2 pt-2">
                 <Link
                   href="/auth/login"

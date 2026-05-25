@@ -14,13 +14,6 @@ function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
-const API_BASE = "http://localhost:8080";
-
-type LoginResponse = {
-  accessToken: string;
-  userId: number;
-};
-
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,12 +21,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const { login } = useAuth();
+  const router = useRouter();
+
   const canSubmit = useMemo(() => {
     return isEmail(email) && password.length > 0 && !loading;
   }, [email, password, loading]);
-
-  const { login } = useAuth();
-  const router = useRouter();
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -44,34 +37,7 @@ export default function LoginPage() {
       setLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE}/api/users/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error("이메일 또는 비밀번호가 올바르지 않습니다.");
-      }
-
-      const data: LoginResponse = await res.json();
-
-      /**
-       * AuthContext에 로그인 상태 저장
-       * 현재 백엔드 로그인 응답에는 nickname이 없으므로
-       * 우선 name에는 이메일을 넣어 둠
-       */
-      login({
-        id: String(data.userId),
-        name: email.trim(),
-        email: email.trim(),
-        token: data.accessToken,
-      });
+      await login(email.trim(), password);
 
       router.replace("/main");
     } catch (err) {
@@ -92,6 +58,7 @@ export default function LoginPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">로그인</h1>
             </div>
+
             <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gray-900 font-bold text-white">
               V
             </div>
@@ -102,6 +69,7 @@ export default function LoginPage() {
               <label className="text-sm font-semibold text-gray-800">
                 아이디
               </label>
+
               <input
                 type="email"
                 value={email}
@@ -116,6 +84,7 @@ export default function LoginPage() {
                     : "border-gray-200 focus:ring-2 focus:ring-gray-100",
                 )}
               />
+
               {email && !isEmail(email) ? (
                 <p className="mt-1 text-xs text-rose-600">
                   이메일 형식이 아니에요.
@@ -127,6 +96,7 @@ export default function LoginPage() {
               <label className="text-sm font-semibold text-gray-800">
                 비밀번호
               </label>
+
               <div className="relative mt-1">
                 <input
                   type={showPw ? "text" : "password"}
@@ -135,6 +105,7 @@ export default function LoginPage() {
                   placeholder="비밀번호"
                   className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 pr-12 text-gray-900 outline-none transition focus:ring-2 focus:ring-gray-100"
                 />
+
                 <button
                   type="button"
                   onClick={() => setShowPw((s) => !s)}
@@ -167,6 +138,7 @@ export default function LoginPage() {
 
             <div className="mt-5 flex items-center justify-between text-sm text-gray-600">
               <span>아직 계정이 없어요</span>
+
               <Link
                 href="/auth/signup"
                 className="font-semibold text-gray-900 hover:underline"

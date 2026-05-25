@@ -1,5 +1,9 @@
 "use client";
 
+import { apiFetch } from "@/lib/api/apiClient";
+import { authClient } from "@/lib/auth/authClient";
+import { getCurrentUserId } from "@/lib/auth/tokenStore";
+
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 
@@ -8,41 +12,19 @@ const GIT_API_BASE = `${BASE_URL}/api/git`;
 
 const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
 const SCHEDULE_API_BASE = `${BASE_URL}/api/schedules`;
-const AUTH_API_BASE = `${BASE_URL}/api/users`;
+const AUTH_API_BASE = `${BASE_URL}/api/auth`;
+const USER_API_BASE = `${BASE_URL}/api/users`;
 const SYSTEM_API_BASE = `${BASE_URL}/api/system`;
 const CODEMAP_API_BASE = `${BASE_URL}/api/codemap`;
 const AI_API_BASE = `${BASE_URL}/api/ai`;
-
-const getCurrentUserId = () =>
-  typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
 // ============================================================================
 // 공통 인증 fetch
 // ============================================================================
 
 export const authFetch = async (url, options = {}) => {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("token") ||
-        localStorage.getItem("accessToken") ||
-        localStorage.getItem("jwt") ||
-        localStorage.getItem("authToken")
-      : null;
-
-  if (!token) {
-    throw new Error("로그인 정보가 없습니다. 다시 로그인해주세요.");
-  }
-
-  const headers = new Headers(options.headers || {});
-
-  headers.set("Authorization", `Bearer ${token}`);
-
-  if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-
   try {
-    return await fetch(url, { ...options, headers });
+    return await apiFetch(url, options);
   } catch (error) {
     throw new Error(error?.message || "네트워크 요청 중 오류가 발생했습니다.");
   }
@@ -53,36 +35,43 @@ export const authFetch = async (url, options = {}) => {
 // ============================================================================
 
 export const loginApi = async (email, password) => {
-  const response = await fetch(`${AUTH_API_BASE}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  const result = await authClient.login(email, password);
 
-  if (!response.ok) {
-    throw new Error("로그인 실패: 이메일이나 비밀번호를 확인해주세요.");
-  }
-
-  return await response.json();
+  return {
+    accessToken: result.accessToken,
+    token: result.accessToken,
+    userId: result.userId,
+    user: result.user,
+  };
 };
 
 export const registerApi = async (email, nickname, password) => {
-  const response = await fetch(`${AUTH_API_BASE}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, nickname, password }),
+  return authClient.register({
+    email,
+    nickname,
+    password,
   });
+};
 
-  if (!response.ok) {
-    throw new Error("회원가입 실패: 이미 존재하는 이메일/닉네임입니다.");
-  }
+export const refreshAuthApi = async () => {
+  return authClient.refresh();
+};
 
-  return await response.json();
+export const logoutApi = async () => {
+  return authClient.logout();
+};
+
+export const getMeApi = async () => {
+  return authClient.me();
 };
 
 export const getUserProfileApi = async (userId) => {
-  const response = await authFetch(`${AUTH_API_BASE}/${userId}`);
-  if (!response.ok) throw new Error("유저 정보를 불러올 수 없습니다.");
+  const response = await authFetch(`${USER_API_BASE}/${userId}`);
+
+  if (!response.ok) {
+    throw new Error("유저 정보를 불러올 수 없습니다.");
+  }
+
   return await response.json();
 };
 
@@ -628,30 +617,48 @@ export const fetchProjectFilesApi = async (
   projectName,
   branchName = "master",
 ) => {
+  const safeBranchName = branchName || "master";
+
   const response = await authFetch(
-    `${API_BASE}/${workspaceId}/files?projectName=${encodeURIComponent(projectName)}&branchName=${encodeURIComponent(branchName)}`,
+    `${API_BASE}/${workspaceId}/files?projectName=${encodeURIComponent(
+      projectName,
+    )}&branchName=${encodeURIComponent(safeBranchName)}`,
   );
-  if (!response.ok) throw new Error("파일 트리 로드 실패");
+
+  if (!response.ok) {
+    throw new Error("파일 트리 로드 실패");
+  }
+
   return await response.json();
 };
 
 export const fetchFileContentApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   filePath,
 ) => {
+  const safeBranchName = branchName || "master";
+
   const response = await authFetch(
-    `${API_BASE}/${workspaceId}/file?projectName=${encodeURIComponent(projectName)}&branchName=${encodeURIComponent(branchName)}&path=${encodeURIComponent(filePath)}`,
+    `${API_BASE}/${workspaceId}/file?projectName=${encodeURIComponent(
+      projectName,
+    )}&branchName=${encodeURIComponent(
+      safeBranchName,
+    )}&path=${encodeURIComponent(filePath)}`,
   );
-  if (!response.ok) throw new Error("파일 내용 로드 실패");
+
+  if (!response.ok) {
+    throw new Error("파일 내용 로드 실패");
+  }
+
   return await response.text();
 };
 
 export const createFileApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   filePath,
   type,
 ) => {
@@ -660,19 +667,23 @@ export const createFileApi = async (
     body: JSON.stringify({
       workspaceId,
       projectName,
-      branchName,
+      branchName: branchName || "master",
       filePath,
       type,
       code: "",
     }),
   });
-  if (!response.ok) throw new Error("파일 생성 실패");
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || "파일 생성 실패");
+  }
 };
 
 export const saveFileApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   filePath,
   code,
 ) => {
@@ -681,18 +692,22 @@ export const saveFileApi = async (
     body: JSON.stringify({
       workspaceId,
       projectName,
-      branchName,
+      branchName: branchName || "master",
       filePath,
       code,
     }),
   });
-  if (!response.ok) throw new Error("파일 저장 실패");
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || "파일 저장 실패");
+  }
 };
 
 export const deleteFileApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   filePath,
 ) => {
   const response = await authFetch(`${API_BASE}/files`, {
@@ -700,17 +715,21 @@ export const deleteFileApi = async (
     body: JSON.stringify({
       workspaceId,
       projectName,
-      branchName,
+      branchName: branchName || "master",
       filePath,
     }),
   });
-  if (!response.ok) throw new Error("삭제 실패");
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || "삭제 실패");
+  }
 };
 
 export const renameFileApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   filePath,
   newName,
 ) => {
@@ -719,18 +738,22 @@ export const renameFileApi = async (
     body: JSON.stringify({
       workspaceId,
       projectName,
-      branchName,
+      branchName: branchName || "master",
       filePath,
       newName,
     }),
   });
-  if (!response.ok) throw new Error("이름 변경 실패");
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || "이름 변경 실패");
+  }
 };
 
 export const buildProjectApi = async (
   workspaceId,
   projectName,
-  branchName,
+  branchName = "master",
   language,
 ) => {
   const response = await authFetch(`${API_BASE}/build`, {
@@ -738,7 +761,7 @@ export const buildProjectApi = async (
     body: JSON.stringify({
       workspaceId,
       projectName,
-      branchName,
+      branchName: branchName || "master",
       language,
     }),
   });

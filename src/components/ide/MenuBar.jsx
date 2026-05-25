@@ -1,10 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
-import { Rnd } from "react-rnd";
-
 import {
   setActiveBranch,
   closeAllFiles,
@@ -23,7 +21,6 @@ import {
   toggleSidebar,
   toggleRightPanel,
   setCodeMapMode,
-  setVoiceConnected,
   setRunning,
   setCurrentDebugLine,
   updateDebugVariables,
@@ -45,18 +42,8 @@ import {
   VscLock,
   VscRocket,
   VscBeaker,
-  VscMute,
-  VscMicFilled,
-  VscBell,
-  VscCallOutgoing,
   VscPlay,
   VscDebugStop,
-  VscChromeMinimize,
-  VscChromeMaximize,
-  VscMegaphone,
-  VscCircleFilled,
-  VscSettingsGear,
-  VscEdit,
 } from "react-icons/vsc";
 import {
   fetchBranchListApi,
@@ -73,7 +60,8 @@ import {
   pullFromRemoteApi,
 } from "@/lib/ide/api";
 import { useAuth } from "@/lib/ide/AuthContext";
-import { useWebRTC } from "@/hooks/useWebRTC";
+import VoiceChatManager from "@/components/ide/voice/VoiceChatManager";
+import { useWorkspacePresence } from "@/hooks/useWorkspacePresence";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
@@ -97,453 +85,6 @@ const getLanguageFromPath = (path) => {
 const avatarColors = [
   "bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500", "bg-teal-500",
 ];
-
-const PeerAudio = React.memo(({ stream, volume = 1.0 }) => {
-  const audioRef = useRef(null);
-  const gainNodeRef = useRef(null);
-  const audioCtxRef = useRef(null);
-
-  useEffect(() => {
-    const audioEl = audioRef.current;
-    if (audioEl && stream && audioEl.srcObject !== stream) {
-      audioEl.srcObject = stream;
-      audioEl.muted = true;
-      audioEl.play().catch((e) => console.warn("오디오 차단됨:", e));
-
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        audioCtxRef.current = audioCtx;
-
-        if (audioCtx.state === "suspended") {
-          audioCtx.resume().catch((e) => console.warn("AudioContext 차단:", e));
-        }
-
-        const source = audioCtx.createMediaStreamSource(stream);
-        const gainNode = audioCtx.createGain();
-
-        gainNode.gain.value = isNaN(volume) ? 1.0 : volume;
-        source.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-
-        gainNodeRef.current = gainNode;
-      } catch (err) {
-        audioEl.muted = false;
-        audioEl.volume = Math.max(0, Math.min(volume, 1.0));
-      }
-    }
-
-    return () => {
-      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-        audioCtxRef.current.close().catch(() => {});
-      }
-    };
-  }, [stream]);
-
-  useEffect(() => {
-    try {
-      const safeVol = isNaN(volume) ? 1.0 : volume;
-      if (gainNodeRef.current && gainNodeRef.current.context.state !== "closed") {
-        gainNodeRef.current.gain.setTargetAtTime(
-          safeVol,
-          gainNodeRef.current.context.currentTime,
-          0.1
-        );
-      } else if (audioRef.current) {
-        audioRef.current.volume = Math.max(0, Math.min(safeVol, 1.0));
-      }
-    } catch (e) {
-      console.error("볼륨 조절 에러:", e);
-    }
-  }, [volume]);
-
-  return <audio ref={audioRef} autoPlay playsInline style={{ display: "none" }} />;
-});
-PeerAudio.displayName = "PeerAudio";
-
-const VoiceChatRoom = ({ myUserId, teamMembers, onClose, isMinimized, onToggleMinimize }) => {
-  const dispatch = useDispatch();
-  const { workspaceId } = useSelector((state) => state.fileSystem);
-  const { isVoiceConnected } = useSelector((state) => state.ui);
-
-  const [channels, setChannels] = useState([
-    { id: "general", name: "일반 회의실", icon: "💬" }
-  ]);
-  const [activeChannel, setActiveChannel] = useState("general");
-  const [isDeafened, setIsDeafened] = useState(false);
-  
-  const [editingChannelId, setEditingChannelId] = useState(null);
-  const [editChannelName, setEditChannelName] = useState("");
-
-  const [safeUserId] = useState(() => {
-    if (myUserId) return myUserId;
-    if (typeof window !== "undefined") {
-      const stored = JSON.parse(localStorage.getItem("user") || "{}");
-      if (stored?.id) return stored.id;
-    }
-    return Math.floor(Math.random() * 1000000);
-  });
-
-  const currentRoomId = isVoiceConnected && workspaceId ? `${workspaceId}-${activeChannel}` : null;
-
-  const { peers, speakingUsers, isMuted, toggleMute, micVolume, changeMicVolume } = useWebRTC(
-    currentRoomId,
-    isVoiceConnected ? safeUserId : null
-  );
-
-  const [peerVolumes, setPeerVolumes] = useState({});
-  const handlePeerVolume = (peerId, vol) => {
-    const safeVol = isNaN(vol) ? 1.0 : vol;
-    setPeerVolumes((prev) => ({ ...prev, [peerId]: safeVol }));
-  };
-
-  const handleConnectToggle = () => dispatch(setVoiceConnected(!isVoiceConnected));
-  const toggleDeafen = () => setIsDeafened(!isDeafened);
-
-  const handleAddChannel = () => {
-    const channelName = window.prompt("생성할 음성 채널 이름을 입력하세요:");
-    if (channelName && channelName.trim()) {
-      const newChannelId = `ch_${Date.now()}`;
-      setChannels([...channels, { id: newChannelId, name: channelName.trim(), icon: "🔊" }]);
-      setActiveChannel(newChannelId);
-      if (!isVoiceConnected) dispatch(setVoiceConnected(true));
-    }
-  };
-
-  const handleDeleteChannel = (e, id) => {
-    e.stopPropagation();
-    if (id === 'general') return;
-    if (window.confirm("이 채널을 삭제하시겠습니까?")) {
-      setChannels(channels.filter(c => c.id !== id));
-      if (activeChannel === id) setActiveChannel("general");
-    }
-  };
-
-  const handleEditStart = (e, ch) => {
-    e.stopPropagation();
-    setEditingChannelId(ch.id);
-    setEditChannelName(ch.name);
-  };
-
-  const handleEditSave = (id) => {
-    if (editChannelName.trim()) {
-      setChannels(channels.map(c => c.id === id ? { ...c, name: editChannelName.trim() } : c));
-    }
-    setEditingChannelId(null);
-  };
-
-  const handleChannelClick = (channelId) => {
-    if (editingChannelId === channelId) return;
-    setActiveChannel(channelId);
-    if (!isVoiceConnected) dispatch(setVoiceConnected(true));
-  };
-
-  const myMember = teamMembers.find((m) => String(m.userId) === String(safeUserId));
-  let myNickname = "나";
-  if (myMember?.nickname) {
-    myNickname = myMember.nickname;
-  } else {
-    try {
-      const stored = JSON.parse(localStorage.getItem("user") || "{}");
-      if (stored?.nickname) myNickname = stored.nickname;
-      else if (stored?.email) myNickname = stored.email.split("@")[0];
-    } catch (e) {}
-  }
-
-  const amISpeaking = speakingUsers.has(String(safeUserId));
-  const activeChannelName = channels.find(c => c.id === activeChannel)?.name || "음성 채널";
-
-  if (isMinimized) {
-    return (
-      <div className="flex items-center gap-3 px-2 py-2 bg-white/95 backdrop-blur-xl rounded-full border border-gray-200 shadow-[0_10px_40px_rgba(0,0,0,0.15)] w-max max-w-full overflow-hidden">
-        
-        <div 
-          className="voice-chat-drag-handle flex flex-col items-center justify-center gap-[3px] px-2 py-2 cursor-grab active:cursor-grabbing text-gray-400 hover:text-blue-500 transition-colors"
-          title="여기를 잡고 이동하세요"
-        >
-          <div className="w-1 h-1 bg-current rounded-full"></div>
-          <div className="w-1 h-1 bg-current rounded-full"></div>
-          <div className="w-1 h-1 bg-current rounded-full"></div>
-        </div>
-
-        {Object.entries(peers).map(([peerId, stream]) => (
-          <PeerAudio key={`mini-audio-${peerId}`} stream={stream} volume={isDeafened ? 0 : (peerVolumes[peerId] ?? 1.0)} />
-        ))}
-
-        <div className="flex items-center -space-x-2.5">
-          <div className="relative z-10 group">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-black text-white border-[2px] border-white shadow-sm transition-all
-              ${isMuted || !isVoiceConnected ? "bg-gray-400 grayscale" : "bg-gradient-to-br from-blue-500 to-indigo-600"}
-              ${amISpeaking && !isMuted ? "ring-[2px] ring-emerald-400" : ""}`}
-            >
-              {myNickname[0]}
-            </div>
-            {(isMuted || isDeafened || !isVoiceConnected) && (
-              <div className="absolute -bottom-0.5 -right-0.5 bg-rose-500 rounded-full p-0.5 border-2 border-white">
-                {isDeafened ? <VscBell size={8} className="text-white line-through" /> : <VscMute size={8} className="text-white" />}
-              </div>
-            )}
-          </div>
-
-          {isVoiceConnected && Object.entries(peers).map(([peerId, _], index) => {
-            const member = teamMembers.find((m) => String(m.userId) === String(peerId));
-            const nickname = member ? member.nickname : `U`;
-            const isSpeaking = speakingUsers.has(String(peerId));
-            const vol = peerVolumes[peerId] ?? 1.0;
-            const bgClass = avatarColors[index % avatarColors.length];
-
-            return (
-              <div key={`mini-${peerId}`} className="relative z-0 group">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-black text-white border-[2px] border-white shadow-sm transition-all ${bgClass}
-                  ${isSpeaking && !isDeafened ? "ring-[2px] ring-emerald-400" : ""}
-                  ${isDeafened || vol === 0 ? "grayscale opacity-80" : ""}`}
-                >
-                  {nickname[0]}
-                </div>
-                {(vol === 0 || isDeafened) && (
-                  <div className="absolute -bottom-0.5 -right-0.5 bg-gray-500 rounded-full p-0.5 border-2 border-white">
-                    <VscMute size={8} className="text-white line-through" />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="w-[1px] h-5 bg-gray-200 mx-1 shrink-0"></div>
-
-        <div className="flex items-center gap-1 shrink-0 pr-2">
-          <button onClick={toggleMute} disabled={!isVoiceConnected} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${isMuted ? "bg-gray-800 text-white" : "text-gray-500 hover:bg-gray-100"}`} title={isMuted ? "마이크 켜기" : "마이크 끄기"}>
-            {isMuted ? <VscMute size={14} /> : <VscMicFilled size={14} />}
-          </button>
-          <button onClick={toggleDeafen} disabled={!isVoiceConnected} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${isDeafened ? "bg-gray-800 text-white" : "text-gray-500 hover:bg-gray-100"}`} title={isDeafened ? "소리 켜기" : "소리 끄기"}>
-            {isDeafened ? <VscMute size={14} /> : <VscBell size={14} />}
-          </button>
-          <button onClick={onToggleMinimize} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 text-gray-500 transition-all ml-1" title="중앙 팝업으로 크게 보기">
-            <VscChromeMaximize size={14} />
-          </button>
-          <button onClick={() => { handleConnectToggle(); onClose(); }} className="w-7 h-7 rounded-full flex items-center justify-center bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white transition-all" title="통화 종료">
-            <VscCallOutgoing size={14} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-row h-full bg-[#f8f9fa] text-[#333] overflow-hidden rounded-2xl border border-gray-200 shadow-2xl relative">
-      <div className="w-[200px] bg-white flex flex-col shrink-0 border-r border-gray-200 z-10 shadow-[2px_0_15px_rgba(0,0,0,0.03)]">
-        <div className="voice-chat-drag-handle h-12 flex items-center justify-between px-3 border-b border-gray-100 cursor-grab active:cursor-grabbing bg-[#fcfcfc]">
-          <span className="text-xs font-black text-gray-700 uppercase tracking-wider pl-1">보이스룸</span>
-          <button onClick={handleAddChannel} className="text-blue-500 hover:text-white p-1 rounded hover:bg-blue-500 transition-colors" title="채널 만들기">
-            <VscAdd size={16} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          {channels.map((ch) => {
-            const isActiveChannel = activeChannel === ch.id;
-            return (
-              <div key={ch.id} className="flex flex-col mb-2 group/channel">
-                
-                {editingChannelId === ch.id ? (
-                  <div className="flex items-center px-2 py-1.5 rounded-md bg-blue-50 border border-blue-200">
-                    <input 
-                      autoFocus
-                      className="w-full bg-transparent outline-none text-[13px] font-bold text-blue-700"
-                      value={editChannelName}
-                      onChange={(e) => setEditChannelName(e.target.value)}
-                      onBlur={() => handleEditSave(ch.id)}
-                      onKeyDown={(e) => e.key === "Enter" && handleEditSave(ch.id)}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => handleChannelClick(ch.id)}
-                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-[13px] transition-colors cursor-pointer ${
-                      isActiveChannel
-                        ? "bg-blue-50 text-blue-700 font-bold border border-blue-100"
-                        : "text-gray-600 hover:bg-gray-100 font-medium"
-                    }`}
-                  >
-                    <div className="flex items-center truncate flex-1 pr-2">
-                      <span className="mr-2 text-gray-400">{ch.icon}</span>
-                      <span className="truncate">{ch.name}</span>
-                    </div>
-                    {ch.id !== 'general' && (
-                      <div className="hidden group-hover/channel:flex items-center gap-1.5">
-                        <VscEdit className="text-gray-400 hover:text-blue-600" onClick={(e) => handleEditStart(e, ch)} title="이름 수정" />
-                        <VscTrash className="text-gray-400 hover:text-red-500" onClick={(e) => handleDeleteChannel(e, ch.id)} title="채널 삭제" />
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {isVoiceConnected && isActiveChannel && (
-                  <div className="flex flex-col pl-7 pr-2 mt-1.5 space-y-2 relative before:absolute before:left-[15px] before:top-0 before:bottom-2 before:w-px before:bg-gray-200">
-                    <div className="flex items-center gap-2 relative">
-                      <div className="absolute -left-[12px] top-1/2 w-2 h-px bg-gray-200"></div>
-                      <div className="relative">
-                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-[10px] text-white font-bold shadow-sm">
-                          {myNickname[0]}
-                        </div>
-                        {amISpeaking && !isMuted && <div className="absolute inset-0 ring-[2px] ring-emerald-400 rounded-full animate-pulse"></div>}
-                      </div>
-                      <span className={`text-[12px] truncate ${amISpeaking && !isMuted ? "text-blue-600 font-black" : "text-gray-500 font-bold"}`}>
-                        {myNickname}
-                      </span>
-                    </div>
-
-                    {Object.entries(peers).map(([peerId, _], index) => {
-                      const member = teamMembers.find((m) => String(m.userId) === String(peerId));
-                      const nickname = member ? member.nickname : `U-${peerId.substring(0,2)}`;
-                      const isSpeaking = speakingUsers.has(String(peerId));
-                      const bgClass = avatarColors[index % avatarColors.length];
-
-                      return (
-                        <div key={peerId} className="flex items-center gap-2 relative">
-                          <div className="absolute -left-[12px] top-1/2 w-2 h-px bg-gray-200"></div>
-                          <div className="relative">
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-sm ${bgClass}`}>
-                              {nickname[0]}
-                            </div>
-                            {isSpeaking && !isDeafened && <div className="absolute inset-0 ring-[2px] ring-emerald-400 rounded-full animate-pulse"></div>}
-                          </div>
-                          <span className={`text-[12px] truncate ${isSpeaking && !isDeafened ? "text-blue-600 font-black" : "text-gray-500 font-bold"}`}>
-                            {nickname}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="bg-[#fcfcfc] p-3 flex flex-col gap-3 shrink-0 border-t border-gray-200">
-          <div className="flex items-center gap-2.5 px-1">
-            <div className="relative">
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-black text-white shadow-sm ${isVoiceConnected && !isMuted ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gray-400"}`}>
-                {myNickname[0]}
-              </div>
-              <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${isVoiceConnected ? "bg-emerald-500" : "bg-gray-400"}`}></div>
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-black text-gray-800 truncate">{myNickname}</span>
-              <span className="text-[10px] text-gray-500 truncate font-bold">{isVoiceConnected ? "접속 중" : "오프라인"}</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
-            <button onClick={toggleMute} disabled={!isVoiceConnected} className={`p-1.5 rounded-md transition-colors ${isMuted ? "text-rose-500 bg-rose-50" : "text-gray-500 hover:bg-gray-100"}`} title={isMuted ? "마이크 켜기" : "마이크 끄기"}>
-              {isMuted ? <VscMute size={16} /> : <VscMicFilled size={16} />}
-            </button>
-            <button onClick={toggleDeafen} disabled={!isVoiceConnected} className={`p-1.5 rounded-md transition-colors ${isDeafened ? "text-rose-500 bg-rose-50" : "text-gray-500 hover:bg-gray-100"}`} title={isDeafened ? "소리 켜기" : "소리 끄기"}>
-              {isDeafened ? <VscMute size={16} /> : <VscBell size={16} />}
-            </button>
-            <button onClick={handleConnectToggle} className={`p-1.5 rounded-md transition-colors ${isVoiceConnected ? "text-rose-500 hover:bg-rose-50" : "text-emerald-500 hover:bg-emerald-50"}`} title={isVoiceConnected ? "연결 끊기" : "접속하기"}>
-              <VscCallOutgoing size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col min-w-0 bg-transparent">
-        <div className="voice-chat-drag-handle h-12 flex items-center justify-between px-5 border-b border-gray-200 cursor-grab active:cursor-grabbing shrink-0 bg-white/50 backdrop-blur-md">
-          <div className="flex items-center gap-2 text-gray-700">
-            <VscMegaphone size={18} className="text-blue-500" />
-            <span className="text-[15px] font-black">{activeChannelName}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={onToggleMinimize} className="p-1.5 bg-white border border-gray-200 shadow-sm text-gray-500 hover:bg-gray-50 hover:text-blue-600 rounded-md transition-all active:scale-95" title="최소화 (알약 모드)">
-              <VscChromeMinimize size={14} />
-            </button>
-            <button onClick={onClose} className="p-1.5 bg-white border border-gray-200 shadow-sm text-gray-500 hover:bg-rose-50 hover:text-rose-500 rounded-md transition-all active:scale-95" title="창 닫기 (연결 유지)">
-              <VscClose size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 p-8 overflow-y-auto custom-scrollbar flex flex-wrap content-start gap-8 bg-transparent">
-          
-          <div className="w-[140px] flex flex-col items-center bg-white p-4 rounded-2xl border border-gray-200 shadow-sm relative group hover:shadow-md transition-shadow">
-            <div className={`relative w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black text-white shadow-lg transition-all duration-300 z-10
-              ${isMuted || !isVoiceConnected ? "bg-gray-300 grayscale" : "bg-gradient-to-br from-blue-500 to-indigo-600"}
-              ${amISpeaking && !isMuted ? "ring-[4px] ring-emerald-400 ring-offset-4 scale-105" : "scale-100"}`}
-            >
-              {myNickname[0]}
-            </div>
-            {(isMuted || isDeafened || !isVoiceConnected) && (
-              <div className="absolute top-3 right-3 bg-white p-1 rounded-full z-20 shadow-md">
-                <div className="bg-rose-500 rounded-full p-1">
-                  {isDeafened ? <VscBell size={10} className="text-white line-through" /> : <VscMute size={10} className="text-white" />}
-                </div>
-              </div>
-            )}
-            <span className="text-[12px] font-black text-gray-800 mt-3 truncate w-full text-center bg-gray-50 py-1 rounded-md">
-              {myNickname} (나)
-            </span>
-            {isVoiceConnected && (
-              <div className="w-full mt-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-gray-50 p-1.5 rounded-full border border-gray-100">
-                <VscMicFilled size={12} className="text-blue-500 shrink-0 ml-1" />
-                <input
-                  type="range" min="0.1" max="5.0" step="0.1"
-                  value={micVolume || 1.0}
-                  onChange={(e) => changeMicVolume(parseFloat(e.target.value))}
-                  className="flex-1 h-1 bg-gray-200 rounded-full appearance-none cursor-pointer accent-blue-500 outline-none mr-1"
-                  title="내 마이크 증폭 조절"
-                />
-              </div>
-            )}
-          </div>
-
-          {isVoiceConnected && Object.entries(peers).map(([peerId, stream], index) => {
-            const member = teamMembers.find((m) => String(m.userId) === String(peerId));
-            const nickname = member ? member.nickname : `User-${peerId.substring(0, 4)}`;
-            const isSpeaking = speakingUsers.has(String(peerId));
-            const vol = peerVolumes[peerId] ?? 1.0;
-            const bgClass = avatarColors[index % avatarColors.length];
-
-            return (
-              <div key={peerId} className="w-[140px] flex flex-col items-center bg-white p-4 rounded-2xl border border-gray-200 shadow-sm relative group hover:shadow-md transition-shadow animate-fade-in">
-                <PeerAudio stream={stream} volume={isDeafened ? 0 : vol} />
-                
-                <div className={`relative w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black text-white shadow-lg transition-all duration-300 z-10 ${bgClass}
-                  ${isSpeaking && !isDeafened ? "ring-[4px] ring-emerald-400 ring-offset-4 scale-105" : "scale-100"}
-                  ${isDeafened || vol === 0 ? "grayscale opacity-70" : ""}`}
-                >
-                  {nickname[0]}
-                </div>
-                {(vol === 0 || isDeafened) && (
-                  <div className="absolute top-3 right-3 bg-white p-1 rounded-full z-20 shadow-md">
-                    <div className="bg-gray-500 rounded-full p-1">
-                      <VscMute size={10} className="text-white line-through" />
-                    </div>
-                  </div>
-                )}
-                <span className="text-[12px] font-black text-gray-800 mt-3 truncate w-full text-center bg-gray-50 py-1 rounded-md">
-                  {nickname}
-                </span>
-                <div className="w-full mt-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-gray-50 p-1.5 rounded-full border border-gray-100">
-                  <VscBell size={12} className={`${isDeafened ? "text-gray-400" : "text-emerald-500"} shrink-0 ml-1`} />
-                  <input
-                    type="range" min="0" max="5.0" step="0.1"
-                    value={vol}
-                    onChange={(e) => handlePeerVolume(peerId, parseFloat(e.target.value))}
-                    disabled={isDeafened}
-                    className={`flex-1 h-1 bg-gray-200 rounded-full appearance-none cursor-pointer outline-none mr-1 ${isDeafened ? "accent-gray-400 cursor-not-allowed" : "accent-emerald-500"}`}
-                    title="상대방 볼륨 조절"
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 export default function MenuBar({ mode = "personal" }) {
   const router = useRouter();
@@ -598,51 +139,18 @@ export default function MenuBar({ mode = "personal" }) {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
-  const [isMounted, setIsMounted] = useState(false);
-  const [isVoiceChatMinimized, setIsVoiceChatMinimized] = useState(false);
-  const [rndState, setRndState] = useState({
-    width: 800,
-    height: 500,
-    x: 0,
-    y: 0,
-  });
-
   const isRelocationPage = pathname?.includes("/relocation") || pathname?.includes("/rearrange");
   const currentBranch = activeProject ? activeBranch || "master" : "No Project";
   const isSandboxMode = currentBranch.startsWith("focus-") || currentBranch.startsWith("focus/");
   const currentNickname = myProfile?.nickname || user?.nickname || "dev";
 
   useEffect(() => {
-    setIsMounted(true);
-    const initialWidth = Math.min(800, window.innerWidth * 0.9);
-    const initialHeight = Math.min(500, window.innerHeight * 0.8);
-    setRndState({
-      width: initialWidth,
-      height: initialHeight,
-      x: (window.innerWidth - initialWidth) / 2,
-      y: (window.innerHeight - initialHeight) / 2,
-    });
-
     if (user && user.id) {
       getUserProfileApi(user.id)
         .then(setMyProfile)
         .catch((err) => console.error("프로필 정보 로드 실패", err));
     }
   }, [user]);
-
-  const handleToggleMinimize = () => {
-    if (isVoiceChatMinimized) {
-      const targetWidth = Math.min(800, window.innerWidth * 0.9);
-      const targetHeight = Math.min(500, window.innerHeight * 0.8);
-      setRndState({
-        width: targetWidth,
-        height: targetHeight,
-        x: (window.innerWidth - targetWidth) / 2,
-        y: (window.innerHeight - targetHeight) / 2,
-      });
-    }
-    setIsVoiceChatMinimized(!isVoiceChatMinimized);
-  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1347,6 +855,66 @@ export default function MenuBar({ mode = "personal" }) {
     return true;
   });
 
+  const {
+    onlineMembers,
+    onlineUserIdSet,
+    connected: isPresenceConnected,
+  } = useWorkspacePresence({
+    workspaceId,
+    enabled: mode === "team" && Boolean(workspaceId && user?.id),
+    user,
+  });
+
+  const normalizeUserId = (value) => {
+    if (value === null || value === undefined) return "";
+    return String(value);
+  };
+
+  const isMemberOnline = (member) => {
+    return onlineUserIdSet.has(normalizeUserId(member?.userId ?? member?.id));
+  };
+
+  const onlineTeamMembers = useMemo(() => {
+    if (!Array.isArray(onlineMembers) || onlineMembers.length === 0) {
+      return [];
+    }
+
+    return onlineMembers.map((onlineMember) => {
+      const matchedMember = teamMembers.find(
+        (member) =>
+          normalizeUserId(member.userId ?? member.id) ===
+          normalizeUserId(onlineMember.userId ?? onlineMember.id),
+      );
+
+      return {
+        ...matchedMember,
+        ...onlineMember,
+        userId: onlineMember.userId ?? matchedMember?.userId ?? matchedMember?.id,
+        nickname:
+          onlineMember.nickname ||
+          matchedMember?.nickname ||
+          onlineMember.email ||
+          matchedMember?.email ||
+          "User",
+        email: onlineMember.email || matchedMember?.email || "",
+        role: matchedMember?.role,
+      };
+    });
+  }, [onlineMembers, teamMembers]);
+
+  const sortedTeamMembers = useMemo(() => {
+    return [...teamMembers].sort((a, b) => {
+      const aOnline = isMemberOnline(a) ? 1 : 0;
+      const bOnline = isMemberOnline(b) ? 1 : 0;
+
+      if (aOnline !== bOnline) {
+        return bOnline - aOnline;
+      }
+
+      return String(a.nickname || "").localeCompare(String(b.nickname || ""));
+    });
+  }, [teamMembers, onlineUserIdSet]);
+
   return (
     <>
       <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
@@ -1519,17 +1087,32 @@ export default function MenuBar({ mode = "personal" }) {
             {/* Team 및 VoiceChat 그룹 */}
             {mode === "team" && (
               <div className="flex items-center gap-2">
-                {/* 팀원 아바타 */}
-                <div className="flex -space-x-1.5 mr-1 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setIsTeamModalOpen(true)}>
-                  {teamMembers.slice(0, 3).map((member, idx) => (
-                    <div key={member.userId} className={`w-7 h-7 rounded-full ${avatarColors[idx % avatarColors.length]} ring-2 ring-white flex items-center justify-center text-[10px] text-white font-bold shadow-sm relative`}>
-                      {member.nickname?.[0]}
+                {/* 팀원 아바타: 서버 presence 기준 접속 중인 팀원만 표시 */}
+                <div
+                  className="flex -space-x-1.5 mr-1 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => setIsTeamModalOpen(true)}
+                  title={
+                    isPresenceConnected
+                      ? `접속 중 ${onlineTeamMembers.length}명 / 전체 ${teamMembers.length}명`
+                      : "접속자 정보를 연결하는 중"
+                  }
+                >
+                  {onlineTeamMembers.slice(0, 3).map((member, idx) => (
+                    <div
+                      key={member.userId}
+                      className={`w-7 h-7 rounded-full ${
+                        avatarColors[idx % avatarColors.length]
+                      } ring-2 ring-white flex items-center justify-center text-[10px] text-white font-bold shadow-sm relative`}
+                      title={`${member.nickname || member.email || "User"} 접속 중`}
+                    >
+                      {(member.nickname || member.email || "U")?.[0]?.toUpperCase()}
                       <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 ring-2 ring-white rounded-full"></div>
                     </div>
                   ))}
-                  {teamMembers.length > 3 && (
+
+                  {onlineTeamMembers.length > 3 && (
                     <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 ring-2 ring-white flex items-center justify-center text-[10px] font-bold shadow-sm">
-                      +{teamMembers.length - 3}
+                      +{onlineTeamMembers.length - 3}
                     </div>
                   )}
                 </div>
@@ -1542,7 +1125,9 @@ export default function MenuBar({ mode = "personal" }) {
                 </button>
 
                 <button
-                  onClick={() => setIsVoiceChatModalOpen(true)}
+                  onClick={() => {
+                    setIsVoiceChatModalOpen(true);
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 h-8 rounded-lg text-[12px] font-bold transition-all active:scale-95 ${
                     isVoiceConnected 
                       ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100" 
@@ -1648,31 +1233,81 @@ export default function MenuBar({ mode = "personal" }) {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[9998] flex items-center justify-center animate-fade-in" onClick={() => setIsTeamModalOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[400px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white">
-              <h2 className="text-lg font-black text-gray-900">팀원 관리 <span className="text-blue-500 ml-1">{teamMembers.length}</span></h2>
+              <h2 className="text-lg font-black text-gray-900">
+                팀원 관리{" "}
+                <span className="text-blue-500 ml-1">
+                  {onlineTeamMembers.length}/{teamMembers.length}
+                </span>
+              </h2>
               <button onClick={() => setIsTeamModalOpen(false)} className="text-gray-400 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 p-1.5 rounded-full transition-colors">
                 <VscClose size={20} />
               </button>
             </div>
             <div className="p-4 space-y-2 max-h-[350px] overflow-y-auto bg-gray-50/50 custom-scrollbar">
-              {teamMembers.map((member, idx) => {
-                const isMe = user?.id === member.userId;
+              {sortedTeamMembers.map((member, idx) => {
+                const isMe = normalizeUserId(user?.id ?? user?.userId) === normalizeUserId(member.userId ?? member.id);
+                const online = isMemberOnline(member);
+
                 return (
-                  <div key={member.userId} className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md hover:ring-2 hover:ring-blue-50 transition-all group cursor-default">
+                  <div
+                    key={member.userId}
+                    className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md hover:ring-2 hover:ring-blue-50 transition-all group cursor-default"
+                  >
                     <div className="flex items-center gap-3.5">
                       <div className="relative">
-                        <div className={`w-10 h-10 rounded-full ${avatarColors[idx % avatarColors.length]} text-white flex items-center justify-center font-bold text-[14px] shadow-sm`}>
-                          {member.nickname?.[0]}
+                        <div
+                          className={`w-10 h-10 rounded-full ${
+                            avatarColors[idx % avatarColors.length]
+                          } text-white flex items-center justify-center font-bold text-[14px] shadow-sm`}
+                        >
+                          {(member.nickname || member.email || "U")?.[0]?.toUpperCase()}
                         </div>
-                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>
+
+                        <div
+                          className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${
+                            online ? "bg-green-500" : "bg-gray-300"
+                          }`}
+                          title={online ? "접속 중" : "오프라인"}
+                        ></div>
                       </div>
+
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-[13px] text-gray-900">{member.nickname}</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${member.role === "OWNER" ? "bg-blue-100 text-blue-700" : member.role === "ADMIN" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
-                            {member.role === "OWNER" ? "Owner" : member.role === "ADMIN" ? "Admin" : "Member"} {isMe && "(나)"}
+                          <span className="font-extrabold text-[13px] text-gray-900">
+                            {member.nickname}
+                          </span>
+
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${
+                              member.role === "OWNER"
+                                ? "bg-blue-100 text-blue-700"
+                                : member.role === "ADMIN"
+                                  ? "bg-orange-100 text-orange-700"
+                                  : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {member.role === "OWNER"
+                              ? "Owner"
+                              : member.role === "ADMIN"
+                                ? "Admin"
+                                : "Member"}{" "}
+                            {isMe && "(나)"}
+                          </span>
+
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                              online
+                                ? "bg-emerald-50 text-emerald-600"
+                                : "bg-gray-100 text-gray-400"
+                            }`}
+                          >
+                            {online ? "접속 중" : "오프라인"}
                           </span>
                         </div>
-                        <span className="text-[11px] text-gray-500 mt-0.5">{member.email}</span>
+
+                        <span className="text-[11px] text-gray-500 mt-0.5">
+                          {member.email}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1732,52 +1367,12 @@ export default function MenuBar({ mode = "personal" }) {
         </div>
       )}
 
-      {/* 💡 유령 상자(클릭 먹통) 버그 해결 & Z-index를 MenuBar보다 높임 */}
-      {isMounted && (
-        <div
-          className={`fixed inset-0 pointer-events-none z-[999999] transition-all duration-300 ${
-            isVoiceChatModalOpen && mode === "team" ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
-          }`}
-        >
-          <Rnd
-            position={{ x: rndState.x, y: rndState.y }}
-            size={
-              isVoiceChatMinimized
-                ? { width: "auto", height: "auto" }
-                : { width: rndState.width, height: rndState.height }
-            }
-            onDragStop={(e, d) => setRndState((prev) => ({ ...prev, x: d.x, y: d.y }))}
-            onResizeStop={(e, direction, ref, delta, position) => {
-              if (!isVoiceChatMinimized) {
-                setRndState({
-                  width: parseInt(ref.style.width, 10),
-                  height: parseInt(ref.style.height, 10),
-                  ...position,
-                });
-              }
-            }}
-            enableResizing={!isVoiceChatMinimized}
-            minWidth={isVoiceChatMinimized ? 150 : 400}
-            minHeight={isVoiceChatMinimized ? 40 : 400}
-            bounds="window"
-            dragHandleClassName="voice-chat-drag-handle"
-            className={`pointer-events-auto transition-transform duration-300 ${
-              isVoiceChatModalOpen ? "scale-100" : "scale-95"
-            } ${
-              isVoiceChatMinimized
-                ? "rounded-full shadow-none border-none bg-transparent"
-                : "rounded-2xl overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)] border border-gray-300 backdrop-blur-md bg-white"
-            }`}
-          >
-            <VoiceChatRoom
-              myUserId={user?.id}
-              teamMembers={teamMembers}
-              onClose={() => setIsVoiceChatModalOpen(false)}
-              isMinimized={isVoiceChatMinimized}
-              onToggleMinimize={handleToggleMinimize}
-            />
-          </Rnd>
-        </div>
+      {mode === "team" && (
+        <VoiceChatManager
+          teamMembers={teamMembers}
+          isModalOpen={isVoiceChatModalOpen}
+          onCloseModal={() => setIsVoiceChatModalOpen(false)}
+        />
       )}
     </>
   );
