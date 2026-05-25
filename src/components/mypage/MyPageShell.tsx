@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Code2,
   Database,
   Download,
+  FileText,
   GitBranch,
   Github,
   LayoutDashboard,
@@ -98,6 +100,12 @@ const tabs: {
   label: string;
   description: string;
   icon: React.ElementType;
+  children?: {
+    key: ArchiveTabKey;
+    label: string;
+    description: string;
+    icon: React.ElementType;
+  }[];
 }[] = [
   {
     key: "overview",
@@ -122,6 +130,26 @@ const tabs: {
     label: "자료실",
     description: "문서화 자료",
     icon: BookOpen,
+    children: [
+      {
+        key: "devlog",
+        label: "개발일지",
+        description: "작성 기록",
+        icon: BookOpen,
+      },
+      {
+        key: "design",
+        label: "설계 문서",
+        description: "요구사항·ERD·API",
+        icon: FileText,
+      },
+      {
+        key: "final",
+        label: "최종 보고서",
+        description: "AI 초안",
+        icon: Sparkles,
+      },
+    ],
   },
   {
     key: "github",
@@ -993,6 +1021,8 @@ function buildFlowNodesForDraft(flowNodes: Record<string, unknown>[]) {
 
 export default function MyPageDemo() {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [activeArchiveTab, setActiveArchiveTab] =
+    useState<ArchiveTabKey>("devlog");
   const [keyword, setKeyword] = useState("");
 
   const [user, setUser] = useState<User | null>(null);
@@ -1159,7 +1189,7 @@ export default function MyPageDemo() {
 
   return (
     <main className="min-h-screen bg-blue-50 text-slate-950">
-      <div className="mx-auto max-w-[1440px] px-6 py-6">
+      <div className="mx-auto max-w-[1440px] p-4 md:p-5">
         <section className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border border-blue-100 bg-white px-5 py-4 shadow-sm md:flex-row md:items-center">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-blue-100 bg-white text-xl font-black shadow-sm">
@@ -1212,35 +1242,86 @@ export default function MyPageDemo() {
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.key;
+                  const hasChildren = Boolean(tab.children?.length);
+                  const isArchiveOpen = tab.key === "devlogs" && isActive;
 
                   return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setActiveTab(tab.key)}
-                      className={[
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
-                        isActive
-                          ? "bg-blue-950 text-white shadow-sm"
-                          : "text-slate-600 hover:bg-blue-100 hover:text-slate-950",
-                      ].join(" ")}
-                    >
-                      <Icon size={17} />
+                    <div key={tab.key}>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={[
+                          "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
+                          isActive
+                            ? "bg-blue-950 text-white shadow-sm"
+                            : "text-slate-600 hover:bg-blue-100 hover:text-slate-950",
+                        ].join(" ")}
+                      >
+                        <Icon size={17} />
 
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-black">
-                          {tab.label}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-black">
+                            {tab.label}
+                          </span>
+                          <span
+                            className={[
+                              "mt-0.5 block text-[10px] font-semibold",
+                              isActive ? "text-blue-100" : "text-slate-400",
+                            ].join(" ")}
+                          >
+                            {tab.description}
+                          </span>
                         </span>
-                        <span
-                          className={[
-                            "mt-0.5 block text-[10px] font-semibold",
-                            isActive ? "text-blue-100" : "text-slate-400",
-                          ].join(" ")}
-                        >
-                          {tab.description}
-                        </span>
-                      </span>
-                    </button>
+
+                        {hasChildren && (
+                          <ChevronDown
+                            size={15}
+                            className={[
+                              "shrink-0 transition-transform",
+                              isArchiveOpen ? "rotate-0" : "-rotate-90",
+                              isActive ? "text-blue-100" : "text-slate-400",
+                            ].join(" ")}
+                          />
+                        )}
+                      </button>
+
+                      {hasChildren && isArchiveOpen && (
+                        <div className="ml-5 mt-1 space-y-1 border-l border-blue-100 pl-3">
+                          {tab.children?.map((child) => {
+                            const ChildIcon = child.icon;
+                            const isChildActive = activeArchiveTab === child.key;
+
+                            return (
+                              <button
+                                key={child.key}
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab("devlogs");
+                                  setActiveArchiveTab(child.key);
+                                }}
+                                className={[
+                                  "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition",
+                                  isChildActive
+                                    ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                                    : "text-slate-500 hover:bg-blue-50 hover:text-slate-900",
+                                ].join(" ")}
+                              >
+                                <ChildIcon size={14} />
+
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-xs font-black">
+                                    {child.label}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-[10px] font-semibold text-slate-400">
+                                    {child.description}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -1314,6 +1395,8 @@ export default function MyPageDemo() {
                 projects={projects}
                 keyword={keyword}
                 onKeywordChange={setKeyword}
+                activeArchiveTab={activeArchiveTab}
+                onActiveArchiveTabChange={setActiveArchiveTab}
               />
             )}
 
@@ -1699,14 +1782,16 @@ function ProjectArchiveSection({
   projects,
   keyword,
   onKeywordChange,
+  activeArchiveTab,
+  onActiveArchiveTabChange,
 }: {
   devlogs: Devlog[];
   projects: Project[];
   keyword: string;
   onKeywordChange: (value: string) => void;
+  activeArchiveTab: ArchiveTabKey;
+  onActiveArchiveTabChange: (value: ArchiveTabKey) => void;
 }) {
-  const [activeArchiveTab, setActiveArchiveTab] =
-    useState<ArchiveTabKey>("devlog");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [sortType, setSortType] = useState<DevlogSortType>("latest");
   const [finalReportDraft, setFinalReportDraft] = useState("");
@@ -2561,7 +2646,7 @@ const nextDraft =
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActiveArchiveTab(tab.key)}
+              onClick={() => onActiveArchiveTabChange(tab.key)}
               className={[
                 "flex h-10 items-center justify-center gap-2 rounded-xl border px-2.5 text-left transition",
                 isActive
