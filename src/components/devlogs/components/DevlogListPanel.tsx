@@ -60,14 +60,14 @@ export function DevlogListPanel({
                   </span>
                 )}
 
-                {item.tags.map((tag) => (
+                {/* {item.tags.map((tag) => (
                   <span
                     key={tag}
                     className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500"
                   >
                     #{tag}
                   </span>
-                ))}
+                ))} */}
               </div>
             </button>
           ))

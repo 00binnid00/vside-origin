@@ -1724,7 +1724,7 @@ export default function ArchivePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f4f8ff] px-6 py-6 text-slate-950">
+      <main className="min-h-screen bg-[#f4f8ff] p-4 text-slate-950 md:p-5">
         <section className="mx-auto flex min-h-[420px] max-w-[1440px] items-center justify-center rounded-[28px] border border-blue-100 bg-white shadow-sm">
           <div className="flex items-center gap-3 text-sm font-black text-slate-500">
             <Loader2 className="animate-spin" size={18} />
@@ -1737,7 +1737,7 @@ export default function ArchivePage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#f4f8ff] px-6 py-6 text-slate-950">
+      <main className="min-h-screen bg-[#f4f8ff] p-4 text-slate-950 md:p-5">
         <section className="mx-auto max-w-[1440px] rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
           {error}
         </section>
@@ -1746,7 +1746,7 @@ export default function ArchivePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f8ff] px-6 py-6 text-slate-950">
+    <main className="min-h-screen bg-[#f4f8ff] p-4 text-slate-950 md:p-5">
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-5 xl:grid-cols-[300px_1fr]">
         <aside className="space-y-4">
           <section className="rounded-[26px] border border-blue-100 bg-white p-5 shadow-sm">
