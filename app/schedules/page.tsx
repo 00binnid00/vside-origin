@@ -12,9 +12,11 @@ import {
   ListTodo,
   Loader2,
   Menu,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   UserRound,
   UsersRound,
   X,
@@ -35,7 +37,9 @@ import {
 
 import {
   createWorkspaceScheduleApi,
+  deleteScheduleApi,
   fetchWorkspaceSchedulesApi,
+  updateScheduleApi,
   updateSchedulePeriodApi,
   updateScheduleStatusApi,
   type ScheduleApiItem,
@@ -256,9 +260,20 @@ export default function ScheduleManagementPage() {
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(true);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<ProjectScheduleItem | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [createForm, setCreateForm] = useState<CreateScheduleForm>({
+    title: "",
+    startDate: todayDate,
+    endDate: todayDate,
+    status: "todo",
+    description: "",
+  });
+
+  const [editForm, setEditForm] = useState<CreateScheduleForm>({
     title: "",
     startDate: todayDate,
     endDate: todayDate,
@@ -509,6 +524,27 @@ export default function ScheduleManagementPage() {
     });
   };
 
+  const removeScheduleFromState = (scheduleId: string) => {
+    setSchedules((prev) => {
+      const next = prev.filter((item) => item.id !== scheduleId);
+
+      setSelectedScheduleId((currentId) => {
+        if (currentId !== scheduleId) return currentId;
+        return next[0]?.id ?? null;
+      });
+
+      if (next.length === 0) {
+        setIsDetailSidebarOpen(false);
+      }
+
+      return next;
+    });
+
+    setAllProjectTodaySchedules((prev) =>
+      prev.filter((item) => item.id !== scheduleId),
+    );
+  };
+
   const openScheduleDetail = (id: string) => {
     setSelectedScheduleId(id);
     setIsDetailSidebarOpen(true);
@@ -652,6 +688,91 @@ export default function ScheduleManagementPage() {
     }
   };
 
+  const openEditModal = (schedule: ProjectScheduleItem) => {
+    setEditingSchedule(schedule);
+    setEditForm({
+      title: schedule.title,
+      startDate: getScheduleStartDate(schedule),
+      endDate: getScheduleEndDate(schedule),
+      status: schedule.status,
+      description: schedule.description || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const updateSchedule = async () => {
+    if (!editingSchedule) return;
+
+    if (!editForm.title.trim()) {
+      alert("일정 제목을 입력해주세요.");
+      return;
+    }
+
+    if (!editForm.startDate) {
+      alert("시작일을 선택해주세요.");
+      return;
+    }
+
+    if (!editForm.endDate) {
+      alert("종료일을 선택해주세요.");
+      return;
+    }
+
+    if (editForm.startDate > editForm.endDate) {
+      alert("종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const updated = await updateScheduleApi({
+        scheduleId: editingSchedule.id,
+        title: editForm.title.trim(),
+        description:
+          editForm.description.trim() || "등록된 상세 내용이 없습니다.",
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        status: editForm.status,
+      });
+
+      const mapped = mapScheduleFromApi(updated);
+      updateScheduleInState(mapped);
+      setSelectedScheduleId(mapped.id);
+      setIsDetailSidebarOpen(true);
+      setIsEditModalOpen(false);
+      setEditingSchedule(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "일정 수정에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSchedule = async (scheduleId: string) => {
+    const target = schedules.find((item) => item.id === scheduleId);
+    const title = target?.title ?? "선택한 일정";
+
+    if (!window.confirm(`'${title}' 일정을 삭제할까요? 삭제 후 복구할 수 없습니다.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await deleteScheduleApi({ scheduleId });
+      removeScheduleFromState(scheduleId);
+      setIsEditModalOpen(false);
+
+      if (editingSchedule?.id === scheduleId) {
+        setEditingSchedule(null);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "일정 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const markDevlogWritten = () => {
     alert("개발일지 작성은 개발일지 화면에서 연결 일정으로 작성해주세요.");
   };
@@ -761,6 +882,8 @@ export default function ScheduleManagementPage() {
             onSelectSchedule={openScheduleDetail}
             onMoveScheduleDate={moveScheduleDate}
             onChangeStatus={changeStatus}
+            onEditSchedule={openEditModal}
+            onDeleteSchedule={deleteSchedule}
           />
         )}
 
@@ -769,6 +892,9 @@ export default function ScheduleManagementPage() {
             selectedSchedule={selectedSchedule}
             onClose={() => setIsDetailSidebarOpen(false)}
             onChangeStatus={changeStatus}
+            onEditSchedule={openEditModal}
+            onDeleteSchedule={deleteSchedule}
+            deleting={deleting}
             onMarkDevlogWritten={markDevlogWritten}
           />
         )}
@@ -782,6 +908,22 @@ export default function ScheduleManagementPage() {
           onChange={setCreateForm}
           onClose={() => setIsCreateModalOpen(false)}
           onSubmit={createSchedule}
+        />
+      )}
+
+      {isEditModalOpen && editingSchedule && (
+        <ScheduleFormModal
+          mode="edit"
+          form={editForm}
+          saving={saving}
+          projectName={getProjectName(editingSchedule)}
+          onChange={setEditForm}
+          onClose={() => {
+            if (saving) return;
+            setIsEditModalOpen(false);
+            setEditingSchedule(null);
+          }}
+          onSubmit={updateSchedule}
         />
       )}
     </div>
@@ -1270,21 +1412,21 @@ function MonthlySchedulePageView({
   onMoveScheduleDate: (id: string, nextDate: string) => void;
 }) {
   return (
-    <main className="min-w-0 bg-[#f5f6fa] p-6">
-      <section className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
-        <div className="mb-7 flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-          <div>
+    <main className="min-w-0 bg-[#f5f6fa] p-3 xl:p-5">
+      <section className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+        <div className="mb-5 flex min-w-0 flex-col justify-between gap-4 2xl:flex-row 2xl:items-center">
+          <div className="min-w-0 shrink-0">
             <p className="text-sm font-bold text-blue-600">Schedule</p>
-            <h1 className="mt-2 text-3xl font-black text-slate-950">
+            <h1 className="mt-2 whitespace-nowrap text-2xl font-black text-slate-950 xl:text-3xl">
               {currentYear}년 {currentMonth + 1}월
             </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 2xl:justify-end">
             <button
               type="button"
               onClick={onBackToWeek}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              className="h-10 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
             >
               주간으로 돌아가기
             </button>
@@ -1292,7 +1434,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onCreateSchedule}
-              className="flex h-11 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700"
+              className="flex h-10 items-center gap-2 rounded-2xl bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-700"
             >
               <Plus size={17} />새 일정 추가
             </button>
@@ -1300,7 +1442,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onReload}
-              className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
               title="새로고침"
             >
               <RefreshCw size={17} />
@@ -1309,7 +1451,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onGoToday}
-              className="h-11 rounded-2xl border border-slate-200 px-5 text-sm font-bold hover:bg-slate-50"
+              className="h-10 rounded-2xl border border-slate-200 px-4 text-xs font-bold hover:bg-slate-50"
             >
               오늘
             </button>
@@ -1317,7 +1459,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={() => onMoveMonth(-1)}
-              className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
             >
               <ChevronLeft size={18} />
             </button>
@@ -1325,7 +1467,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={() => onMoveMonth(1)}
-              className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
             >
               <ChevronRight size={18} />
             </button>
@@ -1333,15 +1475,19 @@ function MonthlySchedulePageView({
         </div>
 
         <DataState loading={loading} errorMessage={errorMessage}>
-          <MonthlyCalendarBarView
-            schedules={schedules}
-            selectedScheduleId={selectedScheduleId}
-            currentYear={currentYear}
-            currentMonth={currentMonth}
-            todayDate={todayDate}
-            onSelectSchedule={onSelectSchedule}
-            onMoveScheduleDate={onMoveScheduleDate}
-          />
+          <div className="min-w-0 overflow-x-auto pb-2">
+            <div className="min-w-[860px]">
+              <MonthlyCalendarBarView
+                schedules={schedules}
+                selectedScheduleId={selectedScheduleId}
+                currentYear={currentYear}
+                currentMonth={currentMonth}
+                todayDate={todayDate}
+                onSelectSchedule={onSelectSchedule}
+                onMoveScheduleDate={onMoveScheduleDate}
+              />
+            </div>
+          </div>
         </DataState>
       </section>
     </main>
@@ -1379,6 +1525,8 @@ function WeeklySchedulePageView({
   onSelectSchedule,
   onMoveScheduleDate,
   onChangeStatus,
+  onEditSchedule,
+  onDeleteSchedule,
 }: {
   viewMode: ScheduleViewMode;
   setViewMode: (mode: ScheduleViewMode) => void;
@@ -1410,6 +1558,8 @@ function WeeklySchedulePageView({
   onSelectSchedule: (id: string) => void;
   onMoveScheduleDate: (id: string, nextDate: string) => void;
   onChangeStatus: (id: string, status: ScheduleStatus) => void;
+  onEditSchedule: (schedule: ProjectScheduleItem) => void;
+  onDeleteSchedule: (id: string) => void;
 }) {
   const [todayScope, setTodayScope] =
     useState<TodayScheduleScope>("selected");
@@ -1577,6 +1727,8 @@ function WeeklySchedulePageView({
               schedules={filteredSchedules}
               onSelect={onSelectSchedule}
               onChangeStatus={onChangeStatus}
+              onEditSchedule={onEditSchedule}
+              onDeleteSchedule={onDeleteSchedule}
             />
           )}
 
@@ -2117,10 +2269,14 @@ function ListView({
   schedules,
   onSelect,
   onChangeStatus,
+  onEditSchedule,
+  onDeleteSchedule,
 }: {
   schedules: ProjectScheduleItem[];
   onSelect: (id: string) => void;
   onChangeStatus: (id: string, status: ScheduleStatus) => void;
+  onEditSchedule: (schedule: ProjectScheduleItem) => void;
+  onDeleteSchedule: (id: string) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200">
@@ -2132,7 +2288,8 @@ function ListView({
             <th className="px-4 py-3">기간</th>
             <th className="px-4 py-3">상태</th>
             <th className="px-4 py-3">일지</th>
-            <th className="px-4 py-3">변경</th>
+            <th className="px-4 py-3">상태 변경</th>
+            <th className="px-4 py-3">관리</th>
           </tr>
         </thead>
 
@@ -2196,13 +2353,38 @@ function ListView({
                     </button>
                   </div>
                 </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onEditSchedule(item);
+                      }}
+                      className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                    >
+                      수정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteSchedule(item.id);
+                      }}
+                      className="rounded-lg bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </td>
               </tr>
             );
           })}
 
           {schedules.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-10">
+              <td colSpan={7} className="px-4 py-10">
                 <EmptyBox text="조건에 맞는 일정이 없습니다." />
               </td>
             </tr>
@@ -2217,11 +2399,17 @@ function ScheduleDetailAside({
   selectedSchedule,
   onClose,
   onChangeStatus,
+  onEditSchedule,
+  onDeleteSchedule,
+  deleting,
   onMarkDevlogWritten,
 }: {
   selectedSchedule: ProjectScheduleItem | null;
   onClose: () => void;
   onChangeStatus: (id: string, status: ScheduleStatus) => void;
+  onEditSchedule: (schedule: ProjectScheduleItem) => void;
+  onDeleteSchedule: (id: string) => void;
+  deleting: boolean;
   onMarkDevlogWritten: () => void;
 }) {
   if (!selectedSchedule) return null;
@@ -2296,6 +2484,38 @@ function ScheduleDetailAside({
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h3 className="text-xs font-black text-slate-800">일정 관리</h3>
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              제목, 기간, 상태, 상세 내용을 수정하거나 일정을 삭제할 수 있습니다.
+            </p>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onEditSchedule(selectedSchedule)}
+                className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-100 text-xs font-bold text-slate-700 hover:bg-slate-200"
+              >
+                <Pencil size={14} />
+                수정
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onDeleteSchedule(selectedSchedule.id)}
+                disabled={deleting}
+                className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-rose-50 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+              >
+                {deleting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                삭제
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="text-xs font-black text-slate-800">상태 변경</h3>
             <p className="mt-1 text-[11px] leading-5 text-slate-500">
               완료 상태로 변경하면 프로젝트 진행률에 반영됩니다.
@@ -2362,7 +2582,19 @@ function ScheduleDetailAside({
   );
 }
 
-function CreateScheduleModal({
+function CreateScheduleModal(props: {
+  form: CreateScheduleForm;
+  saving: boolean;
+  projectName: string;
+  onChange: React.Dispatch<React.SetStateAction<CreateScheduleForm>>;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return <ScheduleFormModal mode="create" {...props} />;
+}
+
+function ScheduleFormModal({
+  mode,
   form,
   saving,
   projectName,
@@ -2370,6 +2602,7 @@ function CreateScheduleModal({
   onClose,
   onSubmit,
 }: {
+  mode: "create" | "edit";
   form: CreateScheduleForm;
   saving: boolean;
   projectName: string;
@@ -2412,10 +2645,10 @@ function CreateScheduleModal({
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-5">
           <div>
             <p className="text-xs font-black uppercase tracking-wide text-blue-600">
-              New Schedule
+              {mode === "create" ? "New Schedule" : "Edit Schedule"}
             </p>
             <h2 className="mt-1 text-xl font-black text-slate-950">
-              새 일정 추가
+              {mode === "create" ? "새 일정 추가" : "일정 수정"}
             </h2>
           </div>
 
@@ -2424,7 +2657,7 @@ function CreateScheduleModal({
             onClick={onClose}
             disabled={saving}
             className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-            aria-label="일정 추가 모달 닫기"
+            aria-label={mode === "create" ? "일정 추가 모달 닫기" : "일정 수정 모달 닫기"}
           >
             <X size={18} />
           </button>
@@ -2546,7 +2779,7 @@ function CreateScheduleModal({
             className="flex h-10 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {saving && <Loader2 size={16} className="animate-spin" />}
-            일정 추가
+            {mode === "create" ? "일정 추가" : "수정 완료"}
           </button>
         </div>
       </div>
