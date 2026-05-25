@@ -5,22 +5,26 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
+  Download,
   FilePenLine,
   FolderOpen,
   Loader2,
   Menu,
   PanelRightClose,
-  PanelRightOpen,
+  Pencil,
   Plus,
   Search,
+  Trash2,
   UserRound,
   UsersRound,
 } from "lucide-react";
 
 import {
   createWorkspaceDevlogApi,
+  deleteDevlogApi,
   fetchWorkspaceDevlogsApi,
   getMyWorkspacesByTokenApi,
+  updateDevlogApi,
 } from "@/lib/ide/api";
 
 import {
@@ -39,7 +43,6 @@ import {
 } from "./devlog.utils";
 
 import { CreateDevlogModal } from "./components/CreateDevlogModal";
-import { DevlogDetailPanel } from "./components/DevlogDetailPanel";
 import { DevlogEmptyBox } from "./components/DevlogEmptyBox";
 import { DevlogFilterButton } from "./components/DevlogFilterButton";
 import { DevlogListPanel } from "./components/DevlogListPanel";
@@ -123,6 +126,40 @@ function mapWorkspaceFromApi(item: WorkspaceLike): WorkspaceSidebarItem | null {
   };
 }
 
+
+function escapePrintHtml(value: string) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapePrintHtmlWithLineBreaks(value: string) {
+  return escapePrintHtml(value).replaceAll("\n", "<br />");
+}
+
+function getPrintDateLabel() {
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+}
+
+function getDevlogDocumentStatusLabel(devlog: DevlogItem) {
+  if (devlog.type === "general") return "일반 일지";
+  if (!devlog.status) return "일정 연결";
+  return scheduleStatusLabel[devlog.status as keyof typeof scheduleStatusLabel] ?? "일정 연결";
+}
+
+function getDevlogDocumentTypeLabel(devlog: DevlogItem) {
+  return devlog.type === "linked" ? "일정 연결" : "일반 일지";
+}
+
 export default function DevlogManagementMock() {
   const router = useRouter();
   const pathname = usePathname();
@@ -134,11 +171,13 @@ export default function DevlogManagementMock() {
 
   const [workspaces, setWorkspaces] = useState<WorkspaceSidebarItem[]>([]);
   const [workspaceName, setWorkspaceName] = useState("프로젝트");
+
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
   const [devlogs, setDevlogs] = useState<DevlogItem[]>([]);
 
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceErrorMessage, setWorkspaceErrorMessage] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -150,9 +189,14 @@ export default function DevlogManagementMock() {
   const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(true);
   const [sidebarPanelMode, setSidebarPanelMode] =
     useState<SidebarPanelMode>("projects");
+
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(true);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingDevlog, setEditingDevlog] = useState<DevlogItem | null>(null);
+  const [deletingDevlogId, setDeletingDevlogId] = useState("");
+
   const [formTitle, setFormTitle] = useState("");
   const [formContent, setFormContent] = useState("");
   const [formDate, setFormDate] = useState(getTodayDateKey());
@@ -167,6 +211,7 @@ export default function DevlogManagementMock() {
       setWorkspaceErrorMessage("");
 
       const response = await getMyWorkspacesByTokenApi();
+
       const mapped = extractWorkspaceList(response)
         .map(mapWorkspaceFromApi)
         .filter((item): item is WorkspaceSidebarItem => Boolean(item));
@@ -329,34 +374,67 @@ export default function DevlogManagementMock() {
     null;
 
   const totalDevlogs = filteredDevlogs.length;
+
   const linkedDevlogs = filteredDevlogs.filter(
     (item) => item.type === "linked",
   ).length;
+
   const generalDevlogs = filteredDevlogs.filter(
     (item) => item.type === "general",
   ).length;
 
-  const currentWeekStart = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(today.getDate() - today.getDay());
+ const currentWeekRange = useMemo(() => {
+  const today = new Date();
+  const day = today.getDay();
 
-    const year = start.getFullYear();
-    const month = String(start.getMonth() + 1).padStart(2, "0");
-    const date = String(start.getDate()).padStart(2, "0");
+  // 일요일이면 지난 월요일로 이동, 나머지는 이번 주 월요일로 이동
+  const mondayDiff = day === 0 ? -6 : 1 - day;
+
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(today.getDate() + mondayDiff);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6); // 월요일 ~ 일요일
+
+  const toDateKey = (dateValue: Date) => {
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, "0");
+    const date = String(dateValue.getDate()).padStart(2, "0");
 
     return `${year}-${month}-${date}`;
-  }, []);
+  };
 
-  const weeklyDevlogs = filteredDevlogs.filter(
-    (item) => item.workedDate >= currentWeekStart,
-  ).length;
+  const toShortDateLabel = (dateValue: Date) => {
+    const year = String(dateValue.getFullYear()).slice(2);
+    const month = String(dateValue.getMonth() + 1).padStart(2, "0");
+    const date = String(dateValue.getDate()).padStart(2, "0");
+
+    return `${year}.${month}.${date}`;
+  };
+
+  return {
+    startKey: toDateKey(start),
+    endKey: toDateKey(end),
+    label: `${toShortDateLabel(start)} ~ ${toShortDateLabel(end)}`,
+  };
+}, []);
+
+  const weeklyDevlogs = filteredDevlogs.filter((item) => {
+    const workedDate = item.workedDate || item.date;
+
+    return Boolean(
+      workedDate &&
+        workedDate >= currentWeekRange.startKey &&
+        workedDate <= currentWeekRange.endKey,
+    );
+  }).length;
 
   const doneLinkedSchedules = filteredDevlogs.filter(
     (item) => item.type === "linked" && item.status === "done",
   ).length;
 
-  const shouldShowDetailSidebar = isDetailSidebarOpen;
+  const shouldShowDetailSidebar = isDetailSidebarOpen && selectedDevlog;
 
   const handleSelectWorkspace = (workspace: WorkspaceSidebarItem) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -451,6 +529,435 @@ export default function DevlogManagementMock() {
     }
   };
 
+  const openEditModal = (devlog: DevlogItem) => {
+    setEditingDevlog(devlog);
+    setFormTitle(devlog.title ?? "");
+    setFormContent(devlog.content ?? "");
+    setFormDate(devlog.workedDate || devlog.date || getTodayDateKey());
+    setFormScheduleId(devlog.scheduleId ?? "");
+    setFormStatusChange("none");
+    setIsEditModalOpen(true);
+  };
+
+  const closeEditModal = () => {
+    if (saving) return;
+
+    setIsEditModalOpen(false);
+    setEditingDevlog(null);
+    resetForm();
+  };
+
+  const updateDevlog = async () => {
+    if (!editingDevlog) return;
+
+    if (!formTitle.trim()) {
+      alert("제목을 입력해주세요.");
+      return;
+    }
+
+    if (!formDate) {
+      alert("작업한 날짜를 선택해주세요.");
+      return;
+    }
+
+    if (!formContent.trim()) {
+      alert("내용을 입력해주세요.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const updated = await updateDevlogApi({
+        devlogId: editingDevlog.id,
+        scheduleId: formScheduleId || null,
+        title: formTitle.trim(),
+        content: formContent.trim(),
+        workedDate: formDate,
+      });
+
+      const mapped = mapDevlogFromApi(updated);
+
+      setDevlogs((prev) =>
+        prev.map((item) => (item.id === mapped.id ? mapped : item)),
+      );
+      setSelectedDevlogId(mapped.id);
+      setIsDetailSidebarOpen(true);
+
+      await loadDevlogData();
+      closeEditModal();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "개발일지 수정에 실패했습니다.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteDevlog = async (devlog: DevlogItem) => {
+    const confirmed = window.confirm(
+      `"${devlog.title || "제목 없는 개발일지"}" 개발일지를 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingDevlogId(devlog.id);
+
+      await deleteDevlogApi(devlog.id);
+
+      setDevlogs((prev) => {
+        const next = prev.filter((item) => item.id !== devlog.id);
+
+        setSelectedDevlogId((currentId) => {
+          if (currentId !== devlog.id) return currentId;
+          return next[0]?.id ?? "";
+        });
+
+        return next;
+      });
+
+      if (editingDevlog?.id === devlog.id) {
+        closeEditModal();
+      }
+
+      await loadDevlogData();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "개발일지 삭제에 실패했습니다.",
+      );
+    } finally {
+      setDeletingDevlogId("");
+    }
+  };
+
+  const handlePrintDevlogsPdf = () => {
+    const printWindow = window.open("", "_blank", "width=920,height=1000");
+
+    if (!printWindow) {
+      alert("팝업이 차단되어 PDF 저장 창을 열 수 없습니다.");
+      return;
+    }
+
+    const documentTitle = "개발일지 문서";
+    const documentDescription =
+      query.trim() || filter !== "all"
+        ? "현재 검색/필터 조건에 맞는 개발일지만 문서화합니다."
+        : "현재 프로젝트의 전체 개발일지를 문서화합니다.";
+
+    const printBody =
+      filteredDevlogs.length === 0
+        ? `<div class="empty">조건에 맞는 개발일지가 없습니다.</div>`
+        : filteredDevlogs
+            .map((devlog, index) => {
+              const workedDate = devlog.workedDate || devlog.date || "-";
+              const tags = devlog.tags?.length
+                ? devlog.tags.map((tag) => `#${escapePrintHtml(tag)}`).join(" ")
+                : "태그 없음";
+
+              return `
+                <article class="print-card">
+                  <div class="print-card-header">
+                    <span class="index">${index + 1}</span>
+                    <div class="header-content">
+                      <div class="title-row">
+                        <h2>${escapePrintHtml(devlog.title || "제목 없는 개발일지")}</h2>
+                        <span class="pill">${escapePrintHtml(getDevlogDocumentStatusLabel(devlog))}</span>
+                      </div>
+                      <p class="meta">
+                        ${escapePrintHtml(devlog.projectName || workspaceName)} · ${escapePrintHtml(workedDate)}
+                      </p>
+                    </div>
+                  </div>
+
+                  ${
+                    devlog.scheduleTitle
+                      ? `
+                        <section class="linked-schedule">
+                          <span class="linked-label">연결 일정</span>
+                          <span class="linked-title">${escapePrintHtml(devlog.scheduleTitle)}</span>
+                        </section>
+                      `
+                      : ""
+                  }
+
+                  <section class="content-box">
+                    <p class="body-text">${escapePrintHtmlWithLineBreaks(devlog.content || "작성된 내용이 없습니다.")}</p>
+                  </section>
+
+                  <div class="tag-row">
+                    <span>${escapePrintHtml(getDevlogDocumentTypeLabel(devlog))}</span>
+                    <span>${tags}</span>
+                  </div>
+                </article>
+              `;
+            })
+            .join("");
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="ko">
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapePrintHtml(documentTitle)}</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 18mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              margin: 0;
+              background: #ffffff;
+              color: #111827;
+              font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              line-height: 1.65;
+            }
+
+            .document-header {
+              padding-bottom: 18px;
+              margin-bottom: 22px;
+              border-bottom: 2px solid #2563eb;
+            }
+
+            .eyebrow {
+              margin: 0 0 6px;
+              color: #2563eb;
+              font-size: 12px;
+              font-weight: 900;
+              letter-spacing: 0.08em;
+            }
+
+            h1 {
+              margin: 0;
+              color: #0f172a;
+              font-size: 28px;
+              font-weight: 900;
+              letter-spacing: -0.04em;
+            }
+
+            .description {
+              margin: 6px 0 0;
+              color: #64748b;
+              font-size: 13px;
+              font-weight: 700;
+            }
+
+            .header-meta {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 8px;
+              margin-top: 16px;
+            }
+
+            .meta-box {
+              padding: 10px 12px;
+              border: 1px solid #dbeafe;
+              border-radius: 12px;
+              background: #eff6ff;
+            }
+
+            .meta-label {
+              display: block;
+              margin-bottom: 2px;
+              color: #64748b;
+              font-size: 10px;
+              font-weight: 900;
+            }
+
+            .meta-value {
+              color: #0f172a;
+              font-size: 13px;
+              font-weight: 900;
+            }
+
+            .print-card {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              padding: 18px 0;
+              border-bottom: 1px solid #e5e7eb;
+            }
+
+            .print-card:first-of-type {
+              padding-top: 0;
+            }
+
+            .print-card-header {
+              display: flex;
+              gap: 10px;
+              align-items: flex-start;
+              margin-bottom: 10px;
+            }
+
+            .index {
+              display: inline-flex;
+              width: 28px;
+              height: 28px;
+              align-items: center;
+              justify-content: center;
+              border-radius: 9px;
+              background: #2563eb;
+              color: #ffffff;
+              font-size: 12px;
+              font-weight: 900;
+              flex-shrink: 0;
+            }
+
+            .header-content {
+              min-width: 0;
+              flex: 1;
+            }
+
+            .title-row {
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              gap: 10px;
+            }
+
+            h2 {
+              margin: 0;
+              color: #111827;
+              font-size: 17px;
+              font-weight: 900;
+              letter-spacing: -0.02em;
+            }
+
+            .pill {
+              flex-shrink: 0;
+              border-radius: 999px;
+              background: #dbeafe;
+              color: #1d4ed8;
+              padding: 3px 9px;
+              font-size: 10px;
+              font-weight: 900;
+            }
+
+            .meta {
+              margin: 3px 0 0;
+              color: #64748b;
+              font-size: 11px;
+              font-weight: 800;
+            }
+
+            .linked-schedule {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin: 10px 0;
+              padding: 9px 11px;
+              border: 1px solid #dbeafe;
+              border-radius: 12px;
+              background: #eff6ff;
+              font-size: 12px;
+            }
+
+            .linked-label {
+              color: #2563eb;
+              font-weight: 900;
+            }
+
+            .linked-title {
+              color: #334155;
+              font-weight: 800;
+            }
+
+            .content-box {
+              padding: 12px 0;
+            }
+
+            .body-text {
+              margin: 0;
+              color: #374151;
+              font-size: 13px;
+              font-weight: 650;
+              white-space: normal;
+            }
+
+            .tag-row {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              margin-top: 8px;
+              color: #64748b;
+              font-size: 10px;
+              font-weight: 800;
+            }
+
+            .empty {
+              padding: 60px 0;
+              color: #64748b;
+              font-size: 14px;
+              font-weight: 800;
+              text-align: center;
+            }
+
+            @media print {
+              body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+
+              .header-meta {
+                grid-template-columns: repeat(2, 1fr);
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <main class="document">
+            <header class="document-header">
+              <p class="eyebrow">DEVLOG DOCUMENT</p>
+              <h1>${escapePrintHtml(documentTitle)}</h1>
+              <p class="description">${escapePrintHtml(documentDescription)}</p>
+
+              <section class="header-meta">
+                <div class="meta-box">
+                  <span class="meta-label">프로젝트</span>
+                  <span class="meta-value">${escapePrintHtml(workspaceName)}</span>
+                </div>
+
+                <div class="meta-box">
+                  <span class="meta-label">문서화 일지</span>
+                  <span class="meta-value">${filteredDevlogs.length}개</span>
+                </div>
+
+                <div class="meta-box">
+                  <span class="meta-label">현재 필터</span>
+                  <span class="meta-value">${escapePrintHtml(filter === "all" ? "전체" : filter)}</span>
+                </div>
+
+                <div class="meta-box">
+                  <span class="meta-label">저장일</span>
+                  <span class="meta-value">${escapePrintHtml(getPrintDateLabel())}</span>
+                </div>
+              </section>
+            </header>
+
+            ${printBody}
+          </main>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  };
+
   return (
     <div className="min-h-screen bg-[#f5f6fa] text-slate-900">
       <div
@@ -482,91 +989,83 @@ export default function DevlogManagementMock() {
           onCreateWithSchedule={openCreateModalWithSchedule}
         />
 
-        <main className="min-w-0 bg-[#f5f6fa] p-6">
-          <div className="mx-auto flex max-w-[1480px] flex-col gap-5">
-            <header className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-blue-600">Devlog</p>
+        <main className="flex min-h-[calc(100vh-72px)] min-w-0 flex-col gap-4 bg-[#f5f6fa] p-4 xl:p-5">
+          <section className="shrink-0 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-blue-600">Devlog</p>
 
-                  <h1 className="mt-2 break-keep text-2xl font-black leading-snug text-slate-950">
-                    {workspaceName}
-                  </h1>
+                <h1 className="mt-1 line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
+                  {workspaceName}
+                </h1>
 
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    일정에 연결된 일지는 작업 진행 근거로, 일반 일지는 회고와
-                    오류 해결 기록으로 관리합니다.
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm font-bold text-slate-500">
-                    <span>
-                      전체{" "}
-                      <strong className="text-slate-950">
-                        {totalDevlogs}개
-                      </strong>
-                    </span>
-                    <span className="text-slate-300">·</span>
-                    <span>
-                      일정 연결{" "}
-                      <strong className="text-slate-950">
-                        {linkedDevlogs}개
-                      </strong>
-                    </span>
-                    <span className="text-slate-300">·</span>
-                    <span>
-                      일반{" "}
-                      <strong className="text-slate-950">
-                        {generalDevlogs}개
-                      </strong>
-                    </span>
-                    <span className="text-slate-300">·</span>
-                    <span>
-                      이번 주{" "}
-                      <strong className="text-slate-950">
-                        {weeklyDevlogs}개
-                      </strong>
-                    </span>
-                    <span className="text-slate-300">·</span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      완료 처리 {doneLinkedSchedules}개
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsDetailSidebarOpen((prev) => !prev)}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                    title={
-                      shouldShowDetailSidebar
-                        ? "상세 패널 닫기"
-                        : "상세 패널 열기"
-                    }
-                  >
-                    {shouldShowDetailSidebar ? (
-                      <PanelRightClose size={18} />
-                    ) : (
-                      <PanelRightOpen size={18} />
-                    )}
-                    <span className="hidden 2xl:inline">
-                      {shouldShowDetailSidebar ? "상세 닫기" : "상세 열기"}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={openCreateModal}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700"
-                  >
-                    <Plus size={18} />새 개발일지 작성
-                  </button>
-                </div>
+                <p className="mt-1 max-w-[720px] text-sm leading-6 text-slate-500">
+                  일정에 연결된 일지는 작업 진행 근거로, 일반 일지는 회고와 오류 해결 기록으로 관리합니다.
+                </p>
               </div>
-            </header>
 
-            <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
+                <button
+                  type="button"
+                  onClick={handlePrintDevlogsPdf}
+                  className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white px-5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                >
+                  <Download size={17} />
+                  PDF 저장
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openCreateModal}
+                  className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  <Plus size={17} />새 개발일지 작성
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-1 border-t border-slate-100 pt-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-2 text-sm font-bold text-slate-500">
+                  <span>
+                    전체{" "}
+                    <strong className="text-slate-950">
+                      {totalDevlogs}개
+                    </strong>
+                  </span>
+                  <span className="text-slate-300">·</span>
+                  <span>
+                    일정 연결{" "}
+                    <strong className="text-slate-950">
+                      {linkedDevlogs}개
+                    </strong>
+                  </span>
+                  <span className="text-slate-300">·</span>
+                  <span>
+                    일반{" "}
+                    <strong className="text-slate-950">
+                      {generalDevlogs}개
+                    </strong>
+                  </span>
+                  <span className="text-slate-300">·</span>
+                  <span>
+                    {currentWeekRange.label}{" "}
+                    <strong className="text-slate-950">
+                      {weeklyDevlogs}개
+                    </strong>
+                  </span>
+                </div>
+
+                <span className="w-fit rounded-full bg-slate-100 px-3 py-2 text-[10px] font-black text-slate-600">
+                  완료 처리 {doneLinkedSchedules}개
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="flex min-h-[520px] flex-1 flex-col rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+            <div className="shrink-0">
+              <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
                   <h2 className="text-xl font-bold">개발일지 목록</h2>
                   <p className="mt-1 text-sm text-slate-500">
@@ -588,7 +1087,7 @@ export default function DevlogManagementMock() {
                 </div>
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2">
                 <DevlogFilterButton
                   active={filter === "all"}
                   label="전체"
@@ -615,24 +1114,27 @@ export default function DevlogManagementMock() {
                   onClick={() => setFilter("done")}
                 />
               </div>
+            </div>
 
-              <DataState loading={loading} errorMessage={errorMessage}>
-                <div className="mt-6">
-                  <DevlogListPanel
-                    filteredDevlogs={filteredDevlogs}
-                    selectedDevlog={selectedDevlog}
-                    onSelectDevlog={handleSelectDevlog}
-                  />
-                </div>
-              </DataState>
-            </section>
-          </div>
+            <DataState loading={loading} errorMessage={errorMessage}>
+              <div className="mt-6">
+                <DevlogListPanel
+                  filteredDevlogs={filteredDevlogs}
+                  selectedDevlog={selectedDevlog}
+                  onSelectDevlog={handleSelectDevlog}
+                />
+              </div>
+            </DataState>
+          </section>
         </main>
 
         {shouldShowDetailSidebar && (
-          <DevlogDetailPanel
+          <DevlogDetailAside
             selectedDevlog={selectedDevlog}
+            deletingDevlogId={deletingDevlogId}
             onClose={() => setIsDetailSidebarOpen(false)}
+            onEdit={openEditModal}
+            onDelete={deleteDevlog}
           />
         )}
       </div>
@@ -654,6 +1156,26 @@ export default function DevlogManagementMock() {
           onChangeStatus={setFormStatusChange}
           onClose={closeCreateModal}
           onSubmit={createDevlog}
+        />
+      )}
+
+      {isEditModalOpen && editingDevlog && (
+        <CreateDevlogModal
+          selectedProjectName={workspaceName}
+          visibleSchedules={schedules}
+          formTitle={formTitle}
+          formContent={formContent}
+          formDate={formDate}
+          formScheduleId={formScheduleId}
+          formStatusChange={formStatusChange}
+          saving={saving}
+          onChangeTitle={setFormTitle}
+          onChangeContent={setFormContent}
+          onChangeDate={setFormDate}
+          onChangeScheduleId={setFormScheduleId}
+          onChangeStatus={setFormStatusChange}
+          onClose={closeEditModal}
+          onSubmit={updateDevlog}
         />
       )}
     </div>
@@ -687,7 +1209,7 @@ function DevlogProjectSidebar({
 }) {
   if (!isOpen) {
     return (
-      <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
+      <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6  pb-6  pr-0">
         <div className="flex h-full w-[60px] flex-col items-center gap-3 rounded-[24px] border border-slate-200 bg-white py-4 shadow-sm">
           <button
             type="button"
@@ -720,7 +1242,7 @@ function DevlogProjectSidebar({
   }
 
   return (
-    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
+    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-3 pr-0">
       <div className="flex h-full overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
         <div className="flex w-[52px] shrink-0 flex-col items-center gap-3 border-r border-slate-100 bg-white py-4">
           <button
@@ -1065,6 +1587,153 @@ function NoDevlogSchedulePanel({
   );
 }
 
+function DevlogDetailAside({
+  selectedDevlog,
+  deletingDevlogId,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  selectedDevlog: DevlogItem | null;
+  deletingDevlogId: string;
+  onClose: () => void;
+  onEdit: (devlog: DevlogItem) => void;
+  onDelete: (devlog: DevlogItem) => void;
+}) {
+  if (!selectedDevlog) return null;
+
+  const workedDate = selectedDevlog.workedDate || selectedDevlog.date || "-";
+  const isLinked = selectedDevlog.type === "linked";
+  const deleting = deletingDevlogId === selectedDevlog.id;
+
+  return (
+    <aside className="min-w-0 border-l border-slate-200 bg-white">
+      <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-hidden">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">
+              Selected Devlog
+            </p>
+            <h2 className="truncate text-sm font-black text-slate-900">
+              개발일지 상세
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="상세 닫기"
+          >
+            <PanelRightClose size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-black text-blue-600">
+              {selectedDevlog.projectName}
+            </p>
+
+            <h3 className="mt-3 break-keep text-lg font-black leading-snug text-slate-950">
+              {selectedDevlog.title || "제목 없는 개발일지"}
+            </h3>
+
+            <p className="mt-3 text-xs font-semibold text-slate-500">
+              작업한 날짜: {workedDate}
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-black ${
+                  isLinked
+                    ? "bg-blue-50 text-blue-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {isLinked ? "일정 연결" : "일반 일지"}
+              </span>
+
+              {selectedDevlog.status && (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${
+                    statusStyle[selectedDevlog.status]
+                  }`}
+                >
+                  {scheduleStatusLabel[selectedDevlog.status]}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onEdit(selectedDevlog)}
+                className="flex h-10 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white text-xs font-black text-blue-700 hover:bg-blue-50"
+              >
+                <Pencil size={15} />
+                수정
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onDelete(selectedDevlog)}
+                disabled={deleting}
+                className="flex h-10 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white text-xs font-black text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleting ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
+                삭제
+              </button>
+            </div>
+               {/* {selectedDevlog.scheduleTitle && (
+            <section className="rounded-2xl  p-4">
+              <h3 className="text-sm font-black text-slate-900">연결 일정</h3>
+              <p className="mt-3 break-keep text-sm leading-6 text-slate-600">
+                {selectedDevlog.scheduleTitle}
+              </p>
+            </section>
+          )} */}
+          </section>
+
+       
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h3 className="text-sm font-black text-slate-900">작성 내용</h3>
+            <p className="mt-3 whitespace-pre-wrap break-keep text-sm leading-7 text-slate-600">
+              {selectedDevlog.content || "작성된 내용이 없습니다."}
+            </p>
+          </section>
+
+          {/* <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h3 className="text-sm font-black text-slate-900">태그</h3>
+
+            {selectedDevlog.tags.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedDevlog.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-slate-400">
+                등록된 태그가 없습니다.
+              </p>
+            )}
+          </section> */}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 function DataState({
   loading,
   errorMessage,
@@ -1076,7 +1745,7 @@ function DataState({
 }) {
   if (loading) {
     return (
-      <div className="mt-6 grid min-h-[320px] place-items-center rounded-3xl border border-dashed border-slate-200 bg-slate-50">
+      <div className="mt-6 grid min-h-[360px] place-items-center rounded-3xl border border-dashed border-slate-200 bg-slate-50">
         <div className="flex items-center gap-3 text-sm font-bold text-slate-500">
           <Loader2 className="animate-spin" size={18} />
           개발일지 데이터를 불러오는 중입니다.
