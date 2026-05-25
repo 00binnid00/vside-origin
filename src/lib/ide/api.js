@@ -478,6 +478,9 @@ export const updateDevlogApi = async ({
   return normalizeDevlogFromApi(await response.json());
 };
 
+
+
+
 export const deleteDevlogApi = async (devlogId) => {
   if (!devlogId) {
     throw new Error("devlogId가 없습니다.");

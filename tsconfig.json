@@ -38,6 +38,6 @@
     "app/(project-wizard)/layout.jsx",
     "app/design/page.jsx",
     "app/providers.jsx"
-  ],
+, "src/lib/ide/api.js"  ],
   "exclude": ["node_modules"]
 }
