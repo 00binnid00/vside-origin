@@ -37,6 +37,15 @@ import {
 type ProjectStatus = "active" | "completed";
 type ArchiveTabKey = "devlog" | "design" | "final";
 type DesignArchiveSectionKey = "requirements" | "api" | "erd" | "flow";
+type ArchivePdfSectionKey =
+  | "devlog"
+  | "design-requirements"
+  | "design-api"
+  | "design-erd"
+  | "design-flow"
+  | "final-report"
+  | "final-erd"
+  | "final-flow";
 type DevlogSortType = "latest" | "oldest";
 
 type Project = {
@@ -160,6 +169,62 @@ const designSectionTabs: {
     label: "데이터 흐름",
     description: "화면·서버·DB 흐름",
     icon: GitBranch,
+  },
+];
+
+const archivePdfSectionItems: {
+  key: ArchivePdfSectionKey;
+  label: string;
+  group: string;
+  printTitle: string;
+}[] = [
+  {
+    key: "devlog",
+    label: "개발일지",
+    group: "개발일지",
+    printTitle: "개발일지",
+  },
+  {
+    key: "design-requirements",
+    label: "요구사항",
+    group: "설계 문서",
+    printTitle: "요구사항 정의",
+  },
+  {
+    key: "design-api",
+    label: "API 명세",
+    group: "설계 문서",
+    printTitle: "API 명세",
+  },
+  {
+    key: "design-erd",
+    label: "ERD",
+    group: "설계 문서",
+    printTitle: "ERD",
+  },
+  {
+    key: "design-flow",
+    label: "데이터 플로우",
+    group: "설계 문서",
+    printTitle: "데이터 플로우",
+  },
+  {
+    key: "final-report",
+    label: "최종 보고서 초안",
+    group: "최종 보고서",
+    printTitle: "최종 보고서 초안",
+  },
+  {
+    key: "final-erd",
+    label: "최종 보고서 ERD",
+    group: "최종 보고서",
+    printTitle: "최종 보고서 ERD",
+  },
+  {
+    key: "final-flow",
+    label: "최종 보고서 데이터 플로우",
+    group: "최종 보고서",
+    printTitle: "최종 보고서 데이터 플로우",
   },
 ];
 
@@ -932,6 +997,10 @@ export default function ArchivePage() {
     useState<DesignArchiveSectionKey>("requirements");
   const [keyword, setKeyword] = useState("");
   const [sortType, setSortType] = useState<DevlogSortType>("latest");
+  const [isPdfMenuOpen, setIsPdfMenuOpen] = useState(false);
+  const [selectedPdfSections, setSelectedPdfSections] = useState<
+    ArchivePdfSectionKey[]
+  >(archivePdfSectionItems.map((item) => item.key));
 
   const [designRequirements, setDesignRequirements] = useState<
     DesignRequirementItem[]
@@ -1002,6 +1071,10 @@ export default function ArchivePage() {
     designApiSpecs.length +
     parsedDesignDocument.erdNodes.length +
     parsedDesignDocument.flowNodes.length;
+
+  const selectedPdfSectionLabels = archivePdfSectionItems
+    .filter((item) => selectedPdfSections.includes(item.key))
+    .map((item) => item.label);
 
   useEffect(() => {
     let mounted = true;
@@ -1113,8 +1186,6 @@ export default function ArchivePage() {
     let mounted = true;
 
     async function loadDesignArchive() {
-      if (activeArchiveTab !== "design" && activeArchiveTab !== "final") return;
-
       if (!selectedDesignWorkspaceId) {
         setDesignRequirements([]);
         setDesignApiSpecs([]);
@@ -1191,7 +1262,7 @@ export default function ArchivePage() {
     return () => {
       mounted = false;
     };
-  }, [activeArchiveTab, selectedDesignWorkspaceId]);
+  }, [selectedDesignWorkspaceId]);
 
   const handleGenerateFinalReport = async () => {
     if (!selectedProject) {
@@ -1285,7 +1356,54 @@ export default function ArchivePage() {
     }
   };
 
+  const togglePdfSection = (sectionKey: ArchivePdfSectionKey) => {
+    setSelectedPdfSections((prev) => {
+      if (prev.includes(sectionKey)) {
+        return prev.filter((key) => key !== sectionKey);
+      }
+
+      return [...prev, sectionKey];
+    });
+  };
+
+  const selectAllPdfSections = () => {
+    setSelectedPdfSections(archivePdfSectionItems.map((item) => item.key));
+  };
+
+  const clearPdfSections = () => {
+    setSelectedPdfSections([]);
+  };
+
+  const selectCurrentArchivePdfSections = () => {
+    if (activeArchiveTab === "devlog") {
+      setSelectedPdfSections(["devlog"]);
+      return;
+    }
+
+    if (activeArchiveTab === "design") {
+      setSelectedPdfSections([
+        "design-requirements",
+        "design-api",
+        "design-erd",
+        "design-flow",
+      ]);
+      return;
+    }
+
+    setSelectedPdfSections(["final-report", "final-erd", "final-flow"]);
+  };
+
   const handlePrintPdf = () => {
+    const selectedSections = archivePdfSectionItems.filter((item) =>
+      selectedPdfSections.includes(item.key),
+    );
+
+    if (selectedSections.length === 0) {
+      alert("PDF로 출력할 항목을 1개 이상 선택해주세요.");
+      setIsPdfMenuOpen(true);
+      return;
+    }
+
     const printWindow = window.open("", "_blank", "width=920,height=1000");
 
     if (!printWindow) {
@@ -1293,16 +1411,19 @@ export default function ArchivePage() {
       return;
     }
 
-    const documentTitle = activeArchive?.label ?? "프로젝트 자료실";
+    const documentTitle =
+      selectedSections.length === archivePdfSectionItems.length
+        ? "프로젝트 자료실"
+        : `프로젝트 자료실 - ${selectedSections
+            .map((item) => item.label)
+            .join(", ")}`;
     const selectedProjectName = selectedProject?.name || "선택된 프로젝트";
+    const selectedSectionText = selectedSections
+      .map((item) => item.label)
+      .join(", ");
 
-    const printBody = (() => {
-      if (activeArchiveTab === "devlog") {
-        if (filteredDevlogs.length === 0) {
-          return `<div class="empty">조건에 맞는 개발일지가 없습니다.</div>`;
-        }
-
-        return filteredDevlogs
+    const devlogHtml = filteredDevlogs.length
+      ? filteredDevlogs
           .map(
             (devlog, index) => `
               <article class="print-card">
@@ -1317,129 +1438,164 @@ export default function ArchivePage() {
               </article>
             `,
           )
-          .join("");
-      }
+          .join("")
+      : `<div class="empty small-empty">조건에 맞는 개발일지가 없습니다.</div>`;
 
-      if (activeArchiveTab === "design") {
-        const requirementHtml = designRequirements.length
-          ? designRequirements
-              .map(
-                (item, index) => `
-                  <article class="print-card compact-card">
-                    <div class="print-card-header">
-                      <span class="index">${index + 1}</span>
-                      <div>
-                        <h2>${escapeHtml(item.name || "이름 없는 요구사항")}</h2>
-                        <p class="meta">${escapeHtml(item.category || "기본")}</p>
-                      </div>
-                    </div>
-                    <p class="body-text">${escapeHtmlWithLineBreaks(item.description || "설명이 없습니다.")}</p>
-                  </article>
-                `,
-              )
-              .join("")
-          : `<div class="empty small-empty">작성된 요구사항이 없습니다.</div>`;
+    const requirementHtml = designRequirements.length
+      ? designRequirements
+          .map(
+            (item, index) => `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(item.name || "이름 없는 요구사항")}</h2>
+                    <p class="meta">${escapeHtml(item.category || "기본")}</p>
+                  </div>
+                </div>
+                <p class="body-text">${escapeHtmlWithLineBreaks(item.description || "설명이 없습니다.")}</p>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 요구사항이 없습니다.</div>`;
 
-        const apiHtml = designApiSpecs.length
-          ? designApiSpecs
-              .map(
-                (item) => `
-                  <article class="print-card compact-card">
-                    <h2>
-                      <span class="method">${escapeHtml(item.method || "GET")}</span>
-                      ${escapeHtml(item.endpoint || "/api/example")}
-                    </h2>
-                    <p class="body-text">${escapeHtmlWithLineBreaks(
-                      item.description || "설명이 없습니다.",
-                    )}</p>
+    const apiHtml = designApiSpecs.length
+      ? designApiSpecs
+          .map(
+            (item) => `
+              <article class="print-card compact-card">
+                <h2>
+                  <span class="method">${escapeHtml(item.method || "GET")}</span>
+                  ${escapeHtml(item.endpoint || "/api/example")}
+                </h2>
+                <p class="body-text">${escapeHtmlWithLineBreaks(
+                  item.description || "설명이 없습니다.",
+                )}</p>
 
-                    <div class="api-payload-grid">
-                      <div>
-                        <p class="payload-title">요청 데이터</p>
-                        <pre class="code-block">${escapeHtml(formatApiPayload(item.request))}</pre>
-                      </div>
+                <div class="api-payload-grid">
+                  <div>
+                    <p class="payload-title">요청 데이터</p>
+                    <pre class="code-block">${escapeHtml(formatApiPayload(item.request))}</pre>
+                  </div>
 
-                      <div>
-                        <p class="payload-title">응답 데이터</p>
-                        <pre class="code-block">${escapeHtml(formatApiPayload(item.response))}</pre>
-                      </div>
-                    </div>
-                  </article>
-                `,
-              )
-              .join("")
-          : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
+                  <div>
+                    <p class="payload-title">응답 데이터</p>
+                    <pre class="code-block">${escapeHtml(formatApiPayload(item.response))}</pre>
+                  </div>
+                </div>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
 
-        const erdDiagramHtml = buildPrintDiagramSvg({
-          nodes: parsedDesignDocument.erdNodes,
-          edges: parsedDesignDocument.erdEdges,
-          type: "erd",
-        });
+    const erdDiagramHtml = buildPrintDiagramSvg({
+      nodes: parsedDesignDocument.erdNodes,
+      edges: parsedDesignDocument.erdEdges,
+      type: "erd",
+    });
 
-        const flowDiagramHtml = buildPrintDiagramSvg({
-          nodes: parsedDesignDocument.flowNodes,
-          edges: parsedDesignDocument.flowEdges,
-          type: "flow",
-        });
+    const flowDiagramHtml = buildPrintDiagramSvg({
+      nodes: parsedDesignDocument.flowNodes,
+      edges: parsedDesignDocument.flowEdges,
+      type: "flow",
+    });
 
-        return `
+    const erdDetailHtml = parsedDesignDocument.erdNodes.length
+      ? parsedDesignDocument.erdNodes
+          .map((node, index) => {
+            const columns = getNodeColumns(node);
+
+            return `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(getNodeLabel(node, `TABLE_${index + 1}`))}</h2>
+                    <p class="meta">컬럼 ${columns.length}개</p>
+                  </div>
+                </div>
+                <p class="body-text">${
+                  columns.length
+                    ? columns
+                        .slice(0, 12)
+                        .map((column) => {
+                          const name =
+                            typeof column.name === "string"
+                              ? column.name
+                              : "column";
+                          const type =
+                            typeof column.type === "string"
+                              ? column.type
+                              : "TYPE";
+
+                          return `${escapeHtml(name)} (${escapeHtml(type)})`;
+                        })
+                        .join(", ")
+                    : "컬럼이 없습니다."
+                }</p>
+              </article>
+            `;
+          })
+          .join("")
+      : `<div class="empty small-empty">작성된 ERD 테이블이 없습니다.</div>`;
+
+    const flowDetailHtml = parsedDesignDocument.flowNodes.length
+      ? parsedDesignDocument.flowNodes
+          .map(
+            (node, index) => `
+              <article class="print-card compact-card">
+                <div class="print-card-header">
+                  <span class="index">${index + 1}</span>
+                  <div>
+                    <h2>${escapeHtml(getNodeLabel(node, `NODE_${index + 1}`))}</h2>
+                    <p class="meta">${escapeHtml(getNodeSubText(node))}</p>
+                  </div>
+                </div>
+              </article>
+            `,
+          )
+          .join("")
+      : `<div class="empty small-empty">작성된 데이터 플로우가 없습니다.</div>`;
+
+    const reportContent =
+      finalReportDraft.trim() ||
+      "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
+
+    const sectionHtmlMap: Record<ArchivePdfSectionKey, string> = {
+      devlog: devlogHtml,
+      "design-requirements": requirementHtml,
+      "design-api": apiHtml,
+      "design-erd": `
+        <p class="body-text section-description">설계단계에서 작성한 테이블과 관계선을 시각화한 다이어그램입니다.</p>
+        ${erdDiagramHtml}
+        ${erdDetailHtml}
+      `,
+      "design-flow": `
+        <p class="body-text section-description">화면, 서버, DB, 외부 서비스 사이의 데이터 흐름을 시각화한 다이어그램입니다.</p>
+        ${flowDiagramHtml}
+        ${flowDetailHtml}
+      `,
+      "final-report": `
+        <article class="print-card report-card">
+          <div class="report-text">${escapeHtmlWithLineBreaks(reportContent)}</div>
+        </article>
+      `,
+      "final-erd": erdDiagramHtml,
+      "final-flow": flowDiagramHtml,
+    };
+
+    const printBody = selectedSections
+      .map(
+        (section, index) => `
           <section class="print-section">
-            <h2 class="section-title">1. 요구사항 정의</h2>
-            ${requirementHtml}
+            <h2 class="section-title">${index + 1}. ${escapeHtml(section.printTitle)}</h2>
+            ${sectionHtmlMap[section.key]}
           </section>
-
-          <section class="print-section">
-            <h2 class="section-title">2. API 명세</h2>
-            ${apiHtml}
-          </section>
-
-          <section class="print-section">
-            <h2 class="section-title">3. ERD</h2>
-            ${erdDiagramHtml}
-          </section>
-
-          <section class="print-section">
-            <h2 class="section-title">4. 데이터 플로우</h2>
-            ${flowDiagramHtml}
-          </section>
-        `;
-      }
-
-      const reportContent =
-        finalReportDraft.trim() ||
-        "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
-
-      const finalErdDiagramHtml = buildPrintDiagramSvg({
-        nodes: parsedDesignDocument.erdNodes,
-        edges: parsedDesignDocument.erdEdges,
-        type: "erd",
-      });
-
-      const finalFlowDiagramHtml = buildPrintDiagramSvg({
-        nodes: parsedDesignDocument.flowNodes,
-        edges: parsedDesignDocument.flowEdges,
-        type: "flow",
-      });
-
-      return `
-        <section class="print-section">
-          <h2 class="section-title">1. 최종 보고서 초안</h2>
-          <article class="print-card report-card">
-            <div class="report-text">${escapeHtmlWithLineBreaks(reportContent)}</div>
-          </article>
-        </section>
-
-        <section class="print-section">
-          <h2 class="section-title">2. ERD</h2>
-          ${finalErdDiagramHtml}
-        </section>
-
-        <section class="print-section">
-          <h2 class="section-title">3. 데이터 플로우</h2>
-          ${finalFlowDiagramHtml}
-        </section>
-      `;
-    })();
+        `,
+      )
+      .join("");
 
     printWindow.document.write(`
       <!doctype html>
@@ -1463,6 +1619,10 @@ export default function ArchivePage() {
               color: #111827;
               font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
               line-height: 1.65;
+            }
+
+            .document {
+              width: 100%;
             }
 
             .document-header {
@@ -1536,6 +1696,10 @@ export default function ArchivePage() {
               padding: 12px 0;
             }
 
+            .print-card:first-of-type {
+              padding-top: 0;
+            }
+
             .print-card-header {
               display: flex;
               gap: 10px;
@@ -1602,6 +1766,10 @@ export default function ArchivePage() {
             .small-empty {
               padding: 14px 0;
               text-align: left;
+            }
+
+            .section-description {
+              margin-bottom: 10px;
             }
 
             .code-block {
@@ -1697,8 +1865,8 @@ export default function ArchivePage() {
                 </div>
 
                 <div class="meta-box">
-                  <span class="meta-label">문서 구분</span>
-                  <span class="meta-value">${escapeHtml(documentTitle)}</span>
+                  <span class="meta-label">출력 항목</span>
+                  <span class="meta-value">${escapeHtml(selectedSectionText)}</span>
                 </div>
 
                 <div class="meta-box">
@@ -1919,14 +2087,127 @@ export default function ArchivePage() {
                   </select>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handlePrintPdf}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900"
-                >
-                  <Download size={16} />
-                  PDF 저장
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsPdfMenuOpen((prev) => !prev)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900"
+                  >
+                    <Download size={16} />
+                    PDF 저장
+                    <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] text-white">
+                      {selectedPdfSections.length}
+                    </span>
+                  </button>
+
+                  {isPdfMenuOpen && (
+                    <div className="absolute right-0 top-12 z-50 w-[330px] rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-black text-slate-950">
+                            PDF 출력 항목
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-bold text-slate-500">
+                            개발일지, 설계 문서, 최종 보고서를 원하는 조합으로 출력합니다.
+                          </p>
+                        </div>
+
+                        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">
+                          {selectedPdfSections.length}개 선택
+                        </span>
+                      </div>
+
+                      <div className="mb-3 grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={selectAllPdfSections}
+                          className="h-7 rounded-lg bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100"
+                        >
+                          전체
+                        </button>
+                        <button
+                          type="button"
+                          onClick={selectCurrentArchivePdfSections}
+                          className="h-7 rounded-lg bg-indigo-50 px-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100"
+                        >
+                          현재 탭
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearPdfSections}
+                          className="h-7 rounded-lg bg-slate-50 px-2 text-[11px] font-black text-slate-500 transition hover:bg-slate-100"
+                        >
+                          해제
+                        </button>
+                      </div>
+
+                      <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                        {["개발일지", "설계 문서", "최종 보고서"].map((group) => (
+                          <section key={group}>
+                            <p className="mb-1.5 px-1 text-[11px] font-black text-slate-400">
+                              {group}
+                            </p>
+
+                            <div className="space-y-1.5">
+                              {archivePdfSectionItems
+                                .filter((item) => item.group === group)
+                                .map((item) => {
+                                  const checked = selectedPdfSections.includes(
+                                    item.key,
+                                  );
+
+                                  return (
+                                    <label
+                                      key={item.key}
+                                      className={[
+                                        "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm transition",
+                                        checked
+                                          ? "border-blue-200 bg-blue-50 text-blue-800"
+                                          : "border-slate-100 bg-white text-slate-600 hover:bg-slate-50",
+                                      ].join(" ")}
+                                    >
+                                      <span className="font-black">
+                                        {item.label}
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => togglePdfSection(item.key)}
+                                        className="h-4 w-4 accent-blue-600"
+                                      />
+                                    </label>
+                                  );
+                                })}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handlePrintPdf();
+
+                          if (selectedPdfSections.length > 0) {
+                            setIsPdfMenuOpen(false);
+                          }
+                        }}
+                        disabled={selectedPdfSections.length === 0}
+                        className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-extrabold text-white shadow-sm shadow-blue-100 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        <Download size={14} />
+                        선택 항목 PDF 저장
+                      </button>
+
+                      <p className="mt-2 truncate text-[11px] font-bold text-slate-400">
+                        선택됨:{" "}
+                        {selectedPdfSectionLabels.length > 0
+                          ? selectedPdfSectionLabels.join(", ")
+                          : "없음"}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </section>
