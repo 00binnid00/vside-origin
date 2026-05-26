@@ -44,6 +44,18 @@ const MyPagePanel = () => (
   </div>
 );
 
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 260;
+const LEFT_SIDEBAR_MIN_WIDTH = 220;
+const LEFT_SIDEBAR_MAX_WIDTH = 420;
+
+const RIGHT_PANEL_DEFAULT_WIDTH = 320;
+const RIGHT_PANEL_MIN_WIDTH = 300;
+const RIGHT_PANEL_MAX_WIDTH = 560;
+
+const clampPanelWidth = (value, min, max) => {
+  return Math.min(max, Math.max(min, value));
+};
+
 function CollaborationPanel({ workspaceId }) {
   const { user } = useAuth();
 
@@ -63,25 +75,31 @@ function CollaborationPanel({ workspaceId }) {
     if (myProfile?.nickname) return myProfile.nickname;
     if (user?.nickname) return user.nickname;
     if (user?.email) return user.email.split("@")[0];
+
     try {
       if (typeof window !== "undefined") {
         const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+
         if (storedUser?.nickname) return storedUser.nickname;
         if (storedUser?.email) return storedUser.email.split("@")[0];
       }
     } catch (e) {}
+
     return "팀원";
   };
 
   const getMyUserId = () => {
     if (user?.id) return user.id;
+
     try {
       if (typeof window !== "undefined") {
         const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+
         if (storedUser?.id) return storedUser.id;
       }
     } catch (e) {}
-    return 0; // 익명 ID
+
+    return 0;
   };
 
   useEffect(() => {
@@ -108,6 +126,7 @@ function CollaborationPanel({ workspaceId }) {
           isMe: String(msg.senderId) === String(myId),
           type: msg.type,
         }));
+
         setMessages(formatted);
       })
       .catch((err) => console.error("이전 채팅 불러오기 실패:", err));
@@ -138,7 +157,7 @@ function CollaborationPanel({ workspaceId }) {
     return () => {
       ChatSocket.disconnect();
     };
-  }, [workspaceId, user]); 
+  }, [workspaceId, user]);
 
   const handleSend = () => {
     const myId = getMyUserId();
@@ -157,7 +176,7 @@ function CollaborationPanel({ workspaceId }) {
     };
 
     ChatSocket.sendMessage(messageData);
-    setChatInput(""); 
+    setChatInput("");
   };
 
   const displayMessages = messages.filter((msg) => {
@@ -201,8 +220,7 @@ function CollaborationPanel({ workspaceId }) {
             )}
 
             <div
-              className={`max-w-[85%] p-3 rounded-lg text-[13px] shadow-sm leading-relaxed whitespace-pre-wrap break-words
-              ${
+              className={`max-w-[85%] p-3 rounded-lg text-[13px] shadow-sm leading-relaxed whitespace-pre-wrap break-words ${
                 msg.isMe
                   ? "bg-green-600 text-white rounded-tr-none"
                   : "bg-white text-gray-800 border border-gray-200 rounded-tl-none"
@@ -223,12 +241,14 @@ function CollaborationPanel({ workspaceId }) {
           <span className="text-[11px] font-bold text-gray-500 whitespace-nowrap pl-1">
             수신:
           </span>
+
           <select
             value={chatMode}
             onChange={(e) => setChatMode(e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 text-gray-700 text-[12px] font-bold rounded-lg px-2 py-1.5 outline-none focus:border-green-400 focus:bg-white transition-colors cursor-pointer"
           >
             <option value="ALL">📢 모두에게 (Public)</option>
+
             {teamMembers
               .filter((m) => String(m.userId) !== String(getMyUserId()))
               .map((member) => (
@@ -244,7 +264,7 @@ function CollaborationPanel({ workspaceId }) {
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) { 
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }
@@ -256,6 +276,7 @@ function CollaborationPanel({ workspaceId }) {
                 : "귓속말 보내기..."
             }
           />
+
           <button
             onClick={handleSend}
             disabled={!chatInput.trim()}
@@ -285,7 +306,7 @@ export default function TeamIdeMain() {
     isSidebarVisible,
     isAgentVisible,
     isDebugMode,
-    isRightPanelVisible, 
+    isRightPanelVisible,
   } = useSelector((state) => state.ui);
 
   const { workspaceId, activeBranch } = useSelector(
@@ -294,7 +315,81 @@ export default function TeamIdeMain() {
 
   const [rightTab, setRightTab] = useState("chat");
 
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    LEFT_SIDEBAR_DEFAULT_WIDTH,
+  );
+  const [rightPanelWidth, setRightPanelWidth] = useState(
+    RIGHT_PANEL_DEFAULT_WIDTH,
+  );
+  const [resizingPanel, setResizingPanel] = useState(null);
+
+  const editorLayoutRef = useRef(null);
+
   const isSandboxMode = activeBranch?.startsWith("focus/");
+
+  const startLeftSidebarResize = (event) => {
+    event.preventDefault();
+    setResizingPanel("left");
+  };
+
+  const startRightPanelResize = (event) => {
+    event.preventDefault();
+    setResizingPanel("right");
+  };
+
+  useEffect(() => {
+    if (!resizingPanel) return;
+
+    const handlePointerMove = (event) => {
+      const layoutRect = editorLayoutRef.current?.getBoundingClientRect();
+
+      if (resizingPanel === "left") {
+        const nextWidth = layoutRect
+          ? event.clientX - layoutRect.left
+          : event.clientX;
+
+        setLeftSidebarWidth(
+          clampPanelWidth(
+            nextWidth,
+            LEFT_SIDEBAR_MIN_WIDTH,
+            LEFT_SIDEBAR_MAX_WIDTH,
+          ),
+        );
+      }
+
+      if (resizingPanel === "right") {
+        const nextWidth = layoutRect
+          ? layoutRect.right - event.clientX
+          : window.innerWidth - event.clientX;
+
+        setRightPanelWidth(
+          clampPanelWidth(
+            nextWidth,
+            RIGHT_PANEL_MIN_WIDTH,
+            RIGHT_PANEL_MAX_WIDTH,
+          ),
+        );
+      }
+    };
+
+    const handlePointerUp = () => {
+      setResizingPanel(null);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [resizingPanel]);
 
   useEffect(() => {
     if (!id) return;
@@ -305,6 +400,7 @@ export default function TeamIdeMain() {
     fetchWorkspaceProjectsApi(id)
       .then((root) => {
         dispatch(setWorkspaceTree(root));
+
         if (root.children) {
           dispatch(setProjectList(root.children));
         }
@@ -316,30 +412,63 @@ export default function TeamIdeMain() {
     switch (activeActivity) {
       case "docs":
         return <DevlogPanel />;
+
       case "api-test":
         return <ApiTesterPage />;
+
       case "mypage":
         return <MyPagePanel />;
+
       case "git":
         return <GitDashboard />;
+
       case "editor":
       default:
         return (
-          // 💡 전체 배경을 부드럽고 화사한 라이트 그레이 톤으로 변경
-          <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2">
-            
+          <div
+            ref={editorLayoutRef}
+            className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2"
+          >
             {/* 왼쪽 탐색기 패널 */}
             <div
-              className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden flex flex-col shrink-0
-              ${isSandboxMode ? "bg-slate-900 border border-indigo-900/50" : "bg-white border border-gray-200"}
-              ${isSidebarVisible ? "w-[260px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+              className={`relative rounded-2xl shadow-sm overflow-hidden flex flex-col shrink-0 ${
+                resizingPanel === "left"
+                  ? "transition-none"
+                  : "transition-all duration-300 ease-in-out"
+              } ${
+                isSandboxMode
+                  ? "bg-slate-900 border border-indigo-900/50"
+                  : "bg-white border border-gray-200"
+              } ${
+                isSidebarVisible
+                  ? "opacity-100"
+                  : "opacity-0 border-transparent"
+              }`}
+              style={{
+                width: isSidebarVisible ? `${leftSidebarWidth}px` : "0px",
+              }}
             >
-              <div className="w-[260px] h-full flex flex-col shrink-0">
+              {isSidebarVisible && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="탐색기 너비 조절"
+                  onPointerDown={startLeftSidebarResize}
+                  className="absolute right-0 top-0 z-[700] h-full w-3 translate-x-1/2 cursor-col-resize touch-none"
+                >
+                  <div className="mx-auto h-full w-px bg-transparent transition hover:bg-blue-400" />
+                </div>
+              )}
+
+              <div
+                className="h-full flex flex-col shrink-0"
+                style={{ width: `${leftSidebarWidth}px` }}
+              >
                 <Sidebar />
               </div>
             </div>
 
-            {/* 💡 탐색기가 닫혀 있을 때만 띄우는 열기 화살표 버튼 */}
+            {/* 탐색기가 닫혀 있을 때 열기 버튼 */}
             {!isSidebarVisible && (
               <div className="relative flex items-center justify-center -ml-4 z-10 w-0">
                 <button
@@ -352,15 +481,17 @@ export default function TeamIdeMain() {
               </div>
             )}
 
-            {/* 중앙 에디터 영역 (모서리 둥글게, 카드형 UI) */}
+            {/* 중앙 에디터 영역 */}
             <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 z-0 relative">
               <FileTabs />
+
               <div className="flex-1 flex relative overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 relative">
                   <CodeEditor />
                   <CodeMap />
                 </div>
               </div>
+
               {isTerminalVisible && (
                 <div className="h-[250px] border-t border-gray-200 bg-white shrink-0 z-[600]">
                   <BottomPanel />
@@ -368,7 +499,7 @@ export default function TeamIdeMain() {
               )}
             </div>
 
-            {/* 💡 우측 패널이 닫혀 있을 때만 띄우는 열기 화살표 버튼 */}
+            {/* 우측 패널이 닫혀 있을 때 열기 버튼 */}
             {(isAgentVisible || isDebugMode) && !isRightPanelVisible && (
               <div className="relative flex items-center justify-center -mr-4 z-10 w-0">
                 <button
@@ -384,19 +515,48 @@ export default function TeamIdeMain() {
             {/* 오른쪽 AI/채팅 패널 */}
             {(isAgentVisible || isDebugMode) && (
               <div
-                className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden flex flex-col z-[600] shrink-0
-                ${isSandboxMode ? "bg-slate-900 border border-indigo-900/50" : "bg-white border border-gray-200"}
-                ${isRightPanelVisible ? "w-[320px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+                className={`relative rounded-2xl shadow-sm overflow-hidden flex flex-col z-[600] shrink-0 ${
+                  resizingPanel === "right"
+                    ? "transition-none"
+                    : "transition-all duration-300 ease-in-out"
+                } ${
+                  isSandboxMode
+                    ? "bg-slate-900 border border-indigo-900/50"
+                    : "bg-white border border-gray-200"
+                } ${
+                  isRightPanelVisible
+                    ? "opacity-100"
+                    : "opacity-0 border-transparent"
+                }`}
+                style={{
+                  width: isRightPanelVisible ? `${rightPanelWidth}px` : "0px",
+                }}
               >
-                <div className="w-[320px] h-full flex flex-col shrink-0 bg-white">
+                {isRightPanelVisible && (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    title="AI/채팅 패널 너비 조절"
+                    onPointerDown={startRightPanelResize}
+                    className="absolute left-0 top-0 z-[700] h-full w-3 -translate-x-1/2 cursor-col-resize touch-none"
+                  >
+                    <div className="mx-auto h-full w-px bg-transparent transition hover:bg-blue-400" />
+                  </div>
+                )}
+
+                <div
+                  className="h-full flex flex-col shrink-0 bg-white"
+                  style={{ width: `${rightPanelWidth}px` }}
+                >
                   {isDebugMode ? (
                     <DebugPanel />
                   ) : (
                     <div className="flex flex-col h-full">
-                      {/* 상단 탭 + 우측 닫기 버튼 */}
                       <div
                         className={`flex items-center justify-between h-11 border-b shrink-0 transition-colors duration-700 px-2 pt-1 ${
-                          isSandboxMode ? "bg-slate-900 border-indigo-900/50" : "bg-[#f8f9fa] border-gray-200"
+                          isSandboxMode
+                            ? "bg-slate-900 border-indigo-900/50"
+                            : "bg-[#f8f9fa] border-gray-200"
                         }`}
                       >
                         <div className="flex h-full flex-1">
@@ -404,23 +564,29 @@ export default function TeamIdeMain() {
                             onClick={() => setRightTab("ai")}
                             className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
                               rightTab === "ai"
-                                ? isSandboxMode ? "text-indigo-400 bg-white shadow-sm" : "text-blue-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                ? isSandboxMode
+                                  ? "text-indigo-400 bg-white shadow-sm"
+                                  : "text-blue-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
                                 : "text-gray-500 hover:bg-gray-100"
                             }`}
                           >
                             AI 어시스트
                           </button>
+
                           <button
                             onClick={() => setRightTab("chat")}
                             className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
                               rightTab === "chat"
-                                ? isSandboxMode ? "text-indigo-400 bg-white shadow-sm" : "text-green-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                ? isSandboxMode
+                                  ? "text-indigo-400 bg-white shadow-sm"
+                                  : "text-green-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
                                 : "text-gray-500 hover:bg-gray-100"
                             }`}
                           >
                             팀 채팅
                           </button>
                         </div>
+
                         <button
                           onClick={() => dispatch(toggleRightPanel())}
                           className="mb-1 ml-2 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-all"
@@ -430,7 +596,6 @@ export default function TeamIdeMain() {
                         </button>
                       </div>
 
-                      {/* 패널 내용 */}
                       <div className="flex-1 overflow-hidden relative bg-white">
                         <div
                           className={`absolute inset-0 ${
@@ -439,6 +604,7 @@ export default function TeamIdeMain() {
                         >
                           <AgentPanel />
                         </div>
+
                         <div
                           className={`absolute inset-0 ${
                             rightTab === "chat" ? "block" : "hidden"
@@ -459,13 +625,14 @@ export default function TeamIdeMain() {
 
   return (
     <div
-      className={`w-full h-[calc(100vh-64px)] flex flex-col text-[#333] overflow-hidden font-sans transition-colors duration-700 ${
+      className={`w-full h-[calc(100vh-61px)] flex flex-col text-[#333] overflow-hidden font-sans transition-colors duration-700 ${
         isSandboxMode ? "bg-slate-900" : "bg-white"
       }`}
     >
       <CommandPalette />
 
       <MenuBar mode="team" />
+
       <div className="flex-1 flex overflow-hidden">
         <ActivityBar />
         {renderMainContent()}

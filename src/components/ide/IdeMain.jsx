@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useParams } from "next/navigation";
 import { VscChevronLeft, VscChevronRight } from "react-icons/vsc";
@@ -36,6 +36,18 @@ import {
 import MyPageShell from "../mypage/MyPageShell";
 import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 260;
+const LEFT_SIDEBAR_MIN_WIDTH = 220;
+const LEFT_SIDEBAR_MAX_WIDTH = 420;
+
+const RIGHT_PANEL_DEFAULT_WIDTH = 320;
+const RIGHT_PANEL_MIN_WIDTH = 300;
+const RIGHT_PANEL_MAX_WIDTH = 560;
+
+const clampPanelWidth = (value, min, max) => {
+  return Math.min(max, Math.max(min, value));
+};
+
 export default function IdeMain() {
   const params = useParams();
   const id = params?.id;
@@ -46,7 +58,7 @@ export default function IdeMain() {
     activeActivity,
     isTerminalVisible,
     isSidebarVisible,
-    isRightPanelVisible, 
+    isRightPanelVisible,
     isAgentVisible,
     isDebugMode,
   } = useSelector((state) => state.ui);
@@ -54,6 +66,80 @@ export default function IdeMain() {
   const { workspaceId, activeProject, activeBranch } = useSelector(
     (state) => state.fileSystem,
   );
+
+  const editorLayoutRef = useRef(null);
+
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    LEFT_SIDEBAR_DEFAULT_WIDTH,
+  );
+  const [rightPanelWidth, setRightPanelWidth] = useState(
+    RIGHT_PANEL_DEFAULT_WIDTH,
+  );
+  const [resizingPanel, setResizingPanel] = useState(null);
+
+  const startLeftSidebarResize = (event) => {
+    event.preventDefault();
+    setResizingPanel("left");
+  };
+
+  const startRightPanelResize = (event) => {
+    event.preventDefault();
+    setResizingPanel("right");
+  };
+
+  useEffect(() => {
+    if (!resizingPanel) return;
+
+    const handlePointerMove = (event) => {
+      const layoutRect = editorLayoutRef.current?.getBoundingClientRect();
+
+      if (resizingPanel === "left") {
+        const nextWidth = layoutRect
+          ? event.clientX - layoutRect.left
+          : event.clientX;
+
+        setLeftSidebarWidth(
+          clampPanelWidth(
+            nextWidth,
+            LEFT_SIDEBAR_MIN_WIDTH,
+            LEFT_SIDEBAR_MAX_WIDTH,
+          ),
+        );
+      }
+
+      if (resizingPanel === "right") {
+        const nextWidth = layoutRect
+          ? layoutRect.right - event.clientX
+          : window.innerWidth - event.clientX;
+
+        setRightPanelWidth(
+          clampPanelWidth(
+            nextWidth,
+            RIGHT_PANEL_MIN_WIDTH,
+            RIGHT_PANEL_MAX_WIDTH,
+          ),
+        );
+      }
+    };
+
+    const handlePointerUp = () => {
+      setResizingPanel(null);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [resizingPanel]);
 
   useEffect(() => {
     if (!id) return;
@@ -93,6 +179,7 @@ export default function IdeMain() {
     if (workspaceId && activeProject) {
       localStorage.setItem(`lastProject_${workspaceId}`, activeProject);
     }
+
     if (workspaceId && activeBranch) {
       localStorage.setItem(`lastBranch_${workspaceId}`, activeBranch);
     }
@@ -140,33 +227,65 @@ export default function IdeMain() {
     switch (activeActivity) {
       case "docs":
         return <DevlogPanel />;
+
       case "api-test":
         return <ApiTesterPage />;
+
       case "mypage":
         return (
           <div className="flex-1 min-w-0 h-full overflow-y-auto bg-white">
             <MyPageShell />
           </div>
         );
+
       case "git":
         return <GitDashboard />;
+
       case "editor":
       default:
         return (
-          // 💡 화사한 배경색 (Light Theme)
-          <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2">
-            
+          <div
+            ref={editorLayoutRef}
+            className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2"
+          >
             {/* 왼쪽 탐색기 패널 */}
             <div
-              className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col shrink-0 border-gray-200
-              ${isSidebarVisible ? "w-[260px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+              className={`relative rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col shrink-0 border-gray-200 ${
+                resizingPanel === "left"
+                  ? "transition-none"
+                  : "transition-all duration-300 ease-in-out"
+              } ${
+                isSidebarVisible
+                  ? "opacity-100"
+                  : "opacity-0 border-transparent"
+              }`}
+              style={{
+                width: isSidebarVisible ? `${leftSidebarWidth}px` : "0px",
+              }}
             >
-              <div className="w-[260px] h-full flex flex-col shrink-0">
+              {isSidebarVisible && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="탐색기 너비 조절"
+                  onPointerDown={startLeftSidebarResize}
+                  className="absolute right-0 top-0 z-[700] h-full w-3 translate-x-1/2 cursor-col-resize touch-none"
+                >
+                  <div className="mx-auto h-full w-px bg-transparent transition hover:bg-blue-400" />
+                </div>
+              )}
+
+              <div
+                className="h-full flex flex-col shrink-0"
+                style={{
+                  width: `${leftSidebarWidth}px`,
+                }}
+              >
                 <Sidebar />
               </div>
             </div>
 
-            {/* 💡 탐색기 닫혀있을 때만 띄우는 열기 화살표 버튼 */}
+            {/* 탐색기 닫혀있을 때 열기 버튼 */}
             {!isSidebarVisible && (
               <div className="relative flex items-center justify-center -ml-4 z-10 w-0">
                 <button
@@ -182,6 +301,7 @@ export default function IdeMain() {
             {/* 중앙 에디터 영역 */}
             <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 z-0 relative">
               <FileTabs />
+
               <div className="flex-1 flex relative overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 relative">
                   <CodeEditor />
@@ -196,7 +316,7 @@ export default function IdeMain() {
               )}
             </div>
 
-            {/* 💡 오른쪽 패널이 닫혀있을 때만 띄우는 AI 어시스트 열기 플로팅 버튼 */}
+            {/* 오른쪽 패널이 닫혀있을 때 열기 버튼 */}
             {(isAgentVisible || isDebugMode) && !isRightPanelVisible && (
               <div className="relative flex items-center justify-center -mr-4 z-10 w-0">
                 <button
@@ -212,15 +332,42 @@ export default function IdeMain() {
             {/* 오른쪽 AI 패널 */}
             {(isAgentVisible || isDebugMode) && (
               <div
-                className={`transition-all duration-300 ease-in-out rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col z-[600] shrink-0 border-gray-200
-                ${isRightPanelVisible ? "w-[320px] opacity-100" : "w-0 opacity-0 border-transparent"}`}
+                className={`relative rounded-2xl shadow-sm overflow-hidden bg-white border flex flex-col z-[600] shrink-0 border-gray-200 ${
+                  resizingPanel === "right"
+                    ? "transition-none"
+                    : "transition-all duration-300 ease-in-out"
+                } ${
+                  isRightPanelVisible
+                    ? "opacity-100"
+                    : "opacity-0 border-transparent"
+                }`}
+                style={{
+                  width: isRightPanelVisible ? `${rightPanelWidth}px` : "0px",
+                }}
               >
-                <div className="w-[320px] h-full flex flex-col shrink-0">
+                {isRightPanelVisible && (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    title="AI 어시스트 너비 조절"
+                    onPointerDown={startRightPanelResize}
+                    className="absolute left-0 top-0 z-[700] h-full w-3 -translate-x-1/2 cursor-col-resize touch-none"
+                  >
+                    <div className="mx-auto h-full w-px bg-transparent transition hover:bg-blue-400" />
+                  </div>
+                )}
+
+                <div
+                  className="h-full flex flex-col shrink-0"
+                  style={{
+                    width: `${rightPanelWidth}px`,
+                  }}
+                >
                   <div className="flex items-center justify-between h-11 border-b border-gray-200 shrink-0 px-2 pt-1 bg-[#f8f9fa]">
                     <div className="flex-1 h-full flex items-center justify-center text-[13px] font-bold border-t-2 border-t-blue-500 bg-white text-blue-600 shadow-sm rounded-t-lg select-none cursor-default">
                       {isDebugMode ? "디버깅 모드" : "AI 어시스트"}
                     </div>
-                    {/* 💡 오른쪽 닫기 버튼 */}
+
                     <button
                       onClick={() => dispatch(toggleRightPanel())}
                       className="mb-1 ml-2 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-all"
@@ -242,9 +389,11 @@ export default function IdeMain() {
   };
 
   return (
-    <div className="w-full h-[calc(100vh-64px)] flex flex-col bg-white text-[#333] overflow-hidden font-sans relative">
+    <div className="w-full h-[calc(100vh-61px)] flex flex-col bg-white text-[#333] overflow-hidden font-sans relative">
       <CommandPalette />
+
       <MenuBar mode="personal" />
+
       <div className="flex-1 flex overflow-hidden">
         <ActivityBar />
         {renderMainContent()}

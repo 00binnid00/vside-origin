@@ -75,6 +75,10 @@ type WorkspaceSidebarItem = {
   childCount: number;
 };
 
+const DETAIL_SIDEBAR_DEFAULT_WIDTH = 340;
+const DETAIL_SIDEBAR_MIN_WIDTH = 300;
+const DETAIL_SIDEBAR_MAX_WIDTH = 620;
+
 function mapScheduleFromApi(item: ScheduleApiItem): ScheduleOption {
   return {
     id: item.id,
@@ -191,6 +195,11 @@ export default function DevlogManagementMock() {
     useState<SidebarPanelMode>("projects");
 
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(true);
+  const [detailSidebarWidth, setDetailSidebarWidth] = useState(
+    DETAIL_SIDEBAR_DEFAULT_WIDTH,
+  );
+  const [isDetailSidebarResizing, setIsDetailSidebarResizing] =
+    useState(false);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -434,7 +443,56 @@ export default function DevlogManagementMock() {
     (item) => item.type === "linked" && item.status === "done",
   ).length;
 
-  const shouldShowDetailSidebar = isDetailSidebarOpen && selectedDevlog;
+  const shouldShowDetailSidebar = Boolean(isDetailSidebarOpen && selectedDevlog);
+
+  const layoutGridTemplateColumns = useMemo(() => {
+    const leftColumn = isProjectSidebarOpen ? "300px" : "84px";
+
+    if (shouldShowDetailSidebar) {
+      return `${leftColumn} minmax(0, 1fr) ${detailSidebarWidth}px`;
+    }
+
+    return `${leftColumn} minmax(0, 1fr)`;
+  }, [detailSidebarWidth, isProjectSidebarOpen, shouldShowDetailSidebar]);
+
+  const handleDetailSidebarResizeStart = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    setIsDetailSidebarResizing(true);
+  };
+
+  useEffect(() => {
+    if (!isDetailSidebarResizing) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextWidth = window.innerWidth - event.clientX;
+      const limitedWidth = Math.min(
+        DETAIL_SIDEBAR_MAX_WIDTH,
+        Math.max(DETAIL_SIDEBAR_MIN_WIDTH, nextWidth),
+      );
+
+      setDetailSidebarWidth(limitedWidth);
+    };
+
+    const handlePointerUp = () => {
+      setIsDetailSidebarResizing(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [isDetailSidebarResizing]);
 
   const handleSelectWorkspace = (workspace: WorkspaceSidebarItem) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -962,15 +1020,14 @@ export default function DevlogManagementMock() {
     <div className="min-h-screen bg-[#f5f6fa] text-slate-900">
       <div
         className={[
-          "grid min-h-[calc(100vh-72px)] transition-all duration-300",
-          isProjectSidebarOpen && shouldShowDetailSidebar
-            ? "grid-cols-[300px_minmax(0,1fr)_340px]"
-            : isProjectSidebarOpen
-              ? "grid-cols-[300px_minmax(0,1fr)]"
-              : shouldShowDetailSidebar
-                ? "grid-cols-[84px_minmax(0,1fr)_340px]"
-                : "grid-cols-[84px_minmax(0,1fr)]",
+          "grid min-h-[calc(100vh-72px)]",
+          isDetailSidebarResizing
+            ? "transition-none"
+            : "transition-[grid-template-columns] duration-300",
         ].join(" ")}
+        style={{
+          gridTemplateColumns: layoutGridTemplateColumns,
+        }}
       >
         <DevlogProjectSidebar
           isOpen={isProjectSidebarOpen}
@@ -1132,6 +1189,7 @@ export default function DevlogManagementMock() {
           <DevlogDetailAside
             selectedDevlog={selectedDevlog}
             deletingDevlogId={deletingDevlogId}
+            onResizeStart={handleDetailSidebarResizeStart}
             onClose={() => setIsDetailSidebarOpen(false)}
             onEdit={openEditModal}
             onDelete={deleteDevlog}
@@ -1590,12 +1648,14 @@ function NoDevlogSchedulePanel({
 function DevlogDetailAside({
   selectedDevlog,
   deletingDevlogId,
+  onResizeStart,
   onClose,
   onEdit,
   onDelete,
 }: {
   selectedDevlog: DevlogItem | null;
   deletingDevlogId: string;
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   onClose: () => void;
   onEdit: (devlog: DevlogItem) => void;
   onDelete: (devlog: DevlogItem) => void;
@@ -1607,7 +1667,17 @@ function DevlogDetailAside({
   const deleting = deletingDevlogId === selectedDevlog.id;
 
   return (
-    <aside className="min-w-0 border-l border-slate-200 bg-white">
+    <aside className="relative min-w-0 border-l border-slate-200 bg-white">
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        title="사이드바 너비 조절"
+        onPointerDown={onResizeStart}
+        className="absolute left-0 top-0 z-30 h-full w-3 -translate-x-1/2 cursor-col-resize touch-none"
+      >
+        <div className="mx-auto h-full w-px bg-transparent transition hover:bg-blue-400" />
+      </div>
+
       <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-hidden">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
           <div className="min-w-0">
