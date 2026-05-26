@@ -1,7 +1,13 @@
 import type { ScheduleStatus } from "@/components/schedules/scheduleMockData";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api";
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+
+const NORMALIZED_API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+
+const API_BASE = NORMALIZED_API_BASE.endsWith("/api")
+  ? NORMALIZED_API_BASE
+  : `${NORMALIZED_API_BASE}/api`;
 
 export type BackendScheduleResponse = {
   id: string;
@@ -52,7 +58,6 @@ export type UpdateSchedulePeriodRequest = {
   startDate: string;
   endDate: string;
 };
-
 
 export type UpdateScheduleRequest = {
   scheduleId: string;
@@ -116,7 +121,6 @@ export function normalizeScheduleFromApi(
     startDate: item.startDate,
     endDate: item.endDate,
     status: item.status ?? "todo",
-
     hasDevlog: Boolean(item.hasDevlog),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
