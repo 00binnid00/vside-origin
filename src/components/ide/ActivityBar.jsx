@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   VscFiles,
   VscBook,
@@ -18,6 +18,8 @@ import { setActiveActivity } from "@/store/slices/uiSlice";
 export default function ActivityBar() {
   const dispatch = useDispatch();
   const router = useRouter();
+  const pathname = usePathname();
+
   const { activeActivity } = useSelector((state) => state.ui);
 
   const topItems = [
@@ -27,9 +29,34 @@ export default function ActivityBar() {
     { id: "git", icon: <VscSourceControl size={24} />, label: "Git 연동" },
   ];
 
+  const getWorkspaceMainPath = () => {
+    const segments = pathname.split("/").filter(Boolean);
+
+    /**
+     * 현재 예상 경로:
+     * /ide/personal/{workspaceId}
+     * /ide/team/{workspaceId}
+     *
+     * segments = ["ide", "personal", "a624958d-fc11-4900-8d0d-14b8bb410667"]
+     */
+    const ideIndex = segments.indexOf("ide");
+    const mode = segments[ideIndex + 1];
+    const workspaceId = segments[ideIndex + 2];
+
+    if (!workspaceId) {
+      return "/main";
+    }
+
+    if (mode === "personal" || mode === "team") {
+      return `/main/${workspaceId}?mode=${mode}`;
+    }
+
+    return `/main/${workspaceId}`;
+  };
+
   const handleExit = () => {
     if (window.confirm("워크스페이스에서 나가시겠습니까?")) {
-      router.push("/dashboard");
+      router.push(getWorkspaceMainPath());
     }
   };
 
@@ -53,7 +80,9 @@ export default function ActivityBar() {
             {activeActivity === item.id && (
               <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#333] rounded-r-full" />
             )}
+
             {item.icon}
+
             <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
               {item.label}
             </div>
@@ -73,7 +102,9 @@ export default function ActivityBar() {
           {activeActivity === "mypage" && (
             <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#333] rounded-r-full" />
           )}
+
           <VscAccount size={24} />
+
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
             마이페이지
           </div>
@@ -81,6 +112,7 @@ export default function ActivityBar() {
 
         <div className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-gray-600 cursor-pointer transition-colors relative group">
           <VscSettingsGear size={24} />
+
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
             설정
           </div>
@@ -91,6 +123,7 @@ export default function ActivityBar() {
           onClick={handleExit}
         >
           <VscSignOut size={24} />
+
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
             방 나가기
           </div>
