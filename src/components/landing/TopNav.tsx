@@ -363,7 +363,7 @@ export default function TopNav() {
     <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between py-2 text-xl">
         <Link
-          href="/main"
+          href="/"
           className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-xl font-extrabold text-transparent"
         >
           WEVAIS
