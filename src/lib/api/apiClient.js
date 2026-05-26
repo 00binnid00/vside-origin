@@ -12,9 +12,9 @@ import {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 
-let refreshPromise = null;
-
 const isAbsoluteUrl = (url) => /^https?:\/\//i.test(url);
+
+const isAuthExpiredStatus = (status) => status === 401 || status === 403;
 
 const buildUrl = (url) => {
   if (isAbsoluteUrl(url)) return url;
@@ -41,21 +41,13 @@ const buildHeaders = (options = {}) => {
 };
 
 const refreshAccessTokenOnce = async () => {
-  if (!refreshPromise) {
-    refreshPromise = authClient
-      .refresh()
-      .then((refreshed) => {
-        if (refreshed?.accessToken) {
-          setAccessToken(refreshed.accessToken);
-        }
-        return refreshed;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+  const refreshed = await authClient.refresh();
+
+  if (refreshed?.accessToken) {
+    setAccessToken(refreshed.accessToken);
   }
 
-  return refreshPromise;
+  return refreshed;
 };
 
 export const apiFetch = async (url, options = {}) => {
@@ -71,6 +63,9 @@ export const apiFetch = async (url, options = {}) => {
     return firstResponse;
   }
 
+  /**
+   * refresh 요청 자체가 401이면 다시 refresh를 시도하면 안 됩니다.
+   */
   if (isRefreshRequest(requestUrl)) {
     clearAuth();
     return firstResponse;
@@ -78,8 +73,15 @@ export const apiFetch = async (url, options = {}) => {
 
   try {
     await refreshAccessTokenOnce();
-  } catch {
-    clearAuth();
+  } catch (error) {
+    /**
+     * refresh token이 없거나 만료된 경우만 인증 상태 제거.
+     * refresh 500은 백엔드 오류일 수 있으므로 여기서 clearAuth() 하지 않습니다.
+     */
+    if (isAuthExpiredStatus(error?.status)) {
+      clearAuth();
+    }
+
     return firstResponse;
   }
 
@@ -90,12 +92,27 @@ export const apiFetch = async (url, options = {}) => {
   });
 };
 
+const readErrorMessage = async (response, fallback) => {
+  const text = await response.text().catch(() => "");
+
+  if (!text) return fallback;
+
+  try {
+    const json = JSON.parse(text);
+    return json?.message || json?.error || json?.reason || text || fallback;
+  } catch {
+    return text;
+  }
+};
+
 export const apiJson = async (url, options = {}) => {
   const response = await apiFetch(url, options);
 
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(message || "API 요청에 실패했습니다.");
+    const message = await readErrorMessage(response, "API 요청에 실패했습니다.");
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -107,8 +124,10 @@ export const apiText = async (url, options = {}) => {
   const response = await apiFetch(url, options);
 
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(message || "API 요청에 실패했습니다.");
+    const message = await readErrorMessage(response, "API 요청에 실패했습니다.");
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return response.text();
@@ -118,8 +137,10 @@ export const apiBlob = async (url, options = {}) => {
   const response = await apiFetch(url, options);
 
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(message || "API 요청에 실패했습니다.");
+    const message = await readErrorMessage(response, "API 요청에 실패했습니다.");
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return response.blob();

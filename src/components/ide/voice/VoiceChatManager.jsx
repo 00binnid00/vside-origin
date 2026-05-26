@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
-import { useAuth } from "@/lib/ide/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { setIsPIPMode, setVoiceConnected } from "@/store/slices/uiSlice";
 

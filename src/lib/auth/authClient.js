@@ -16,6 +16,16 @@ const API_BASE_URL =
 const AUTH_BASE_URL = `${API_BASE_URL}/api/auth`;
 const USER_BASE_URL = `${API_BASE_URL}/api/users`;
 
+let refreshPromise = null;
+
+const isAuthExpiredStatus = (status) => status === 401 || status === 403;
+
+const createAuthError = (message, status) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
 const normalizeTokenResponse = (data) => {
   const accessToken = data?.accessToken || data?.token || null;
 
@@ -42,7 +52,15 @@ const normalizeTokenResponse = (data) => {
 const parseErrorMessage = async (response, fallback) => {
   try {
     const text = await response.text();
-    return text || fallback;
+
+    if (!text) return fallback;
+
+    try {
+      const json = JSON.parse(text);
+      return json?.message || json?.error || json?.reason || text || fallback;
+    } catch {
+      return text || fallback;
+    }
   } catch {
     return fallback;
   }
@@ -51,6 +69,42 @@ const parseErrorMessage = async (response, fallback) => {
 const getAuthHeaders = () => {
   const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const requestRefresh = async () => {
+  const response = await fetch(`${AUTH_BASE_URL}/refresh`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(
+      response,
+      "토큰 재발급에 실패했습니다.",
+    );
+
+    /**
+     * 401/403은 refresh token 자체가 없거나 만료된 상태입니다.
+     * 이때만 클라이언트 인증 정보를 지웁니다.
+     *
+     * 500은 백엔드 refresh rotation 오류 또는 일시 장애일 수 있으므로
+     * 여기서 clearAuth()를 하면 사용자가 즉시 로그아웃됩니다.
+     */
+    if (isAuthExpiredStatus(response.status)) {
+      clearAuth();
+    }
+
+    throw createAuthError(message, response.status);
+  }
+
+  const data = normalizeTokenResponse(await response.json());
+
+  if (!data.accessToken) {
+    throw createAuthError("accessToken이 응답에 없습니다.", 500);
+  }
+
+  setAuthSnapshot(data);
+  return data;
 };
 
 export const authClient = {
@@ -63,18 +117,19 @@ export const authClient = {
     });
 
     if (!response.ok) {
-      throw new Error(
+      throw createAuthError(
         await parseErrorMessage(
           response,
           "이메일 또는 비밀번호가 올바르지 않습니다.",
         ),
+        response.status,
       );
     }
 
     const data = normalizeTokenResponse(await response.json());
 
     if (!data.accessToken) {
-      throw new Error("accessToken이 응답에 없습니다.");
+      throw createAuthError("accessToken이 응답에 없습니다.", 500);
     }
 
     setAuthSnapshot(data);
@@ -82,25 +137,13 @@ export const authClient = {
   },
 
   async refresh() {
-    const response = await fetch(`${AUTH_BASE_URL}/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      clearAuth();
-      throw new Error("토큰 재발급에 실패했습니다.");
+    if (!refreshPromise) {
+      refreshPromise = requestRefresh().finally(() => {
+        refreshPromise = null;
+      });
     }
 
-    const data = normalizeTokenResponse(await response.json());
-
-    if (!data.accessToken) {
-      clearAuth();
-      throw new Error("accessToken이 응답에 없습니다.");
-    }
-
-    setAuthSnapshot(data);
-    return data;
+    return refreshPromise;
   },
 
   async logout() {
@@ -120,10 +163,10 @@ export const authClient = {
 
     if (!token) {
       try {
-        const refreshed = await this.refresh();
+        const refreshed = await authClient.refresh();
         token = refreshed.accessToken;
-      } catch {
-        throw new Error("accessToken이 없습니다.");
+      } catch (error) {
+        throw error;
       }
     }
 
@@ -135,7 +178,7 @@ export const authClient = {
 
     if (response.status === 401) {
       try {
-        const refreshed = await this.refresh();
+        const refreshed = await authClient.refresh();
 
         if (refreshed?.accessToken) {
           setAccessToken(refreshed.accessToken);
@@ -146,14 +189,20 @@ export const authClient = {
           credentials: "include",
           headers: { Authorization: `Bearer ${refreshed.accessToken}` },
         });
-      } catch {
-        clearAuth();
-        throw new Error("로그인 세션이 만료되었습니다. 다시 로그인해주세요.");
+      } catch (error) {
+        if (isAuthExpiredStatus(error?.status)) {
+          clearAuth();
+        }
+
+        throw error;
       }
     }
 
     if (!response.ok) {
-      throw new Error("사용자 정보를 불러오지 못했습니다.");
+      throw createAuthError(
+        await parseErrorMessage(response, "사용자 정보를 불러오지 못했습니다."),
+        response.status,
+      );
     }
 
     const user = await response.json();
@@ -170,11 +219,12 @@ export const authClient = {
     });
 
     if (!response.ok) {
-      throw new Error(
+      throw createAuthError(
         await parseErrorMessage(
           response,
           "회원가입에 실패했습니다. 입력값을 다시 확인해주세요.",
         ),
+        response.status,
       );
     }
 
@@ -186,8 +236,8 @@ export const authClient = {
   },
 };
 
-export const login = authClient.login;
-export const refresh = authClient.refresh;
-export const logout = authClient.logout;
-export const getMe = authClient.me;
-export const register = authClient.register;
+export const login = (...args) => authClient.login(...args);
+export const refresh = (...args) => authClient.refresh(...args);
+export const logout = (...args) => authClient.logout(...args);
+export const getMe = (...args) => authClient.me(...args);
+export const register = (...args) => authClient.register(...args);

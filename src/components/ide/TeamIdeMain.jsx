@@ -28,7 +28,7 @@ import {
   getWorkspaceMembersApi,
 } from "@/lib/ide/api";
 import { ChatSocket } from "@/lib/ide/chatSocket";
-import { useAuth } from "@/lib/ide/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 import {
   setWorkspaceTree,

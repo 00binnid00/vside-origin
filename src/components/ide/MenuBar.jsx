@@ -39,7 +39,7 @@ import {
   getUserProfileApi,
   fetchProjectFilesApi,
 } from "@/lib/ide/api";
-import { useAuth } from "@/lib/ide/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import VoiceChatManager from "@/components/ide/voice/VoiceChatManager";
 import { useWorkspacePresence } from "@/hooks/useWorkspacePresence";
 import GitBranchControls from "@/components/ide/git/GitBranchControls";

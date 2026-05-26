@@ -1,5 +1,7 @@
 "use client";
 
+// 경로: src/lib/auth/webSocketToken.js
+
 import { authClient } from "@/lib/auth/authClient";
 import { getAccessToken } from "@/lib/auth/tokenStore";
 

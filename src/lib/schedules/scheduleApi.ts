@@ -1,13 +1,5 @@
 import type { ScheduleStatus } from "@/components/schedules/scheduleMockData";
-
-const RAW_API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
-
-const NORMALIZED_API_BASE = RAW_API_BASE.replace(/\/+$/, "");
-
-const API_BASE = NORMALIZED_API_BASE.endsWith("/api")
-  ? NORMALIZED_API_BASE
-  : `${NORMALIZED_API_BASE}/api`;
+import { apiFetch, apiJson } from "@/lib/api/apiClient";
 
 export type BackendScheduleResponse = {
   id: string;
@@ -68,53 +60,14 @@ export type UpdateScheduleRequest = {
   status: ScheduleStatus;
 };
 
-function getToken() {
-  if (typeof window === "undefined") return null;
-
-  const directToken = localStorage.getItem("token");
-  if (directToken) return directToken;
-
-  const storedUser = localStorage.getItem("user");
-  if (!storedUser) return null;
-
-  try {
-    const parsedUser = JSON.parse(storedUser);
-    return parsedUser?.token ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function authFetch(url: string, options: RequestInit = {}) {
-  const token = getToken();
-
-  return fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
-}
-
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const text = await response.text();
-    return text || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export function normalizeScheduleFromApi(
   item: BackendScheduleResponse,
 ): ScheduleApiItem {
   return {
-    id: item.id,
-    workspaceId: item.workspaceId,
-    projectName: item.projectName,
-    customProjectName: item.projectName,
+    id: String(item.id),
+    workspaceId: String(item.workspaceId),
+    projectName: item.projectName ?? "",
+    customProjectName: item.projectName ?? "",
     title: item.title ?? "",
     description: item.description ?? "",
     date: item.startDate,
@@ -149,17 +102,11 @@ export async function fetchWorkspaceSchedulesApi({
 
   const queryString = params.toString();
 
-  const response = await authFetch(
-    `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/schedules${
+  const data = (await apiJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/schedules${
       queryString ? `?${queryString}` : ""
     }`,
-  );
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 목록 로드 실패"));
-  }
-
-  const data = (await response.json()) as BackendScheduleResponse[];
+  )) as BackendScheduleResponse[];
 
   return Array.isArray(data) ? data.map(normalizeScheduleFromApi) : [];
 }
@@ -176,8 +123,8 @@ export async function createWorkspaceScheduleApi({
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/schedules`,
+  const data = (await apiJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/schedules`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -188,15 +135,9 @@ export async function createWorkspaceScheduleApi({
         status,
       }),
     },
-  );
+  )) as BackendScheduleResponse;
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 생성 실패"));
-  }
-
-  return normalizeScheduleFromApi(
-    (await response.json()) as BackendScheduleResponse,
-  );
+  return normalizeScheduleFromApi(data);
 }
 
 export async function updateScheduleApi({
@@ -211,8 +152,8 @@ export async function updateScheduleApi({
     throw new Error("scheduleId가 없습니다.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/schedules/${encodeURIComponent(scheduleId)}`,
+  const data = (await apiJson(
+    `/api/schedules/${encodeURIComponent(scheduleId)}`,
     {
       method: "PUT",
       body: JSON.stringify({
@@ -223,15 +164,9 @@ export async function updateScheduleApi({
         status,
       }),
     },
-  );
+  )) as BackendScheduleResponse;
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 수정 실패"));
-  }
-
-  return normalizeScheduleFromApi(
-    (await response.json()) as BackendScheduleResponse,
-  );
+  return normalizeScheduleFromApi(data);
 }
 
 export async function updateScheduleStatusApi({
@@ -242,21 +177,15 @@ export async function updateScheduleStatusApi({
     throw new Error("scheduleId가 없습니다.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/schedules/${encodeURIComponent(scheduleId)}/status`,
+  const data = (await apiJson(
+    `/api/schedules/${encodeURIComponent(scheduleId)}/status`,
     {
       method: "PATCH",
       body: JSON.stringify({ status }),
     },
-  );
+  )) as BackendScheduleResponse;
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 상태 변경 실패"));
-  }
-
-  return normalizeScheduleFromApi(
-    (await response.json()) as BackendScheduleResponse,
-  );
+  return normalizeScheduleFromApi(data);
 }
 
 export async function updateSchedulePeriodApi({
@@ -268,8 +197,8 @@ export async function updateSchedulePeriodApi({
     throw new Error("scheduleId가 없습니다.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/schedules/${encodeURIComponent(scheduleId)}/period`,
+  const data = (await apiJson(
+    `/api/schedules/${encodeURIComponent(scheduleId)}/period`,
     {
       method: "PATCH",
       body: JSON.stringify({
@@ -277,15 +206,9 @@ export async function updateSchedulePeriodApi({
         endDate,
       }),
     },
-  );
+  )) as BackendScheduleResponse;
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 날짜 변경 실패"));
-  }
-
-  return normalizeScheduleFromApi(
-    (await response.json()) as BackendScheduleResponse,
-  );
+  return normalizeScheduleFromApi(data);
 }
 
 export async function deleteScheduleApi(
@@ -297,15 +220,16 @@ export async function deleteScheduleApi(
     throw new Error("scheduleId가 없습니다.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/schedules/${encodeURIComponent(scheduleId)}`,
+  const response = await apiFetch(
+    `/api/schedules/${encodeURIComponent(scheduleId)}`,
     {
       method: "DELETE",
     },
   );
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 삭제 실패"));
+    const message = await response.text().catch(() => "");
+    throw new Error(message || "일정 삭제 실패");
   }
 
   return true;

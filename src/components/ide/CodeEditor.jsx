@@ -33,7 +33,7 @@ import {
   clearConflictNavigation,
 } from "@/store/slices/uiSlice";
 
-import { useAuth } from "@/lib/ide/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
 
