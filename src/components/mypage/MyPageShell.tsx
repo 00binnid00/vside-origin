@@ -745,7 +745,6 @@ function getNodeColumns(node: Record<string, unknown>) {
     : [];
 }
 
-
 function getNodePosition(node: Record<string, unknown>, index: number) {
   const position = node.position;
 
@@ -1289,7 +1288,8 @@ export default function MyPageDemo() {
                         <div className="ml-5 mt-1 space-y-1 border-l border-blue-100 pl-3">
                           {tab.children?.map((child) => {
                             const ChildIcon = child.icon;
-                            const isChildActive = activeArchiveTab === child.key;
+                            const isChildActive =
+                              activeArchiveTab === child.key;
 
                             return (
                               <button
@@ -2041,10 +2041,10 @@ function ProjectArchiveSection({
               .join("")
           : `<div class="empty small-empty">작성된 요구사항이 없습니다.</div>`;
 
-       const apiHtml = designApiSpecs.length
-  ? designApiSpecs
-      .map(
-        (item) => `
+        const apiHtml = designApiSpecs.length
+          ? designApiSpecs
+              .map(
+                (item) => `
           <article class="print-card compact-card">
             <h2>
               <span class="method">${escapeHtml(item.method || "GET")}</span>
@@ -2071,9 +2071,9 @@ function ProjectArchiveSection({
             </div>
           </article>
         `,
-      )
-      .join("")
-  : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
+              )
+              .join("")
+          : `<div class="empty small-empty">작성된 API 명세가 없습니다.</div>`;
         const erdDiagramHtml = buildPrintDiagramSvg({
           nodes: erdTables,
           edges: parsedDesignDocument.erdEdges,
@@ -2167,23 +2167,23 @@ function ProjectArchiveSection({
         `;
       }
 
-    const reportContent =
-  finalReportDraft.trim() ||
-  "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
+      const reportContent =
+        finalReportDraft.trim() ||
+        "AI 초안 생성 버튼을 눌러 최종 보고서 초안을 생성한 뒤 PDF로 저장할 수 있습니다.";
 
-const finalErdDiagramHtml = buildPrintDiagramSvg({
-  nodes: parsedDesignDocument.erdNodes,
-  edges: parsedDesignDocument.erdEdges,
-  type: "erd",
-});
+      const finalErdDiagramHtml = buildPrintDiagramSvg({
+        nodes: parsedDesignDocument.erdNodes,
+        edges: parsedDesignDocument.erdEdges,
+        type: "erd",
+      });
 
-const finalFlowDiagramHtml = buildPrintDiagramSvg({
-  nodes: parsedDesignDocument.flowNodes,
-  edges: parsedDesignDocument.flowEdges,
-  type: "flow",
-});
+      const finalFlowDiagramHtml = buildPrintDiagramSvg({
+        nodes: parsedDesignDocument.flowNodes,
+        edges: parsedDesignDocument.flowEdges,
+        type: "flow",
+      });
 
-return `
+      return `
   <section class="print-section">
     <h2 class="section-title">1. 최종 보고서 초안</h2>
     <article class="print-card report-card">
@@ -2515,110 +2515,110 @@ return `
   };
 
   const handleGenerateFinalReport = async () => {
-  if (!selectedProject) {
-    alert("최종 보고서 초안을 생성할 프로젝트를 선택해주세요.");
-    return;
-  }
-
-  if (!selectedDesignWorkspaceId) {
-    alert("프로젝트 식별값을 찾지 못했습니다.");
-    return;
-  }
-
-  if (finalReportLoading) {
-    return;
-  }
-
-  try {
-    setFinalReportLoading(true);
-    setFinalReportError("");
-
-    console.log("[final report] AI 초안 생성 요청 시작", {
-      workspaceId: selectedDesignWorkspaceId,
-      projectName: selectedProject.name,
-      devlogCount: filteredDevlogs.length,
-      requirementCount: designRequirements.length,
-      apiSpecCount: designApiSpecs.length,
-      erdCount: parsedDesignDocument.erdNodes.length,
-      flowCount: parsedDesignDocument.flowNodes.length,
-    });
-
-    const response = await generateFinalReportDraftApi({
-      workspaceId: selectedDesignWorkspaceId,
-      project: {
-        name: selectedProject.name,
-        description: selectedProject.description,
-        type: selectedProject.type,
-        language: selectedProject.language,
-        stack: selectedProject.stack,
-        progress: selectedProject.progress,
-        doneScheduleCount: selectedProject.doneScheduleCount,
-        scheduleTotalCount: selectedProject.scheduleTotalCount,
-        devlogCount: filteredDevlogs.length,
-      },
-      devlogs: filteredDevlogs.map((devlog) => ({
-        title: devlog.title,
-        date: devlog.date,
-        projectName: devlog.projectName,
-        summary: devlog.summary,
-      })),
-      requirements: designRequirements.map((item) => ({
-        category: item.category,
-        name: item.name,
-        description: item.description,
-      })),
-      apiSpecs: designApiSpecs.map((item) => ({
-        method: item.method,
-        endpoint: item.endpoint,
-        description: item.description,
-        request: item.request,
-        response: item.response,
-      })),
-      erdTables: buildErdTablesForDraft(parsedDesignDocument.erdNodes),
-      flowNodes: buildFlowNodesForDraft(parsedDesignDocument.flowNodes),
-    });
-
-    console.log("[final report] AI 초안 생성 응답", response);
-
-    const responseRecord =
-  typeof response === "object" && response !== null
-    ? (response as Record<string, unknown>)
-    : null;
-
-const nextDraft =
-  typeof response === "string"
-    ? response
-    : typeof responseRecord?.draft === "string"
-      ? responseRecord.draft
-      : typeof responseRecord?.content === "string"
-        ? responseRecord.content
-        : typeof responseRecord?.result === "string"
-          ? responseRecord.result
-          : typeof responseRecord?.message === "string"
-            ? responseRecord.message
-            : "";
-
-    if (!nextDraft.trim()) {
-      throw new Error(
-        "AI 초안 응답은 왔지만 보고서 내용이 비어 있습니다. 백엔드 응답 필드명을 확인해주세요.",
-      );
+    if (!selectedProject) {
+      alert("최종 보고서 초안을 생성할 프로젝트를 선택해주세요.");
+      return;
     }
 
-    setFinalReportDraft(nextDraft);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "AI 최종 보고서 초안 생성에 실패했습니다.";
+    if (!selectedDesignWorkspaceId) {
+      alert("프로젝트 식별값을 찾지 못했습니다.");
+      return;
+    }
 
-    console.error("[final report] AI 초안 생성 실패", error);
+    if (finalReportLoading) {
+      return;
+    }
 
-    setFinalReportError(message);
-    alert(message);
-  } finally {
-    setFinalReportLoading(false);
-  }
-};
+    try {
+      setFinalReportLoading(true);
+      setFinalReportError("");
+
+      console.log("[final report] AI 초안 생성 요청 시작", {
+        workspaceId: selectedDesignWorkspaceId,
+        projectName: selectedProject.name,
+        devlogCount: filteredDevlogs.length,
+        requirementCount: designRequirements.length,
+        apiSpecCount: designApiSpecs.length,
+        erdCount: parsedDesignDocument.erdNodes.length,
+        flowCount: parsedDesignDocument.flowNodes.length,
+      });
+
+      const response = await generateFinalReportDraftApi({
+        workspaceId: selectedDesignWorkspaceId,
+        project: {
+          name: selectedProject.name,
+          description: selectedProject.description,
+          type: selectedProject.type,
+          language: selectedProject.language,
+          stack: selectedProject.stack,
+          progress: selectedProject.progress,
+          doneScheduleCount: selectedProject.doneScheduleCount,
+          scheduleTotalCount: selectedProject.scheduleTotalCount,
+          devlogCount: filteredDevlogs.length,
+        },
+        devlogs: filteredDevlogs.map((devlog) => ({
+          title: devlog.title,
+          date: devlog.date,
+          projectName: devlog.projectName,
+          summary: devlog.summary,
+        })),
+        requirements: designRequirements.map((item) => ({
+          category: item.category,
+          name: item.name,
+          description: item.description,
+        })),
+        apiSpecs: designApiSpecs.map((item) => ({
+          method: item.method,
+          endpoint: item.endpoint,
+          description: item.description,
+          request: item.request,
+          response: item.response,
+        })),
+        erdTables: buildErdTablesForDraft(parsedDesignDocument.erdNodes),
+        flowNodes: buildFlowNodesForDraft(parsedDesignDocument.flowNodes),
+      });
+
+      console.log("[final report] AI 초안 생성 응답", response);
+
+      const responseRecord =
+        typeof response === "object" && response !== null
+          ? (response as Record<string, unknown>)
+          : null;
+
+      const nextDraft =
+        typeof response === "string"
+          ? response
+          : typeof responseRecord?.draft === "string"
+            ? responseRecord.draft
+            : typeof responseRecord?.content === "string"
+              ? responseRecord.content
+              : typeof responseRecord?.result === "string"
+                ? responseRecord.result
+                : typeof responseRecord?.message === "string"
+                  ? responseRecord.message
+                  : "";
+
+      if (!nextDraft.trim()) {
+        throw new Error(
+          "AI 초안 응답은 왔지만 보고서 내용이 비어 있습니다. 백엔드 응답 필드명을 확인해주세요.",
+        );
+      }
+
+      setFinalReportDraft(nextDraft);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "AI 최종 보고서 초안 생성에 실패했습니다.";
+
+      console.error("[final report] AI 초안 생성 실패", error);
+
+      setFinalReportError(message);
+      alert(message);
+    } finally {
+      setFinalReportLoading(false);
+    }
+  };
 
   return (
     <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
@@ -2744,18 +2744,18 @@ const nextDraft =
         />
       )}
 
-   {activeArchiveTab === "final" && (
-  <ArchiveFinalReportContent
-    selectedProject={selectedProject}
-    devlogCount={filteredDevlogs.length}
-    draft={finalReportDraft}
-    onDraftChange={setFinalReportDraft}
-    onGenerate={handleGenerateFinalReport}
-    designDocument={parsedDesignDocument}
-    isGenerating={finalReportLoading}
-    errorMessage={finalReportError}
-  />
-)}
+      {activeArchiveTab === "final" && (
+        <ArchiveFinalReportContent
+          selectedProject={selectedProject}
+          devlogCount={filteredDevlogs.length}
+          draft={finalReportDraft}
+          onDraftChange={setFinalReportDraft}
+          onGenerate={handleGenerateFinalReport}
+          designDocument={parsedDesignDocument}
+          isGenerating={finalReportLoading}
+          errorMessage={finalReportError}
+        />
+      )}
     </section>
   );
 }
@@ -3604,9 +3604,7 @@ function FinalReportDesignVisuals({
         </p>
       </div>
 
-      {hasErd && (
-        <FinalReportErdDiagram nodes={erdNodes} edges={erdEdges} />
-      )}
+      {hasErd && <FinalReportErdDiagram nodes={erdNodes} edges={erdEdges} />}
 
       {hasFlow && (
         <FinalReportFlowDiagram nodes={flowNodes} edges={flowEdges} />
@@ -3868,9 +3866,7 @@ function getDiagramBounds(nodes: Record<string, unknown>[]): DiagramBounds {
       return {
         x: typeof position.x === "number" ? position.x : 180 + index * 260,
         y:
-          typeof position.y === "number"
-            ? position.y
-            : 120 + (index % 3) * 160,
+          typeof position.y === "number" ? position.y : 120 + (index % 3) * 160,
       };
     }
 
@@ -3965,30 +3961,36 @@ function DevlogCard({ devlog }: { devlog: Devlog }) {
 
 function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
   const heatmapStats = useMemo(() => {
-  const totalScore = heatmapValues.reduce<number>(
-    (sum, level) => sum + Number(level),
-    0,
-  );
+    const totalScore = heatmapValues.reduce<number>(
+      (sum, level) => sum + Number(level),
+      0,
+    );
 
-  const activeDays = heatmapValues.filter((level) => level > 0).length;
+    const activeDays = heatmapValues.filter((level) => level > 0).length;
 
-  const maxLevel: HeatmapLevel =
-    heatmapValues.length > 0
-      ? (Math.max(...heatmapValues) as HeatmapLevel)
-      : 0;
+    const maxLevel: HeatmapLevel =
+      heatmapValues.length > 0
+        ? (Math.max(...heatmapValues) as HeatmapLevel)
+        : 0;
 
-  const maxLevelCount = heatmapValues.filter(
-    (level) => level === maxLevel,
-  ).length;
+    const maxLevelCount = heatmapValues.filter(
+      (level) => level === maxLevel,
+    ).length;
 
-  return {
-    totalScore,
-    activeDays,
-    maxLevel,
-    maxLevelCount,
-    totalDays: heatmapValues.length,
-  };
-}, [heatmapValues]);
+    const averageScore =
+      heatmapValues.length > 0
+        ? Math.round((totalScore / heatmapValues.length) * 10) / 10
+        : 0;
+
+    return {
+      totalScore,
+      activeDays,
+      maxLevel,
+      maxLevelCount,
+      averageScore,
+      totalDays: heatmapValues.length,
+    };
+  }, [heatmapValues]);
 
   const levelGuide: {
     level: HeatmapLevel;
@@ -4051,74 +4053,79 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
         </div>
       </div>
 
-      <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <p className="text-sm font-black text-slate-800">
-              이 히트맵은 무엇을 보여주나요?
-            </p>
-            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-              하루 동안 발생한 개발일지 작성, 일정 완료, 프로젝트 생성,
-              GitHub 커밋 기록을 합산해 활동 강도를 표시합니다. 색이 진할수록
-              해당 날짜에 더 많은 개발 활동이 있었다는 의미입니다.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[460px]">
-            <HeatmapMetricCard
-              label="활동일"
-              value={`${heatmapStats.activeDays}일`}
-              description={`전체 ${heatmapStats.totalDays}일 중`}
-            />
-            <HeatmapMetricCard
-              label="총 활동 점수"
-              value={`${heatmapStats.totalScore}점`}
-              description="누적 활동량"
-            />
-            <HeatmapMetricCard
-              label="최고 활동 단계"
-              value={`${heatmapStats.maxLevel}단계`}
-              description={
-                heatmapStats.maxLevel > 0
-                  ? `${heatmapStats.maxLevelCount}일 기록`
-                  : "활동 없음"
-              }
-            />
-            <HeatmapMetricCard
-              label="산정 방식"
-              value="1건 = 1점"
-              description="하루 단위 합산"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="overflow-x-auto rounded-2xl border border-blue-100 bg-blue-50 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-start">
             <div>
               <p className="text-sm font-black text-slate-800">
                 날짜별 활동 분포
               </p>
-              <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                각 칸은 하루를 의미하며, 색상은 해당 날짜의 활동량을 나타냅니다.
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                각 칸은 하루를 의미하며, 색이 진할수록 해당 날짜의 개발 활동이
+                많았다는 뜻입니다.
               </p>
+            </div>
+
+            <span className="w-fit rounded-full bg-white px-3 py-1 text-[11px] font-black text-blue-700 shadow-sm">
+              활동일 {heatmapStats.activeDays}일
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[auto_minmax(0,1fr)] 2xl:items-center">
+            <div className="w-fit rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+              <div className="grid grid-flow-col grid-rows-7 gap-1.5">
+                {heatmapValues.map((level, index) => (
+                  <HeatCell
+                    key={index}
+                    level={level}
+                    title={`${index + 1}번째 날짜 · 활동 ${level}건`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <HeatmapMetricCard
+                label="총 활동 점수"
+                value={`${heatmapStats.totalScore}점`}
+                description="누적 활동량"
+              />
+              <HeatmapMetricCard
+                label="평균 활동"
+                value={`${heatmapStats.averageScore}점`}
+                description="하루 평균"
+              />
+              <HeatmapMetricCard
+                label="최고 활동 단계"
+                value={`${heatmapStats.maxLevel}단계`}
+                description={
+                  heatmapStats.maxLevel > 0
+                    ? `${heatmapStats.maxLevelCount}일 기록`
+                    : "활동 없음"
+                }
+              />
+              <HeatmapMetricCard
+                label="산정 방식"
+                value="1건 = 1점"
+                description="하루 단위 합산"
+              />
             </div>
           </div>
 
-          <div className="grid w-max grid-flow-col grid-rows-7 gap-1.5">
-            {heatmapValues.map((level, index) => (
-              <HeatCell
-                key={index}
-                level={level}
-                title={`${index + 1}번째 날짜 · 활동 ${level}건`}
-              />
-            ))}
+          <div className="mt-4 rounded-2xl border border-blue-100 bg-white p-4">
+            <p className="text-sm font-black text-slate-800">
+              이 히트맵은 무엇을 보여주나요?
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+              하루 동안 발생한 개발일지 작성, 일정 완료, 프로젝트 생성, GitHub
+              커밋 기록을 합산해 활동 강도를 표시합니다. 색이 진할수록 해당
+              날짜에 더 많은 개발 활동이 있었다는 의미입니다.
+            </p>
           </div>
         </div>
 
-        <div className="space-y-3">
-          <section className="rounded-2xl border border-blue-100 bg-white p-4">
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
             <div className="mb-3">
               <p className="text-sm font-black text-slate-800">
                 활동 점수 산정 기준
@@ -4129,7 +4136,7 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <HeatmapRuleRow label="개발일지 작성" value="+1" />
               <HeatmapRuleRow label="일정 완료 처리" value="+1" />
               <HeatmapRuleRow label="프로젝트 생성" value="+1" />
@@ -4137,11 +4144,9 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-blue-100 bg-white p-4">
+          <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
             <div className="mb-3">
-              <p className="text-sm font-black text-slate-800">
-                색상 기준
-              </p>
+              <p className="text-sm font-black text-slate-800">색상 기준</p>
               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
                 활동 점수가 높을수록 더 진한 파란색으로 표시됩니다.
               </p>
@@ -4177,7 +4182,6 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
     </section>
   );
 }
-
 function HeatmapMetricCard({
   label,
   value,
@@ -4198,13 +4202,7 @@ function HeatmapMetricCard({
   );
 }
 
-function HeatmapRuleRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function HeatmapRuleRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2">
       <span className="text-xs font-black text-slate-700">{label}</span>
@@ -4215,13 +4213,7 @@ function HeatmapRuleRow({
   );
 }
 
-function HeatCell({
-  level,
-  title,
-}: {
-  level: HeatmapLevel;
-  title?: string;
-}) {
+function HeatCell({ level, title }: { level: HeatmapLevel; title?: string }) {
   const bgClass =
     level === 0
       ? "bg-slate-200"
