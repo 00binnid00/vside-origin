@@ -3964,15 +3964,79 @@ function DevlogCard({ devlog }: { devlog: Devlog }) {
 }
 
 function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
+  const heatmapStats = useMemo(() => {
+  const totalScore = heatmapValues.reduce<number>(
+    (sum, level) => sum + Number(level),
+    0,
+  );
+
+  const activeDays = heatmapValues.filter((level) => level > 0).length;
+
+  const maxLevel: HeatmapLevel =
+    heatmapValues.length > 0
+      ? (Math.max(...heatmapValues) as HeatmapLevel)
+      : 0;
+
+  const maxLevelCount = heatmapValues.filter(
+    (level) => level === maxLevel,
+  ).length;
+
+  return {
+    totalScore,
+    activeDays,
+    maxLevel,
+    maxLevelCount,
+    totalDays: heatmapValues.length,
+  };
+}, [heatmapValues]);
+
+  const levelGuide: {
+    level: HeatmapLevel;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      level: 0,
+      label: "0건",
+      description: "활동 없음",
+    },
+    {
+      level: 1,
+      label: "1건",
+      description: "낮은 활동",
+    },
+    {
+      level: 2,
+      label: "2건",
+      description: "보통 활동",
+    },
+    {
+      level: 3,
+      label: "3건",
+      description: "높은 활동",
+    },
+    {
+      level: 4,
+      label: "4건 이상",
+      description: "매우 높은 활동",
+    },
+  ];
+
   return (
     <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+      <div className="mb-4 flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
         <div>
-          <h3 className="text-lg font-black tracking-tight">
-            개발 활동 히트맵
-          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-black tracking-tight">
+              개발 활동 히트맵
+            </h3>
+            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-black text-blue-700">
+              최근 {heatmapStats.totalDays}일 기준
+            </span>
+          </div>
+
           <p className="mt-1 text-sm font-semibold text-slate-500">
-            자료 작성, 일정 완료, 프로젝트 생성, 커밋 기록 기준입니다.
+            날짜별 개발 활동량을 색상 강도로 시각화한 영역입니다.
           </p>
         </div>
 
@@ -3987,14 +4051,205 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-blue-100 bg-blue-50 p-4">
-        <div className="grid w-max grid-flow-col grid-rows-7 gap-1.5">
-          {heatmapValues.map((level, index) => (
-            <HeatCell key={index} level={level} />
-          ))}
+      <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <p className="text-sm font-black text-slate-800">
+              이 히트맵은 무엇을 보여주나요?
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+              하루 동안 발생한 개발일지 작성, 일정 완료, 프로젝트 생성,
+              GitHub 커밋 기록을 합산해 활동 강도를 표시합니다. 색이 진할수록
+              해당 날짜에 더 많은 개발 활동이 있었다는 의미입니다.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[460px]">
+            <HeatmapMetricCard
+              label="활동일"
+              value={`${heatmapStats.activeDays}일`}
+              description={`전체 ${heatmapStats.totalDays}일 중`}
+            />
+            <HeatmapMetricCard
+              label="총 활동 점수"
+              value={`${heatmapStats.totalScore}점`}
+              description="누적 활동량"
+            />
+            <HeatmapMetricCard
+              label="최고 활동 단계"
+              value={`${heatmapStats.maxLevel}단계`}
+              description={
+                heatmapStats.maxLevel > 0
+                  ? `${heatmapStats.maxLevelCount}일 기록`
+                  : "활동 없음"
+              }
+            />
+            <HeatmapMetricCard
+              label="산정 방식"
+              value="1건 = 1점"
+              description="하루 단위 합산"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="overflow-x-auto rounded-2xl border border-blue-100 bg-blue-50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-slate-800">
+                날짜별 활동 분포
+              </p>
+              <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                각 칸은 하루를 의미하며, 색상은 해당 날짜의 활동량을 나타냅니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid w-max grid-flow-col grid-rows-7 gap-1.5">
+            {heatmapValues.map((level, index) => (
+              <HeatCell
+                key={index}
+                level={level}
+                title={`${index + 1}번째 날짜 · 활동 ${level}건`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <section className="rounded-2xl border border-blue-100 bg-white p-4">
+            <div className="mb-3">
+              <p className="text-sm font-black text-slate-800">
+                활동 점수 산정 기준
+              </p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                아래 활동이 발생할 때마다 해당 날짜의 활동 점수가 1점씩
+                증가합니다.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <HeatmapRuleRow label="개발일지 작성" value="+1" />
+              <HeatmapRuleRow label="일정 완료 처리" value="+1" />
+              <HeatmapRuleRow label="프로젝트 생성" value="+1" />
+              <HeatmapRuleRow label="GitHub 커밋 기록" value="+1" />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-blue-100 bg-white p-4">
+            <div className="mb-3">
+              <p className="text-sm font-black text-slate-800">
+                색상 기준
+              </p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                활동 점수가 높을수록 더 진한 파란색으로 표시됩니다.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {levelGuide.map((item) => (
+                <div
+                  key={item.level}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <HeatCell level={item.level} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-slate-800">
+                        {item.label}
+                      </p>
+                      <p className="text-[11px] font-semibold text-slate-500">
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-blue-700">
+                    {item.level}단계
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </div>
     </section>
+  );
+}
+
+function HeatmapMetricCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-blue-100 bg-white px-3 py-2.5">
+      <p className="text-[11px] font-black text-slate-400">{label}</p>
+      <p className="mt-0.5 text-base font-black text-slate-950">{value}</p>
+      <p className="mt-0.5 text-[10px] font-bold text-slate-400">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function HeatmapRuleRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2">
+      <span className="text-xs font-black text-slate-700">{label}</span>
+      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-blue-700">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function HeatCell({
+  level,
+  title,
+}: {
+  level: HeatmapLevel;
+  title?: string;
+}) {
+  const bgClass =
+    level === 0
+      ? "bg-slate-200"
+      : level === 1
+        ? "bg-blue-100"
+        : level === 2
+          ? "bg-blue-300"
+          : level === 3
+            ? "bg-blue-500"
+            : "bg-blue-700";
+
+  const label =
+    level === 0
+      ? "활동 없음"
+      : level === 1
+        ? "활동 1건"
+        : level === 2
+          ? "활동 2건"
+          : level === 3
+            ? "활동 3건"
+            : "활동 4건 이상";
+
+  return (
+    <div
+      title={title ?? label}
+      aria-label={title ?? label}
+      className={`h-3.5 w-3.5 shrink-0 rounded-[4px] border border-white ${bgClass}`}
+    />
   );
 }
 
@@ -4332,25 +4587,25 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HeatCell({ level }: { level: HeatmapLevel }) {
-  const bgClass =
-    level === 0
-      ? "bg-slate-200"
-      : level === 1
-        ? "bg-blue-100"
-        : level === 2
-          ? "bg-blue-300"
-          : level === 3
-            ? "bg-blue-500"
-            : "bg-blue-700";
+// function HeatCell({ level }: { level: HeatmapLevel }) {
+//   const bgClass =
+//     level === 0
+//       ? "bg-slate-200"
+//       : level === 1
+//         ? "bg-blue-100"
+//         : level === 2
+//           ? "bg-blue-300"
+//           : level === 3
+//             ? "bg-blue-500"
+//             : "bg-blue-700";
 
-  return (
-    <div
-      title={`활동 ${level}`}
-      className={`h-3.5 w-3.5 rounded-[4px] border border-white ${bgClass}`}
-    />
-  );
-}
+//   return (
+//     <div
+//       title={`활동 ${level}`}
+//       className={`h-3.5 w-3.5 rounded-[4px] border border-white ${bgClass}`}
+//     />
+//   );
+// }
 
 function AccountRow({
   label,
