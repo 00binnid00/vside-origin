@@ -268,24 +268,26 @@ export default function TopNav() {
       label: "프로젝트",
       requiresWorkspace: true,
     },
+      {
+      key: "design",
+      href: designHref,
+      label: "설계관리",
+      requiresWorkspace: true,
+    },
+      {
+      key: "schedules",
+      href: schedulesHref,
+      label: "일정관리",
+      requiresWorkspace: true,
+    },
     {
       key: "aivs",
       href: aivsHref,
       label: "AIVS",
       requiresWorkspace: true,
     },
-    {
-      key: "design",
-      href: designHref,
-      label: "설계관리",
-      requiresWorkspace: true,
-    },
-    {
-      key: "schedules",
-      href: schedulesHref,
-      label: "일정관리",
-      requiresWorkspace: true,
-    },
+  
+  
     {
       key: "devlogs",
       href: devlogsHref,
@@ -366,7 +368,7 @@ export default function TopNav() {
           href="/"
           className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-xl font-extrabold text-transparent"
         >
-          WEVAIS
+          WAIVS
         </Link>
 
         <nav className="hidden items-center gap-6 text-sm text-gray-600 md:flex">
