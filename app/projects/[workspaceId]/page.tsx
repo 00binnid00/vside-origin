@@ -18,9 +18,9 @@ export default function AivsPage({ params, searchParams }: PageProps) {
 
   return (
     <main className="">
-      <div className="mx-auto max-w-[1440px]">
+      
         <ProjectManagerList workspaceId={params.workspaceId} mode={mode} />
-      </div>
+    
     </main>
   );
 }
