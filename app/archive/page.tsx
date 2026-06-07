@@ -1913,338 +1913,338 @@ export default function ArchivePage() {
     );
   }
 
-  return (
-    <main className="min-h-screen bg-[#f4f8ff] p-4 text-slate-950 md:p-5">
-      <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-5 xl:grid-cols-[300px_1fr]">
-        <aside className="space-y-4">
-          <section className="rounded-[26px] border border-blue-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-950 text-white">
-                <FileArchive size={20} />
-              </div>
-
-              <div>
-                <h1 className="text-xl font-black tracking-tight">
-                  프로젝트 자료실
-                </h1>
-                <p className="mt-0.5 text-xs font-bold text-slate-500">
-                  개발일지 · 설계 문서 · 최종 보고서
-                </p>
-              </div>
+ return (
+  <main className="min-h-screen bg-[#f4f8ff] p-4 text-slate-950 md:p-5">
+   <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 gap-5 xl:grid-cols-[300px_1fr]">
+      <aside className="space-y-4">
+        <section className="rounded-[26px] border border-blue-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-950 text-white">
+              <FileArchive size={20} />
             </div>
 
-            <div className="mt-5 space-y-2">
-              {archiveTabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeArchiveTab === tab.key;
+            <div>
+              <h1 className="text-xl font-black tracking-tight">
+                프로젝트 자료실
+              </h1>
+              <p className="mt-0.5 text-xs font-bold text-slate-500">
+                개발일지 · 설계 문서 · 최종 보고서
+              </p>
+            </div>
+          </div>
 
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveArchiveTab(tab.key)}
+          <div className="mt-5 space-y-2">
+            {archiveTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeArchiveTab === tab.key;
+
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveArchiveTab(tab.key)}
+                  className={[
+                    "flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition",
+                    isActive
+                      ? "border-blue-950 bg-blue-950 text-white shadow-sm"
+                      : "border-blue-100 bg-blue-50/60 text-slate-700 hover:bg-blue-100",
+                  ].join(" ")}
+                >
+                  <span
                     className={[
-                      "flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition",
-                      isActive
-                        ? "border-blue-950 bg-blue-950 text-white shadow-sm"
-                        : "border-blue-100 bg-blue-50/60 text-slate-700 hover:bg-blue-100",
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                      isActive ? "bg-white/15" : "bg-white text-blue-700",
                     ].join(" ")}
                   >
+                    <Icon size={17} />
+                  </span>
+
+                  <span className="min-w-0">
+                    <span className="block text-sm font-black">
+                      {tab.label}
+                    </span>
                     <span
                       className={[
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-                        isActive ? "bg-white/15" : "bg-white text-blue-700",
+                        "mt-0.5 block truncate text-[11px] font-bold",
+                        isActive ? "text-blue-100" : "text-slate-400",
                       ].join(" ")}
                     >
-                      <Icon size={17} />
+                      {tab.description}
                     </span>
-
-                    <span className="min-w-0">
-                      <span className="block text-sm font-black">
-                        {tab.label}
-                      </span>
-                      <span
-                        className={[
-                          "mt-0.5 block truncate text-[11px] font-bold",
-                          isActive ? "text-blue-100" : "text-slate-400",
-                        ].join(" ")}
-                      >
-                        {tab.description}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="rounded-[26px] border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-sm font-black text-slate-950">프로젝트 선택</p>
-
-            <select
-              value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
-              disabled={projectOptions.length === 0}
-              className="mt-3 h-11 w-full rounded-2xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-blue-400 focus:bg-white"
-            >
-              {projectOptions.length === 0 && (
-                <option value="">프로젝트 없음</option>
-              )}
-
-              {projectOptions.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-
-            {selectedProject && (
-              <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-blue-700">
-                    {selectedProject.type}
                   </span>
-                  <span className="text-xs font-black text-slate-500">
-                    {selectedProject.progress}%
-                  </span>
-                </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
-                <p className="mt-3 line-clamp-1 text-sm font-black text-slate-950">
-                  {selectedProject.name}
-                </p>
+        <section className="rounded-[26px] border border-blue-100 bg-white p-5 shadow-sm">
+          <p className="text-sm font-black text-slate-950">프로젝트 선택</p>
 
-                <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">
-                  {selectedProject.description || "설명이 없습니다."}
-                </p>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
-                  <div
-                    className="h-full rounded-full bg-blue-600"
-                    style={{ width: `${selectedProject.progress}%` }}
-                  />
-                </div>
-              </div>
+          <select
+            value={selectedProjectId}
+            onChange={(event) => setSelectedProjectId(event.target.value)}
+            disabled={projectOptions.length === 0}
+            className="mt-3 h-11 w-full rounded-2xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-blue-400 focus:bg-white"
+          >
+            {projectOptions.length === 0 && (
+              <option value="">프로젝트 없음</option>
             )}
-          </section>
 
-          <section className="grid grid-cols-2 gap-2">
-            <ArchiveStatCard label="개발일지" value={`${filteredDevlogs.length}개`} />
-            <ArchiveStatCard label="설계자료" value={`${totalDesignCount}개`} />
-            <ArchiveStatCard
-              label="요구사항"
-              value={`${designRequirements.length}개`}
-            />
-            <ArchiveStatCard
-              label="API"
-              value={`${designApiSpecs.length}개`}
-            />
-          </section>
-        </aside>
+            {projectOptions.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
 
-        <section className="min-w-0 space-y-4">
-          <section className="rounded-[28px] border border-blue-100 bg-white p-5 shadow-sm">
-            <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-2xl font-black tracking-tight text-slate-950">
-                    {activeArchive?.label}
-                  </h2>
-
-                  <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-700">
-                    {selectedProject?.name ?? "프로젝트 없음"}
-                  </span>
-                </div>
-
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  선택한 프로젝트의 자료를 조회하고 PDF로 저장할 수 있습니다.
-                </p>
+          {selectedProject && (
+            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-blue-700">
+                  {selectedProject.type}
+                </span>
+                <span className="text-xs font-black text-slate-500">
+                  {selectedProject.progress}%
+                </span>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <div className="relative">
-                  <Search
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    value={keyword}
-                    onChange={(event) => setKeyword(event.target.value)}
-                    placeholder="자료실 검색"
-                    className="h-10 w-full rounded-2xl border border-blue-100 bg-blue-50 pl-10 pr-3 text-sm font-semibold outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white sm:w-[250px]"
-                  />
-                </div>
+              <p className="mt-3 line-clamp-1 text-sm font-black text-slate-950">
+                {selectedProject.name}
+              </p>
 
-                {activeArchiveTab === "devlog" && (
-                  <select
-                    value={sortType}
-                    onChange={(event) =>
-                      setSortType(event.target.value as DevlogSortType)
-                    }
-                    className="h-10 rounded-2xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400 focus:bg-white"
-                  >
-                    <option value="latest">최신순</option>
-                    <option value="oldest">오래된순</option>
-                  </select>
-                )}
+              <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">
+                {selectedProject.description || "설명이 없습니다."}
+              </p>
 
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsPdfMenuOpen((prev) => !prev)}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900"
-                  >
-                    <Download size={16} />
-                    PDF 저장
-                    <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] text-white">
-                      {selectedPdfSections.length}
-                    </span>
-                  </button>
-
-                  {isPdfMenuOpen && (
-                    <div className="absolute right-0 top-12 z-50 w-[330px] rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
-                      <div className="mb-2 flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-black text-slate-950">
-                            PDF 출력 항목
-                          </p>
-                          <p className="mt-0.5 text-[11px] font-bold text-slate-500">
-                            개발일지, 설계 문서, 최종 보고서를 원하는 조합으로 출력합니다.
-                          </p>
-                        </div>
-
-                        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">
-                          {selectedPdfSections.length}개 선택
-                        </span>
-                      </div>
-
-                      <div className="mb-3 grid grid-cols-3 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={selectAllPdfSections}
-                          className="h-7 rounded-lg bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100"
-                        >
-                          전체
-                        </button>
-                        <button
-                          type="button"
-                          onClick={selectCurrentArchivePdfSections}
-                          className="h-7 rounded-lg bg-indigo-50 px-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100"
-                        >
-                          현재 탭
-                        </button>
-                        <button
-                          type="button"
-                          onClick={clearPdfSections}
-                          className="h-7 rounded-lg bg-slate-50 px-2 text-[11px] font-black text-slate-500 transition hover:bg-slate-100"
-                        >
-                          해제
-                        </button>
-                      </div>
-
-                      <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
-                        {["개발일지", "설계 문서", "최종 보고서"].map((group) => (
-                          <section key={group}>
-                            <p className="mb-1.5 px-1 text-[11px] font-black text-slate-400">
-                              {group}
-                            </p>
-
-                            <div className="space-y-1.5">
-                              {archivePdfSectionItems
-                                .filter((item) => item.group === group)
-                                .map((item) => {
-                                  const checked = selectedPdfSections.includes(
-                                    item.key,
-                                  );
-
-                                  return (
-                                    <label
-                                      key={item.key}
-                                      className={[
-                                        "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm transition",
-                                        checked
-                                          ? "border-blue-200 bg-blue-50 text-blue-800"
-                                          : "border-slate-100 bg-white text-slate-600 hover:bg-slate-50",
-                                      ].join(" ")}
-                                    >
-                                      <span className="font-black">
-                                        {item.label}
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() => togglePdfSection(item.key)}
-                                        className="h-4 w-4 accent-blue-600"
-                                      />
-                                    </label>
-                                  );
-                                })}
-                            </div>
-                          </section>
-                        ))}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handlePrintPdf();
-
-                          if (selectedPdfSections.length > 0) {
-                            setIsPdfMenuOpen(false);
-                          }
-                        }}
-                        disabled={selectedPdfSections.length === 0}
-                        className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-extrabold text-white shadow-sm shadow-blue-100 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        <Download size={14} />
-                        선택 항목 PDF 저장
-                      </button>
-
-                      <p className="mt-2 truncate text-[11px] font-bold text-slate-400">
-                        선택됨:{" "}
-                        {selectedPdfSectionLabels.length > 0
-                          ? selectedPdfSectionLabels.join(", ")
-                          : "없음"}
-                      </p>
-                    </div>
-                  )}
-                </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+                <div
+                  className="h-full rounded-full bg-blue-600"
+                  style={{ width: `${selectedProject.progress}%` }}
+                />
               </div>
             </div>
-          </section>
-
-          {activeArchiveTab === "devlog" && (
-            <ArchiveDevlogContent devlogs={filteredDevlogs} />
-          )}
-
-          {activeArchiveTab === "design" && (
-            <ArchiveDesignContent
-              activeDesignSection={activeDesignSection}
-              onActiveDesignSectionChange={setActiveDesignSection}
-              selectedProject={selectedProject}
-              requirements={designRequirements}
-              apiSpecs={designApiSpecs}
-              designDocument={parsedDesignDocument}
-              isLoading={designLoading}
-              errorMessage={designError}
-            />
-          )}
-
-          {activeArchiveTab === "final" && (
-            <ArchiveFinalReportContent
-              selectedProject={selectedProject}
-              devlogCount={filteredDevlogs.length}
-              draft={finalReportDraft}
-              onDraftChange={setFinalReportDraft}
-              onGenerate={handleGenerateFinalReport}
-              designDocument={parsedDesignDocument}
-              isGenerating={finalReportLoading}
-              errorMessage={finalReportError}
-            />
           )}
         </section>
-      </div>
-    </main>
-  );
+
+        <section className="grid grid-cols-2 gap-2">
+          <ArchiveStatCard label="개발일지" value={`${filteredDevlogs.length}개`} />
+          <ArchiveStatCard label="설계자료" value={`${totalDesignCount}개`} />
+          <ArchiveStatCard
+            label="요구사항"
+            value={`${designRequirements.length}개`}
+          />
+          <ArchiveStatCard
+            label="API"
+            value={`${designApiSpecs.length}개`}
+          />
+        </section>
+      </aside>
+
+      <section className="min-w-0 space-y-4">
+        <section className="rounded-[28px] border border-blue-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-2xl font-black tracking-tight text-slate-950">
+                  {activeArchive?.label}
+                </h2>
+
+                <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black text-blue-700">
+                  {selectedProject?.name ?? "프로젝트 없음"}
+                </span>
+              </div>
+
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                선택한 프로젝트의 자료를 조회하고 PDF로 저장할 수 있습니다.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder="자료실 검색"
+                  className="h-10 w-full rounded-2xl border border-blue-100 bg-blue-50 pl-10 pr-3 text-sm font-semibold outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white sm:w-[250px]"
+                />
+              </div>
+
+              {activeArchiveTab === "devlog" && (
+                <select
+                  value={sortType}
+                  onChange={(event) =>
+                    setSortType(event.target.value as DevlogSortType)
+                  }
+                  className="h-10 rounded-2xl border border-blue-100 bg-blue-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400 focus:bg-white"
+                >
+                  <option value="latest">최신순</option>
+                  <option value="oldest">오래된순</option>
+                </select>
+              )}
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfMenuOpen((prev) => !prev)}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900"
+                >
+                  <Download size={16} />
+                  PDF 저장
+                  <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] text-white">
+                    {selectedPdfSections.length}
+                  </span>
+                </button>
+
+                {isPdfMenuOpen && (
+                  <div className="absolute right-0 top-12 z-50 w-[330px] rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-slate-950">
+                          PDF 출력 항목
+                        </p>
+                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">
+                          개발일지, 설계 문서, 최종 보고서를 원하는 조합으로 출력합니다.
+                        </p>
+                      </div>
+
+                      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">
+                        {selectedPdfSections.length}개 선택
+                      </span>
+                    </div>
+
+                    <div className="mb-3 grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={selectAllPdfSections}
+                        className="h-7 rounded-lg bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100"
+                      >
+                        전체
+                      </button>
+                      <button
+                        type="button"
+                        onClick={selectCurrentArchivePdfSections}
+                        className="h-7 rounded-lg bg-indigo-50 px-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100"
+                      >
+                        현재 탭
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearPdfSections}
+                        className="h-7 rounded-lg bg-slate-50 px-2 text-[11px] font-black text-slate-500 transition hover:bg-slate-100"
+                      >
+                        해제
+                      </button>
+                    </div>
+
+                    <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                      {["개발일지", "설계 문서", "최종 보고서"].map((group) => (
+                        <section key={group}>
+                          <p className="mb-1.5 px-1 text-[11px] font-black text-slate-400">
+                            {group}
+                          </p>
+
+                          <div className="space-y-1.5">
+                            {archivePdfSectionItems
+                              .filter((item) => item.group === group)
+                              .map((item) => {
+                                const checked = selectedPdfSections.includes(
+                                  item.key,
+                                );
+
+                                return (
+                                  <label
+                                    key={item.key}
+                                    className={[
+                                      "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm transition",
+                                      checked
+                                        ? "border-blue-200 bg-blue-50 text-blue-800"
+                                        : "border-slate-100 bg-white text-slate-600 hover:bg-slate-50",
+                                    ].join(" ")}
+                                  >
+                                    <span className="font-black">
+                                      {item.label}
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => togglePdfSection(item.key)}
+                                      className="h-4 w-4 accent-blue-600"
+                                    />
+                                  </label>
+                                );
+                              })}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handlePrintPdf();
+
+                        if (selectedPdfSections.length > 0) {
+                          setIsPdfMenuOpen(false);
+                        }
+                      }}
+                      disabled={selectedPdfSections.length === 0}
+                      className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-xs font-extrabold text-white shadow-sm shadow-blue-100 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Download size={14} />
+                      선택 항목 PDF 저장
+                    </button>
+
+                    <p className="mt-2 truncate text-[11px] font-bold text-slate-400">
+                      선택됨:{" "}
+                      {selectedPdfSectionLabels.length > 0
+                        ? selectedPdfSectionLabels.join(", ")
+                        : "없음"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {activeArchiveTab === "devlog" && (
+          <ArchiveDevlogContent devlogs={filteredDevlogs} />
+        )}
+
+        {activeArchiveTab === "design" && (
+          <ArchiveDesignContent
+            activeDesignSection={activeDesignSection}
+            onActiveDesignSectionChange={setActiveDesignSection}
+            selectedProject={selectedProject}
+            requirements={designRequirements}
+            apiSpecs={designApiSpecs}
+            designDocument={parsedDesignDocument}
+            isLoading={designLoading}
+            errorMessage={designError}
+          />
+        )}
+
+        {activeArchiveTab === "final" && (
+          <ArchiveFinalReportContent
+            selectedProject={selectedProject}
+            devlogCount={filteredDevlogs.length}
+            draft={finalReportDraft}
+            onDraftChange={setFinalReportDraft}
+            onGenerate={handleGenerateFinalReport}
+            designDocument={parsedDesignDocument}
+            isGenerating={finalReportLoading}
+            errorMessage={finalReportError}
+          />
+        )}
+      </section>
+    </div>
+  </main>
+);
 }
 
 function ArchiveStatCard({ label, value }: { label: string; value: string }) {

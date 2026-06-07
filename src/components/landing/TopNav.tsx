@@ -362,16 +362,16 @@ export default function TopNav() {
   };
 
   return (
-    <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between py-2 text-xl">
+   <header className="sticky top-0 z-[2000]  border-b border-gray-200 bg-white/90 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-[1650px] items-center justify-between px-6 py-2 text-xl 3xl:max-w-[1920px] 2xl:px-12">
         <Link
           href="/"
-          className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-xl font-extrabold text-transparent"
+          className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-[22px] font-extrabold text-transparent"
         >
           WAIVS
         </Link>
 
-        <nav className="hidden items-center gap-6 text-sm text-gray-600 md:flex">
+        <nav className="hidden items-center gap-7 text-sm text-gray-600 md:flex">
           {NAV_ITEMS.map((item) => {
             const active = isNavItemActive(item);
 

@@ -205,7 +205,7 @@ function getWorkspaceSubProjectCount(workspace?: WorkspaceListResponse | null) {
 }
 
 function getWorkspaceTechLabel(workspace?: WorkspaceListResponse | null) {
-  return `하위 ${getWorkspaceSubProjectCount(workspace)}개`;
+  return `작업 폴더 ${getWorkspaceSubProjectCount(workspace)}개`;
 }
 
 function mapProjectResponse(project: ProjectListResponse): SubProject {
@@ -238,7 +238,7 @@ async function fetchSubProjectsByWorkspaceApi(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || "하위 프로젝트 목록 조회에 실패했습니다.");
+    throw new Error(text || "작업 폴더 목록 조회에 실패했습니다.");
   }
 
   const data: ProjectListResponse[] = await response.json();
@@ -410,7 +410,7 @@ function ProjectSidebar({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        "sticky top-5 hidden h-[calc(100vh-40px)] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-[#FBFBFA] shadow-sm transition-all duration-300 md:flex",
+        "sticky top-5 hidden h-[calc(100vh-40px)] shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 md:flex",
         sidebarExpanded ? "w-72" : "w-16",
       )}
     >
@@ -668,7 +668,7 @@ function SubProjectCard({
             <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-500">
               {project.description?.trim()
                 ? project.description
-                : `${project.language || "General"} 기반 하위 프로젝트입니다.`}
+                : `${project.language || "General"} 기반 작업 폴더입니다.`}
             </p>
 
             {project.gitUrl ? (
@@ -689,7 +689,7 @@ function SubProjectCard({
           <button
             type="button"
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-            aria-label="하위 프로젝트 메뉴"
+            aria-label="작업 폴더 메뉴"
             onClick={onOpenMenu}
           >
             <MoreVertical size={17} />
@@ -703,7 +703,7 @@ function SubProjectCard({
                 onClick={onCloseMenu}
               >
                 <FolderOpen size={16} className="text-slate-500" />
-                하위 프로젝트 열기
+                작업 폴더 열기
               </Link>
 
               <Link
@@ -978,7 +978,7 @@ export function ProjectManagerList({
       setError(
         err instanceof Error
           ? err.message
-          : "하위 프로젝트 조회 중 오류가 발생했습니다.",
+          : "작업 폴더 조회 중 오류가 발생했습니다.",
       );
     } finally {
       setLoading(false);
@@ -1081,7 +1081,7 @@ export function ProjectManagerList({
   async function handleDeleteSubProject(projectId: string) {
     if (
       !window.confirm(
-        "정말 이 하위 프로젝트를 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.",
+        "정말 이 작업 폴더를 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.",
       )
     ) {
       return;
@@ -1100,18 +1100,18 @@ export function ProjectManagerList({
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "하위 프로젝트 삭제에 실패했습니다.");
+        throw new Error(text || "작업 폴더 삭제에 실패했습니다.");
       }
 
       setProjects((prev) => prev.filter((project) => project.id !== projectId));
       setOpenMenuId(null);
-      alert("하위 프로젝트가 삭제되었습니다.");
+      alert("작업 폴더가 삭제되었습니다.");
     } catch (err) {
       console.error(err);
       alert(
         err instanceof Error
           ? err.message
-          : "하위 프로젝트 삭제 중 오류가 발생했습니다.",
+          : "작업 폴더 삭제 중 오류가 발생했습니다.",
       );
     }
   }
@@ -1179,19 +1179,13 @@ export function ProjectManagerList({
                   </h1>
 
                   <p className="mt-2 text-sm leading-6 text-gray-500">
-                    선택된 프로젝트 안의 하위 프로젝트를 AIVS 작업 단위로
+                    선택된 프로젝트 안의 작업 폴더를 AIVS 작업 단위로
                     관리합니다.
                   </p>
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {/* <Link
-                    href="/main"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-black text-gray-700 transition hover:bg-gray-50"
-                  >
-                    전체 프로젝트
-                    <ArrowRight size={17} />
-                  </Link> */}
+                 
 
                   {currentWorkspaceId ? (
                     <Link
@@ -1227,7 +1221,7 @@ export function ProjectManagerList({
                     className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#2563EB] px-4 text-sm font-black text-white shadow-sm transition hover:bg-blue-700"
                   >
                     <Plus size={18} />
-                    하위 프로젝트 추가
+                    작업 폴더 추가
                   </button>
                 </div>
               </div>
@@ -1284,11 +1278,11 @@ export function ProjectManagerList({
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
                   <h2 className="text-xl font-black tracking-tight text-gray-950">
-                    하위 프로젝트 목록
+                    작업 폴더 목록
                   </h2>
 
                   <p className="mt-2 text-sm font-medium text-gray-500">
-                    현재 선택된 상위 프로젝트에 속한 하위 프로젝트만
+                    현재 선택된 상위 프로젝트에 속한 작업 폴더만
                     표시합니다.
                   </p>
                 </div>
@@ -1361,7 +1355,7 @@ export function ProjectManagerList({
                     </div>
 
                     <p className="mt-4 text-sm font-black text-gray-800">
-                      하위 프로젝트를 불러오는 중입니다.
+                      작업 폴더를 불러오는 중입니다.
                     </p>
 
                     <p className="mt-1 text-sm text-gray-500">
@@ -1383,11 +1377,11 @@ export function ProjectManagerList({
                     </div>
 
                     <p className="mt-4 text-sm font-black text-gray-800">
-                      표시할 하위 프로젝트가 없습니다.
+                      표시할 작업 폴더가 없습니다.
                     </p>
 
                     <p className="mt-1 text-sm text-gray-500">
-                      검색어나 필터를 다시 확인하거나 새 하위 프로젝트를 추가해
+                      검색어나 필터를 다시 확인하거나 새 작업 폴더를 추가해
                       주세요.
                     </p>
 
@@ -1397,7 +1391,7 @@ export function ProjectManagerList({
                       className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-[#2563EB] px-4 py-2.5 text-sm font-black text-white transition hover:bg-blue-700"
                     >
                       <Plus size={17} />
-                      하위 프로젝트 추가
+                      작업 폴더 추가
                     </button>
                   </div>
                 ) : null}
@@ -1407,7 +1401,7 @@ export function ProjectManagerList({
                     <div className="mb-4 flex items-center justify-between gap-3 px-1">
                       <div>
                         <p className="text-sm font-black text-gray-900">
-                          하위 프로젝트 {filteredProjects.length}개
+                          작업 폴더 {filteredProjects.length}개
                         </p>
 
                         <p className="mt-0.5 text-xs font-medium text-gray-400">
