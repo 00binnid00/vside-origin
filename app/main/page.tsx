@@ -428,6 +428,9 @@ export default function DashboardProjectSelectPage() {
 
                 <Link
                   href="/new/workspace"
+                   onClick={() => {
+    sessionStorage.setItem("workspace_create_entry", "dashboard");
+  }}
                   className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
                 >
                   <Plus size={17} />
