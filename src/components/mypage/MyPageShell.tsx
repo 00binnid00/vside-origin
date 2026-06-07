@@ -25,11 +25,14 @@ import {
   changeMyEmailApi,
   changeMyPasswordApi,
   deleteMyAccountApi,
+  fetchGithubAccountStatusApi,
+  disconnectGithubAccountApi,
   fetchMyProfile,
   fetchMyWorkspaces,
   fetchScheduleProgress,
   fetchWorkspaceDevlogs,
   generateFinalReportDraftApi,
+  type GithubAccountStatus,
   type MyPageDevlogResponse,
   type ScheduleProgressResponse,
   type ScheduleView,
@@ -94,6 +97,52 @@ const fallbackHeatmapValues: HeatmapLevel[] = [
   0, 1, 2, 0, 3, 1, 4, 2, 0, 1, 3, 0, 2, 1, 4, 3, 1, 0, 2, 4, 1, 0, 1, 3, 2, 0,
   1, 4, 2, 3, 0, 1, 2, 4, 3, 1, 0, 2, 3, 4, 1, 2, 3, 1, 0, 2, 4, 3, 1,
 ];
+const OAUTH_RESULT_STORAGE_KEY = "wevaisGithubOAuthResult";
+const OAUTH_PENDING_STORAGE_KEY = "wevaisPendingGitRemoteAction";
+const OAUTH_RETURN_URL_STORAGE_KEY = "wevaisGithubOAuthReturnUrl";
+
+function openGithubAccountOAuth() {
+  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+
+  if (!clientId) {
+    alert(
+      "GitHub OAuth 설정이 없습니다. .env.local에 NEXT_PUBLIC_GITHUB_CLIENT_ID를 추가해주세요.",
+    );
+    return;
+  }
+
+  const statePayload = {
+    source: "mypage",
+    action: "account-link",
+    requestedAt: Date.now(),
+  };
+
+  window.sessionStorage.setItem(
+    OAUTH_PENDING_STORAGE_KEY,
+    JSON.stringify(statePayload),
+  );
+
+  window.sessionStorage.setItem(
+    OAUTH_RETURN_URL_STORAGE_KEY,
+    window.location.href,
+  );
+
+  const authUrl = new URL("https://github.com/login/oauth/authorize");
+
+  authUrl.searchParams.set("client_id", clientId);
+  authUrl.searchParams.set("scope", "repo");
+  authUrl.searchParams.set(
+    "redirect_uri",
+    `${window.location.origin}/auth/github/callback`,
+  );
+  authUrl.searchParams.set("state", JSON.stringify(statePayload));
+
+  window.location.assign(authUrl.toString());
+}
+
+function getGithubAccountName(status: GithubAccountStatus | null) {
+  return status?.username || status?.login || "";
+}
 
 const tabs: {
   key: TabKey;
@@ -4246,34 +4295,270 @@ function HeatCell({ level, title }: { level: HeatmapLevel; title?: string }) {
 }
 
 function GithubSection() {
+  const [status, setStatus] = useState<GithubAccountStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const githubName = getGithubAccountName(status);
+  const isConnected = Boolean(status?.connected);
+
+  const loadGithubStatus = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage("");
+
+      const nextStatus = await fetchGithubAccountStatusApi();
+      setStatus(nextStatus);
+    } catch (error) {
+      setStatus({
+        connected: false,
+      });
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "GitHub 연결 상태를 확인하지 못했습니다.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadGithubStatus();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const rawResult = window.sessionStorage.getItem(OAUTH_RESULT_STORAGE_KEY);
+    if (!rawResult) return;
+
+    window.sessionStorage.removeItem(OAUTH_RESULT_STORAGE_KEY);
+
+    try {
+      const result = JSON.parse(rawResult);
+
+      if (result.status === "success") {
+        setMessage("GitHub 계정 연결이 완료되었습니다.");
+        setErrorMessage("");
+        loadGithubStatus();
+        return;
+      }
+
+      if (result.status === "error") {
+        setMessage("");
+        setErrorMessage(
+          result.message || "GitHub 인증 처리 중 문제가 발생했습니다.",
+        );
+      }
+    } catch {
+      setErrorMessage("GitHub 인증 결과를 확인하지 못했습니다.");
+    }
+  }, []);
+
+  const handleConnectGithub = () => {
+    setMessage("");
+    setErrorMessage("");
+    openGithubAccountOAuth();
+  };
+
+  const handleDisconnectGithub = async () => {
+    const confirmed = window.confirm(
+      "GitHub 계정 연결을 해제할까요? 프로젝트에 연결된 저장소 정보는 별도로 유지됩니다.",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setActionLoading(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await disconnectGithubAccountApi();
+
+      setStatus({
+        connected: false,
+      });
+
+      setMessage("GitHub 계정 연결이 해제되었습니다.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "GitHub 연결 해제에 실패했습니다.",
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
       <div>
         <h3 className="text-lg font-black tracking-tight">GitHub 설정</h3>
         <p className="mt-1 text-sm font-semibold text-slate-500">
-          GitHub 계정과 저장소 연동 상태를 관리합니다.
+          마이페이지에서는 GitHub 계정 인증 상태만 관리합니다. 프로젝트별
+          저장소 연결은 프로젝트 생성 또는 IDE에서 따로 설정합니다.
         </p>
       </div>
+
+      {message && (
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+          {message}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+          {errorMessage}
+        </div>
+      )}
 
       <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-950 text-white">
-              <Github size={22} />
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-blue-950 text-white">
+              {isConnected && status?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={status.avatarUrl}
+                  alt="GitHub profile"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Github size={23} />
+              )}
             </div>
 
             <div>
-              <p className="text-sm font-black">GitHub 연동 준비 중</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-black">
+                  {loading
+                    ? "GitHub 연결 상태 확인 중"
+                    : isConnected
+                      ? "GitHub 계정 연결됨"
+                      : "GitHub 계정 미연결"}
+                </p>
+
+                <span
+                  className={[
+                    "rounded-full px-2.5 py-0.5 text-[11px] font-black",
+                    isConnected
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-white text-slate-500",
+                  ].join(" ")}
+                >
+                  {isConnected ? "CONNECTED" : "NOT CONNECTED"}
+                </span>
+              </div>
+
               <p className="mt-0.5 text-sm font-semibold text-slate-500">
-                GitHub API를 연결하면 커밋 기록과 저장소 정보를 표시할 수
-                있습니다.
+                {isConnected
+                  ? `${githubName || "GitHub 계정"} 계정으로 인증되어 있습니다.`
+                  : "GitHub 계정을 연결하면 IDE에서 Pull, Push, 커밋 연동 기능을 사용할 수 있습니다."}
               </p>
+
+              {isConnected && (
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
+                  {githubName && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-blue-700">
+                      @{githubName}
+                    </span>
+                  )}
+
+                  {status?.email && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-slate-500">
+                      {status.email}
+                    </span>
+                  )}
+
+                  {status?.connectedAt && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-slate-500">
+                      연결일 {formatDateLabel(status.connectedAt)}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <button className="rounded-xl bg-blue-950 px-4 py-2 text-sm font-black text-white hover:bg-blue-900">
-            GitHub 연결
-          </button>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={loadGithubStatus}
+              disabled={loading || actionLoading}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-blue-100 bg-white px-4 text-sm font-black text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              새로고침
+            </button>
+
+            {isConnected ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleConnectGithub}
+                  disabled={actionLoading}
+                  className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  다시 인증
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDisconnectGithub}
+                  disabled={actionLoading}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-red-100 bg-white px-4 text-sm font-black text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  연결 해제
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectGithub}
+                disabled={loading || actionLoading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Github size={17} />
+                GitHub 연결
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-blue-100 bg-white p-4">
+          <p className="text-xs font-black text-slate-400">마이페이지 역할</p>
+          <p className="mt-1 text-sm font-black text-slate-900">
+            GitHub 계정 인증
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            사용자 계정과 GitHub 계정을 연결합니다.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-blue-100 bg-white p-4">
+          <p className="text-xs font-black text-slate-400">프로젝트 역할</p>
+          <p className="mt-1 text-sm font-black text-slate-900">
+            저장소 URL 연결
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            프로젝트마다 서로 다른 Repository를 연결합니다.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-blue-100 bg-white p-4">
+          <p className="text-xs font-black text-slate-400">IDE 역할</p>
+          <p className="mt-1 text-sm font-black text-slate-900">
+            Pull / Push 실행
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            현재 프로젝트 저장소 기준으로 Git 작업을 수행합니다.
+          </p>
         </div>
       </div>
     </section>

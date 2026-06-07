@@ -558,3 +558,53 @@ export async function generateFinalReportDraftApi({
   return response.json() as Promise<{ draft: string }>;
 }
 
+export type GithubAccountStatus = {
+  connected: boolean;
+  username?: string | null;
+  login?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  connectedAt?: string | null;
+};
+
+export async function fetchGithubAccountStatusApi(): Promise<GithubAccountStatus> {
+  const response = await authFetch(`${API_BASE}/github/status`, {
+    method: "GET",
+  });
+
+  if (response.status === 404) {
+    return {
+      connected: false,
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "GitHub 연결 상태 조회 실패"),
+    );
+  }
+
+  const data = await response.json();
+
+  return {
+    connected: Boolean(data.connected ?? data.linked ?? data.githubLinked),
+    username: data.username ?? data.githubUsername ?? data.login ?? null,
+    login: data.login ?? null,
+    email: data.email ?? data.githubEmail ?? null,
+    avatarUrl:
+      data.avatarUrl ?? data.profileImageUrl ?? data.githubAvatarUrl ?? null,
+    connectedAt: data.connectedAt ?? data.updatedAt ?? null,
+  };
+}
+
+export async function disconnectGithubAccountApi() {
+  const response = await authFetch(`${API_BASE}/github/link`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(await readErrorMessage(response, "GitHub 연결 해제 실패"));
+  }
+
+  return true;
+}
