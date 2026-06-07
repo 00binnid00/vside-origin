@@ -52,7 +52,11 @@ const RIGHT_PANEL_DEFAULT_WIDTH = 320;
 const RIGHT_PANEL_MIN_WIDTH = 300;
 const RIGHT_PANEL_MAX_WIDTH = 560;
 
-const clampPanelWidth = (value, min, max) => {
+const TERMINAL_DEFAULT_HEIGHT = 250;
+const TERMINAL_MIN_HEIGHT = 140;
+const TERMINAL_MAX_HEIGHT = 520;
+
+const clampPanelSize = (value, min, max) => {
   return Math.min(max, Math.max(min, value));
 };
 
@@ -107,6 +111,7 @@ function CollaborationPanel({ workspaceId }) {
     if (!workspaceId || !myId) return;
 
     getUserProfileApi(myId).then(setMyProfile).catch(console.error);
+
     getWorkspaceMembersApi(workspaceId)
       .then(setTeamMembers)
       .catch(console.error);
@@ -321,6 +326,10 @@ export default function TeamIdeMain() {
   const [rightPanelWidth, setRightPanelWidth] = useState(
     RIGHT_PANEL_DEFAULT_WIDTH,
   );
+  const [terminalHeight, setTerminalHeight] = useState(
+    TERMINAL_DEFAULT_HEIGHT,
+  );
+
   const [resizingPanel, setResizingPanel] = useState(null);
 
   const editorLayoutRef = useRef(null);
@@ -337,6 +346,11 @@ export default function TeamIdeMain() {
     setResizingPanel("right");
   };
 
+  const startTerminalResize = (event) => {
+    event.preventDefault();
+    setResizingPanel("terminal");
+  };
+
   useEffect(() => {
     if (!resizingPanel) return;
 
@@ -349,7 +363,7 @@ export default function TeamIdeMain() {
           : event.clientX;
 
         setLeftSidebarWidth(
-          clampPanelWidth(
+          clampPanelSize(
             nextWidth,
             LEFT_SIDEBAR_MIN_WIDTH,
             LEFT_SIDEBAR_MAX_WIDTH,
@@ -363,10 +377,24 @@ export default function TeamIdeMain() {
           : window.innerWidth - event.clientX;
 
         setRightPanelWidth(
-          clampPanelWidth(
+          clampPanelSize(
             nextWidth,
             RIGHT_PANEL_MIN_WIDTH,
             RIGHT_PANEL_MAX_WIDTH,
+          ),
+        );
+      }
+
+      if (resizingPanel === "terminal") {
+        const nextHeight = layoutRect
+          ? layoutRect.bottom - event.clientY
+          : window.innerHeight - event.clientY;
+
+        setTerminalHeight(
+          clampPanelSize(
+            nextHeight,
+            TERMINAL_MIN_HEIGHT,
+            TERMINAL_MAX_HEIGHT,
           ),
         );
       }
@@ -376,7 +404,8 @@ export default function TeamIdeMain() {
       setResizingPanel(null);
     };
 
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor =
+      resizingPanel === "terminal" ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -462,7 +491,9 @@ export default function TeamIdeMain() {
 
               <div
                 className="h-full flex flex-col shrink-0"
-                style={{ width: `${leftSidebarWidth}px` }}
+                style={{
+                  width: `${leftSidebarWidth}px`,
+                }}
               >
                 <Sidebar />
               </div>
@@ -493,7 +524,22 @@ export default function TeamIdeMain() {
               </div>
 
               {isTerminalVisible && (
-                <div className="h-[250px] border-t border-gray-200 bg-white shrink-0 z-[600]">
+                <div
+                  className="relative border-t border-gray-200 bg-white shrink-0 z-[600]"
+                  style={{
+                    height: `${terminalHeight}px`,
+                  }}
+                >
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    title="터미널 높이 조절"
+                    onPointerDown={startTerminalResize}
+                    className="absolute left-0 top-0 z-[700] h-3 w-full -translate-y-1/2 cursor-row-resize touch-none"
+                  >
+                    <div className="h-px w-full bg-transparent transition hover:bg-blue-400" />
+                  </div>
+
                   <BottomPanel />
                 </div>
               )}
@@ -546,7 +592,9 @@ export default function TeamIdeMain() {
 
                 <div
                   className="h-full flex flex-col shrink-0 bg-white"
-                  style={{ width: `${rightPanelWidth}px` }}
+                  style={{
+                    width: `${rightPanelWidth}px`,
+                  }}
                 >
                   {isDebugMode ? (
                     <DebugPanel />

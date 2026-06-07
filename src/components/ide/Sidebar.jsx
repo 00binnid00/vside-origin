@@ -684,8 +684,9 @@ export default function Sidebar() {
   return (
     <div className="h-full w-full bg-white flex flex-col font-sans">
       <div className="flex items-center justify-between px-4 h-[44px] border-b border-gray-100 shrink-0 bg-white">
-        <span className="text-[12px] font-black text-gray-800 tracking-wider">
-          탐색기
+        <span className="text-[12px] font-black text-gray-800 tracking-wider ">
+          <span className="min-w-0 truncate whitespace-nowrap">탐색기</span>
+          
         </span>
 
         <div className="flex items-center gap-1 text-gray-500">
