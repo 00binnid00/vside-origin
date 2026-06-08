@@ -58,7 +58,11 @@ const getLanguageFromPath = (path) => {
     case "c": return "C";
     case "cs": return "CSHARP";
     case "js": return "JAVASCRIPT";
-    case "ts": return "TYPESCRIPT";
+   case "ts":
+case "tsx":
+  return "TYPESCRIPT";
+case "jsx":
+  return "JAVASCRIPT";
     case "html": case "css": return "HTML";
     default: return "UNKNOWN";
   }
@@ -197,15 +201,33 @@ export default function MenuBar({ mode = "personal" }) {
     const language = getLanguageFromPath(activeFileId);
     let templateType = "CONSOLE";
 
-    if (tree && tree.children) {
-      const projectNode = tree.children.find((p) => p.name === activeProject);
-      if (projectNode && projectNode.children) {
-        const rootFiles = projectNode.children.map((c) => c.name);
-        if (rootFiles.includes("build.gradle")) templateType = "SPRING_BOOT";
-        else if (rootFiles.includes("package.json")) templateType = "REACT";
-        else if (rootFiles.includes("index.html") && !rootFiles.includes("package.json")) templateType = "VANILLA";
-      }
+if (tree && tree.children) {
+  const projectNode = tree.children.find((p) => p.name === activeProject);
+
+  if (projectNode && projectNode.children) {
+    const rootFiles = projectNode.children.map((c) => c.name);
+
+    const hasNextConfig =
+      rootFiles.includes("next.config.js") ||
+      rootFiles.includes("next.config.mjs") ||
+      rootFiles.includes("next.config.ts");
+
+    const hasNextAppDir = rootFiles.includes("app");
+    const hasPackageJson = rootFiles.includes("package.json");
+    const hasBuildGradle = rootFiles.includes("build.gradle");
+    const hasIndexHtml = rootFiles.includes("index.html");
+
+    if (hasBuildGradle) {
+      templateType = "SPRING_BOOT";
+    } else if (hasPackageJson && (hasNextConfig || hasNextAppDir)) {
+      templateType = "NEXT";
+    } else if (hasPackageJson) {
+      templateType = "REACT";
+    } else if (hasIndexHtml) {
+      templateType = "VANILLA";
     }
+  }
+}
 
     dispatch(writeToTerminal(`[System] ${language} 환경에서 [${templateType}] 모드로 실행을 준비합니다...\r\n`));
     dispatch(setRunning(true));
