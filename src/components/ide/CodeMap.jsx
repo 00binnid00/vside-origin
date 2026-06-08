@@ -44,8 +44,9 @@ import {
 
 // 💡 [핵심 수정] 위에서 새로 작성한 싱글톤 인스턴스 훅을 가져옵니다.
 import { globalSyncInstance } from "@/hooks/useWorkspaceGlobalSync";
+import { apiFetch, apiJson } from "@/lib/api/apiClient";
 
-const API_BASE = typeof window !== "undefined" ? `http://${window.location.hostname}:8080` : "http://localhost:8080";
+
 
 const CustomNode = ({ data }) => {
   let roleColor = "text-gray-500";
@@ -352,11 +353,20 @@ export default function CodeMap() {
     setSelectedNode(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/codemap/analyze?workspaceId=${workspaceId}&projectName=${activeProject}&branchName=${branch}&language=${currentLang}&t=${Date.now()}`);
-      if (!response.ok) throw new Error("분석 데이터를 가져오지 못했습니다.");
+      const query = new URLSearchParams({
+        workspaceId,
+        projectName: activeProject,
+        branchName: branch,
+        language: currentLang,
+        t: String(Date.now()),
+      });
 
-      const data = await response.json();
-      const { nodes: backendNodes, edges: backendEdges } = data;
+      const data = await apiJson(`/api/codemap/analyze?${query}`, {
+        cache: "no-store",
+      });
+
+const backendNodes = Array.isArray(data?.nodes) ? data.nodes : [];
+const backendEdges = Array.isArray(data?.edges) ? data.edges : [];
 
       const grouped = {
         main: [],
@@ -497,16 +507,58 @@ export default function CodeMap() {
   }, [fetchAndLayoutCodeMap]);
 
   useEffect(() => {
-    if (selectedNode && selectedNode.id) {
+  if (!selectedNode?.id || !workspaceId || !activeProject) {
+    return;
+  }
+
+  let cancelled = false;
+
+  const loadSummary = async () => {
+    try {
       setAiSummary("");
       setIsSummaryLoading(true);
-      fetch(`${API_BASE}/api/codemap/summary?workspaceId=${workspaceId}&projectName=${activeProject}&branchName=${activeBranch || "master"}&filePath=${encodeURIComponent(selectedNode.id)}&t=${Date.now()}`)
-        .then((res) => res.text())
-        .then((text) => setAiSummary(text))
-        .catch(() => setAiSummary("AI 요약 오류"))
-        .finally(() => setIsSummaryLoading(false));
+
+      const query = new URLSearchParams({
+        workspaceId,
+        projectName: activeProject,
+        branchName: activeBranch || "master",
+        filePath: selectedNode.id,
+        t: String(Date.now()),
+      });
+
+      const response = await apiFetch(`/api/codemap/summary?${query}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || "AI 요약 오류");
+      }
+
+      const text = await response.text();
+
+      if (!cancelled) {
+        setAiSummary(text);
+      }
+    } catch (error) {
+      console.error("[CodeMap] summary fetch error:", error);
+
+      if (!cancelled) {
+        setAiSummary("AI 요약 오류");
+      }
+    } finally {
+      if (!cancelled) {
+        setIsSummaryLoading(false);
+      }
     }
-  }, [selectedNode, workspaceId, activeProject, activeBranch]);
+  };
+
+  loadSummary();
+
+  return () => {
+    cancelled = true;
+  };
+}, [selectedNode, workspaceId, activeProject, activeBranch]);
 
   const handleNodeClick = useCallback((event, node) => {
     setSelectedNode(node.data);

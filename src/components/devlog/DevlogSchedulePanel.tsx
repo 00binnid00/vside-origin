@@ -15,6 +15,7 @@ import type {
   Mode,
   ProjectStage,
 } from "@/components/schedule/schedule.types";
+import { apiJson } from "@/lib/api/apiClient";
 
 type Props = {
   workspaceId: string;
@@ -51,9 +52,6 @@ type SummaryResponse = {
 type DevlogCalendarEvent = CalendarEvent & {
   content: string;
 };
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
 function ymd(date: Date) {
   return format(date, "yyyy-MM-dd");
@@ -119,6 +117,16 @@ function mapScheduleItem(
   };
 }
 
+function buildQuery(params: Record<string, string | number>) {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    searchParams.set(key, String(value));
+  });
+
+  return searchParams.toString();
+}
+
 export default function DevlogSchedulePanel({ workspaceId, view }: Props) {
   const [selectedDate, setSelectedDate] = React.useState<Date>(new Date());
   const [monthEvents, setMonthEvents] = React.useState<DevlogCalendarEvent[]>(
@@ -132,79 +140,67 @@ export default function DevlogSchedulePanel({ workspaceId, view }: Props) {
 
   const selectedYear = selectedDate.getFullYear();
   const selectedMonth = selectedDate.getMonth() + 1;
+  const selectedDateISO = ymd(selectedDate);
   const dayCount = dayEvents.length;
 
   React.useEffect(() => {
     if (!workspaceId) return;
+
     loadAll();
-  }, [workspaceId, view, selectedDate]);
+  }, [workspaceId, view, selectedDateISO, selectedMonth, selectedYear]);
 
   async function loadAll() {
     setLoading(true);
 
     try {
-      const [calendarRes, dayRes, summaryRes] = await Promise.all([
-        fetch(
-          `${API_BASE}/api/schedules/calendar?view=${view}&year=${selectedYear}&month=${selectedMonth}&workspaceId=${workspaceId}`,
-          {
-            method: "GET",
-            credentials: "include",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          `${API_BASE}/api/schedules?view=${view}&date=${ymd(selectedDate)}&workspaceId=${workspaceId}&category=all`,
-          {
-            method: "GET",
-            credentials: "include",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          `${API_BASE}/api/schedules/summary?view=${view}&date=${ymd(selectedDate)}&workspaceId=${workspaceId}`,
-          {
-            method: "GET",
-            credentials: "include",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            cache: "no-store",
-          },
-        ),
+      const calendarQuery = buildQuery({
+        view,
+        year: selectedYear,
+        month: selectedMonth,
+        workspaceId,
+      });
+
+      const dayQuery = buildQuery({
+        view,
+        date: selectedDateISO,
+        workspaceId,
+        category: "all",
+      });
+
+      const summaryQuery = buildQuery({
+        view,
+        date: selectedDateISO,
+        workspaceId,
+      });
+
+      const [calendarJson, dayJson, summaryJson] = await Promise.all([
+        apiJson(`/api/schedules/calendar?${calendarQuery}`, {
+          cache: "no-store",
+        }) as Promise<ApiScheduleItem[]>,
+
+        apiJson(`/api/schedules?${dayQuery}`, {
+          cache: "no-store",
+        }) as Promise<ApiScheduleItem[]>,
+
+        apiJson(`/api/schedules/summary?${summaryQuery}`, {
+          cache: "no-store",
+        }) as Promise<SummaryResponse>,
       ]);
 
-      if (!calendarRes.ok) {
-        throw new Error("월간 일정 조회 실패");
-      }
-      if (!dayRes.ok) {
-        throw new Error("선택 날짜 일정 조회 실패");
-      }
-      if (!summaryRes.ok) {
-        throw new Error("일정 요약 조회 실패");
-      }
+      const mappedMonthEvents = (Array.isArray(calendarJson)
+        ? calendarJson
+        : []
+      ).map((item) => mapScheduleItem(item, workspaceId, view));
 
-      const calendarJson: ApiScheduleItem[] = await calendarRes.json();
-      const dayJson: ApiScheduleItem[] = await dayRes.json();
-      const summaryJson: SummaryResponse = await summaryRes.json();
-
-      const mappedMonthEvents = (calendarJson ?? []).map((item) =>
-        mapScheduleItem(item, workspaceId, view),
-      );
-      const mappedDayEvents = (dayJson ?? []).map((item) =>
-        mapScheduleItem(item, workspaceId, view),
+      const mappedDayEvents = (Array.isArray(dayJson) ? dayJson : []).map(
+        (item) => mapScheduleItem(item, workspaceId, view),
       );
 
       setMonthEvents(mappedMonthEvents);
       setDayEvents(mappedDayEvents);
-      setMonthCount(summaryJson.monthCount ?? summaryJson.monthlyCount ?? 0);
-      setTodayCount(summaryJson.todayCount ?? 0);
-      setWeekCount(summaryJson.weekCount ?? 0);
+      setMonthCount(summaryJson?.monthCount ?? summaryJson?.monthlyCount ?? 0);
+      setTodayCount(summaryJson?.todayCount ?? 0);
+      setWeekCount(summaryJson?.weekCount ?? 0);
     } catch (error) {
       console.error("DevlogSchedulePanel loadAll error:", error);
       setMonthEvents([]);

@@ -4,19 +4,16 @@ import { apiFetch } from "@/lib/api/apiClient";
 import { authClient } from "@/lib/auth/authClient";
 import { getCurrentUserId } from "@/lib/auth/tokenStore";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+const API_BASE = "/api/workspaces";
+const GIT_API_BASE = "/api/git";
 
-const API_BASE = `${BASE_URL}/api/workspaces`;
-const GIT_API_BASE = `${BASE_URL}/api/git`;
-
-const DEVLOG_API_BASE = `${BASE_URL}/api/devlogs`;
-const SCHEDULE_API_BASE = `${BASE_URL}/api/schedules`;
-const AUTH_API_BASE = `${BASE_URL}/api/auth`;
-const USER_API_BASE = `${BASE_URL}/api/users`;
-const SYSTEM_API_BASE = `${BASE_URL}/api/system`;
-const CODEMAP_API_BASE = `${BASE_URL}/api/codemap`;
-const AI_API_BASE = `${BASE_URL}/api/ai`;
+const DEVLOG_API_BASE = "/api/devlogs";
+const SCHEDULE_API_BASE = "/api/schedules";
+const AUTH_API_BASE = "/api/auth";
+const USER_API_BASE = "/api/users";
+const SYSTEM_API_BASE = "/api/system";
+const CODEMAP_API_BASE = "/api/codemap";
+const AI_API_BASE = "/api/ai";
 
 // ============================================================================
 // 공통 인증 fetch
@@ -28,6 +25,50 @@ export const authFetch = async (url, options = {}) => {
   } catch (error) {
     throw new Error(error?.message || "네트워크 요청 중 오류가 발생했습니다.");
   }
+};
+
+// ============================================================================
+// 공통 API 응답 처리 유틸
+// - 서버가 JSON 또는 text를 내려줘도 프론트에서 일관되게 처리하기 위한 함수입니다.
+// - Git/Sandbox API는 status 기반 JSON 응답을 사용합니다.
+// ============================================================================
+
+const readApiBody = async (response) => {
+  const text = await response.text();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+const getApiMessage = (payload, fallbackMessage) => {
+  if (!payload) return fallbackMessage;
+
+  if (typeof payload === "string") {
+    return payload || fallbackMessage;
+  }
+
+  if (typeof payload === "object") {
+    return payload.message || payload.error || fallbackMessage;
+  }
+
+  return fallbackMessage;
+};
+
+const throwApiResponseError = async (response, fallbackMessage) => {
+  const payload = await readApiBody(response);
+  const error = new Error(getApiMessage(payload, fallbackMessage));
+
+  error.status = response.status;
+  error.payload = payload;
+
+  throw error;
 };
 
 // ============================================================================
@@ -972,23 +1013,28 @@ export const checkoutCommitApi = async (
   if (!response.ok) throw new Error("체크아웃 실패");
 };
 
+
 export const mergeCommitApi = async (
   workspaceId,
   projectName,
   branchName,
-  targetBranch,
+  targetHash,
 ) => {
-  const response = await authFetch(`${GIT_API_BASE}/merge`, {
+  const response = await authFetch(`${GIT_API_BASE}/merge/start`, {
     method: "POST",
     body: JSON.stringify({
       workspaceId,
       projectName,
       branchName,
-      targetBranch,
+      targetHash,
     }),
   });
-  if (!response.ok) throw new Error("Merge 실패");
-  return await response.text();
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "병합 요청 실패");
+  }
+
+  return await response.json();
 };
 
 export const abortMergeApi = async (workspaceId, projectName, branchName) => {
@@ -996,7 +1042,35 @@ export const abortMergeApi = async (workspaceId, projectName, branchName) => {
     method: "POST",
     body: JSON.stringify({ workspaceId, projectName, branchName }),
   });
-  if (!response.ok) throw new Error("병합 취소 실패");
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "병합 취소 실패");
+  }
+
+  return await readApiBody(response);
+};
+
+export const discardChangesApi = async (
+  workspaceId,
+  projectName,
+  branchName,
+  confirmText = "DISCARD",
+) => {
+  const response = await authFetch(`${GIT_API_BASE}/discard`, {
+    method: "POST",
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      confirmText,
+    }),
+  });
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "변경사항 폐기 실패");
+  }
+
+  return await readApiBody(response);
 };
 
 export const deleteBranchApi = async (workspaceId, projectName, branchName) => {
@@ -1006,11 +1080,10 @@ export const deleteBranchApi = async (workspaceId, projectName, branchName) => {
   });
 
   if (!response.ok) {
-    const msg = await response.text();
-    throw new Error(msg || "브랜치 삭제에 실패했습니다.");
+    await throwApiResponseError(response, "브랜치 삭제에 실패했습니다.");
   }
 
-  return await response.text();
+  return await readApiBody(response);
 };
 
 // ============================================================================
@@ -1328,23 +1401,33 @@ export const createSandboxApi = async (
   projectName,
   nickname,
   taskName,
+  options = {},
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/sandbox/create`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, nickname, taskName }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      nickname,
+      taskName,
+
+      // true면 master의 미커밋 변경사항은 포함하지 않고 master HEAD 기준으로 샌드박스를 만듭니다.
+      forceCreate: Boolean(options.forceCreate),
+    }),
   });
 
   if (!response.ok) {
-    throw new Error((await response.text()) || "샌드박스 생성에 실패했습니다.");
+    await throwApiResponseError(response, "샌드박스 생성에 실패했습니다.");
   }
 
-  return await response.text();
+  return await readApiBody(response);
 };
 
 export const applySandboxApi = async (
   workspaceId,
   projectName,
   sandboxBranch,
+  targetBranch,
   commitMessage,
   nickname,
 ) => {
@@ -1354,14 +1437,42 @@ export const applySandboxApi = async (
       workspaceId,
       projectName,
       sandboxBranch,
+      targetBranch,
       commitMessage,
       nickname,
     }),
   });
 
   if (!response.ok) {
-    throw new Error((await response.text()) || "샌드박스 병합에 실패했습니다.");
+    await throwApiResponseError(response, "샌드박스 병합에 실패했습니다.");
   }
 
-  return await response.text();
+  return await readApiBody(response);
+};
+
+export const resolveSandboxConflictApi = async (
+  workspaceId,
+  projectName,
+  sandboxBranch,
+  targetBranch,
+  commitMessage,
+  nickname,
+) => {
+  const response = await authFetch(`${GIT_API_BASE}/sandbox/resolve-conflict`, {
+    method: "POST",
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      sandboxBranch,
+      targetBranch,
+      commitMessage,
+      nickname,
+    }),
+  });
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "샌드박스 충돌 해결 마무리에 실패했습니다.");
+  }
+
+  return await readApiBody(response);
 };

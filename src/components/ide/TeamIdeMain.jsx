@@ -334,7 +334,7 @@ export default function TeamIdeMain() {
 
   const editorLayoutRef = useRef(null);
 
-  const isSandboxMode = activeBranch?.startsWith("focus/");
+  const isSandboxMode = activeBranch?.startsWith("focus-") || activeBranch?.startsWith("focus/");
 
   const startLeftSidebarResize = (event) => {
     event.preventDefault();

@@ -1,66 +1,50 @@
-const API_BASE = "http://localhost:8080";
+import { apiFetch } from "@/lib/api/apiClient";
 
-function getToken() {
-  if (typeof window === "undefined") return null;
+async function parseAccountResponse(response: Response) {
+  const text = await response.text().catch(() => "");
 
-  const candidates = ["accessToken", "token", "jwt", "authToken"];
+  if (!response.ok) {
+    let message = "요청 처리 중 오류가 발생했습니다.";
 
-  for (const key of candidates) {
-    const value = localStorage.getItem(key);
-
-    if (value && value.trim()) {
-      return value.trim();
+    if (text) {
+      try {
+        const json = JSON.parse(text);
+        message = json.message ?? json.error ?? text;
+      } catch {
+        message = text;
+      }
     }
+
+    console.error("[account api] request failed:", {
+      status: response.status,
+      statusText: response.statusText,
+      message,
+    });
+
+    throw new Error(message);
   }
 
-  return null;
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
-async function authFetch(url: string, options: RequestInit = {}) {
+async function accountRequest(url: string, options: RequestInit = {}) {
   try {
-    const token = getToken();
-
-    const response = await fetch(`${API_BASE}${url}`, {
+    const response = await apiFetch(url, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers ?? {}),
-      },
       cache: "no-store",
     });
 
-    const text = await response.text();
-
-    if (!response.ok) {
-      let message = "요청 처리 중 오류가 발생했습니다.";
-
-      try {
-        const json = JSON.parse(text);
-        message = json.message ?? json.error ?? message;
-      } catch {
-        if (text) message = text;
-      }
-
-      console.error("[account api] request failed:", {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        message,
-      });
-
-      throw new Error(message);
-    }
-
-    if (!text) return null;
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
+    return await parseAccountResponse(response);
   } catch (error) {
-    console.error("[account api] authFetch error:", error);
+    console.error("[account api] request error:", error);
 
     if (error instanceof Error) {
       throw error;
@@ -72,7 +56,7 @@ async function authFetch(url: string, options: RequestInit = {}) {
 
 export async function changeMyEmailApi(email: string) {
   try {
-    return await authFetch("/api/users/me/email", {
+    return await accountRequest("/api/users/me/email", {
       method: "PATCH",
       body: JSON.stringify({ email }),
     });
@@ -92,7 +76,7 @@ export async function changeMyPasswordApi(
   newPassword: string,
 ) {
   try {
-    return await authFetch("/api/users/me/password", {
+    return await accountRequest("/api/users/me/password", {
       method: "PATCH",
       body: JSON.stringify({
         currentPassword,
@@ -112,7 +96,7 @@ export async function changeMyPasswordApi(
 
 export async function deleteMyAccountApi() {
   try {
-    return await authFetch("/api/users/me", {
+    return await accountRequest("/api/users/me", {
       method: "DELETE",
     });
   } catch (error) {

@@ -1,8 +1,6 @@
 import { FormValue, StageType } from "./types";
 import { todayYmd } from "./utils";
 
-export const API_BASE = "http://localhost:8080";
-
 export const stageMeta: Record<
   StageType,
   { label: string; description: string }

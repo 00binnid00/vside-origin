@@ -1,7 +1,4 @@
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-
-const API_BASE = `${BASE_URL}/api`;
+import { apiFetch, apiJson } from "@/lib/api/apiClient";
 
 export type ScheduleView = "personal" | "team";
 
@@ -57,22 +54,14 @@ export type WorkspaceDevlogsResponse =
       [key: string]: unknown;
     };
 
-function getToken() {
-  if (typeof window === "undefined") return null;
-
-  return (
-    localStorage.getItem("token") ||
-    localStorage.getItem("accessToken") ||
-    localStorage.getItem("jwt") ||
-    localStorage.getItem("authToken")
-  );
-}
-
-function getStoredUserId() {
-  if (typeof window === "undefined") return null;
-
-  return localStorage.getItem("userId");
-}
+export type GithubAccountStatus = {
+  connected: boolean;
+  username?: string | null;
+  login?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  connectedAt?: string | null;
+};
 
 async function readErrorMessage(response: Response, fallback: string) {
   try {
@@ -83,23 +72,18 @@ async function readErrorMessage(response: Response, fallback: string) {
   }
 }
 
-async function authFetch(url: string, options: RequestInit = {}) {
-  const token = getToken();
+async function readOptionalJson(response: Response) {
+  const text = await response.text().catch(() => "");
 
-  const headers = new Headers(options.headers || {});
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (!text) {
+    return true;
   }
 
-  if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-
-  return fetch(url, {
-    ...options,
-    headers,
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -266,49 +250,27 @@ function extractDevlogArray(
 /**
  * 내 프로필 조회
  *
- * 우선 /api/users/me를 시도하고,
- * 백엔드에 me 엔드포인트가 없으면 localStorage의 userId로 /api/users/{userId}를 조회함.
+ * 기존 /api/users/me는 현재 500을 내고 있으므로,
+ * 인증 컨텍스트와 같은 /api/auth/me를 사용한다.
  */
 export async function fetchMyProfile(): Promise<UserMeResponse> {
-  const meResponse = await authFetch(`${API_BASE}/users/me`);
+  const data = (await apiJson("/api/auth/me", {
+    cache: "no-store",
+  })) as UserMeResponse;
 
-  if (meResponse.ok) {
-    return await meResponse.json();
-  }
-
-  const userId = getStoredUserId();
-
-  if (!userId) {
-    throw new Error("로그인 사용자 ID가 없습니다.");
-  }
-
-  const response = await authFetch(
-    `${API_BASE}/users/${encodeURIComponent(userId)}`,
-  );
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "내 프로필 조회 실패"));
-  }
-
-  return await response.json();
+  return data;
 }
 
 /**
  * 내 워크스페이스 목록 조회
  *
- * 새 구조 기준:
  * GET /api/workspaces/me
  */
 export async function fetchMyWorkspaces(): Promise<WorkspaceListResponse[]> {
-  const response = await authFetch(`${API_BASE}/workspaces/me`);
+  const data = await apiJson("/api/workspaces/me", {
+    cache: "no-store",
+  });
 
-  if (!response.ok) {
-    throw new Error(
-      await readErrorMessage(response, "워크스페이스 목록 조회 실패"),
-    );
-  }
-
-  const data = await response.json();
   const workspaces = extractWorkspaceArray(data);
 
   return workspaces.map(normalizeWorkspace);
@@ -316,9 +278,6 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListResponse[]> {
 
 /**
  * 일정 진행률 조회
- *
- * 예전 progress 전용 API를 쓰지 않음.
- * 새 일정 API에서 전체 일정을 가져와서 프론트에서 계산함.
  *
  * GET /api/workspaces/{workspaceId}/schedules
  */
@@ -334,15 +293,13 @@ export async function fetchScheduleProgress(
     };
   }
 
-  const response = await authFetch(
-    `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/schedules`,
+  const data = await apiJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/schedules`,
+    {
+      cache: "no-store",
+    },
   );
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "일정 진행률 조회 실패"));
-  }
-
-  const data = await response.json();
   const schedules = Array.isArray(data) ? data : [];
 
   const totalCount = schedules.length;
@@ -365,11 +322,7 @@ export async function fetchScheduleProgress(
 /**
  * 워크스페이스별 개발일지 조회
  *
- * 예전 주소:
- * /api/devlogs/workspaces/{workspaceId}
- *
- * 새 주소:
- * /api/workspaces/{workspaceId}/devlogs
+ * GET /api/workspaces/{workspaceId}/devlogs
  */
 export async function fetchWorkspaceDevlogs(
   workspaceId: string,
@@ -378,15 +331,12 @@ export async function fetchWorkspaceDevlogs(
     return [];
   }
 
-  const response = await authFetch(
-    `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/devlogs`,
-  );
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "개발일지 조회 실패"));
-  }
-
-  const data = (await response.json()) as WorkspaceDevlogsResponse;
+  const data = (await apiJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/devlogs`,
+    {
+      cache: "no-store",
+    },
+  )) as WorkspaceDevlogsResponse;
 
   const devlogs = extractDevlogArray(data);
 
@@ -402,11 +352,9 @@ export async function fetchWorkspaceDevlogs(
 
 /**
  * 이메일 변경
- *
- * 백엔드 엔드포인트가 다르면 여기 URL만 맞추면 됨.
  */
 export async function changeMyEmailApi(email: string) {
-  const response = await authFetch(`${API_BASE}/users/me/email`, {
+  const response = await apiFetch("/api/users/me/email", {
     method: "PATCH",
     body: JSON.stringify({ email }),
   });
@@ -415,19 +363,17 @@ export async function changeMyEmailApi(email: string) {
     throw new Error(await readErrorMessage(response, "이메일 변경 실패"));
   }
 
-  return await response.json().catch(() => true);
+  return await readOptionalJson(response);
 }
 
 /**
  * 비밀번호 변경
- *
- * 백엔드 엔드포인트가 다르면 여기 URL만 맞추면 됨.
  */
 export async function changeMyPasswordApi(
   currentPassword: string,
   newPassword: string,
 ) {
-  const response = await authFetch(`${API_BASE}/users/me/password`, {
+  const response = await apiFetch("/api/users/me/password", {
     method: "PATCH",
     body: JSON.stringify({
       currentPassword,
@@ -439,15 +385,14 @@ export async function changeMyPasswordApi(
     throw new Error(await readErrorMessage(response, "비밀번호 변경 실패"));
   }
 
-  return await response.json().catch(() => true);
+  return await readOptionalJson(response);
 }
+
 /**
  * 회원 탈퇴
- *
- * 백엔드 엔드포인트가 다르면 여기 URL만 맞추면 됨.
  */
 export async function deleteMyAccountApi() {
-  const response = await authFetch(`${API_BASE}/users/me`, {
+  const response = await apiFetch("/api/users/me", {
     method: "DELETE",
   });
 
@@ -457,6 +402,7 @@ export async function deleteMyAccountApi() {
 
   return true;
 }
+
 export async function generateFinalReportDraftApi({
   workspaceId,
   project,
@@ -515,8 +461,8 @@ export async function generateFinalReportDraftApi({
     throw new Error("AI 초안을 생성할 프로젝트를 선택해주세요.");
   }
 
-  const response = await authFetch(
-    `${API_BASE}/workspaces/${encodeURIComponent(
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(
       workspaceId,
     )}/archive/final-report/draft`,
     {
@@ -558,18 +504,10 @@ export async function generateFinalReportDraftApi({
   return response.json() as Promise<{ draft: string }>;
 }
 
-export type GithubAccountStatus = {
-  connected: boolean;
-  username?: string | null;
-  login?: string | null;
-  email?: string | null;
-  avatarUrl?: string | null;
-  connectedAt?: string | null;
-};
-
 export async function fetchGithubAccountStatusApi(): Promise<GithubAccountStatus> {
-  const response = await authFetch(`${API_BASE}/github/status`, {
+  const response = await apiFetch("/api/github/status", {
     method: "GET",
+    cache: "no-store",
   });
 
   if (response.status === 404) {
@@ -598,8 +536,9 @@ export async function fetchGithubAccountStatusApi(): Promise<GithubAccountStatus
 }
 
 export async function disconnectGithubAccountApi() {
-  const response = await authFetch(`${API_BASE}/github/link`, {
+  const response = await apiFetch("/api/github/link", {
     method: "DELETE",
+    cache: "no-store",
   });
 
   if (!response.ok && response.status !== 404) {

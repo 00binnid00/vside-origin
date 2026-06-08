@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { apiFetch as coreApiFetch } from "@/lib/api/apiClient";
 import type {
   ApiScheduleResponse,
   CalendarEvent,
@@ -8,9 +9,6 @@ import type {
   ProjectRole,
   ProjectStage,
 } from "./schedule.types";
-
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8080";
 
 export function todayISO() {
   return format(new Date(), "yyyy-MM-dd");
@@ -204,13 +202,8 @@ export function mapApiScheduleToCalendarEvent(
   };
 }
 
-function getAccessToken() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("accessToken");
-}
-
 async function extractErrorMessage(response: Response) {
-  const text = await response.text();
+  const text = await response.text().catch(() => "");
 
   if (!text) {
     return `요청 실패 (${response.status})`;
@@ -229,31 +222,12 @@ async function extractErrorMessage(response: Response) {
   }
 }
 
-export async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
-  }
-
+async function readJsonOrUndefined<T>(response: Response): Promise<T> {
   if (response.status === 204) {
     return undefined as T;
   }
 
-  const text = await response.text();
+  const text = await response.text().catch(() => "");
 
   if (!text) {
     return undefined as T;
@@ -262,36 +236,42 @@ export async function apiFetch<T>(
   return JSON.parse(text) as T;
 }
 
-export async function apiFetchJson<T>(
+export async function apiFetch<T>(
   path: string,
-  method: "POST" | "PUT" | "DELETE",
-  body?: unknown,
+  options: RequestInit = {},
 ): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      ...(method !== "DELETE" ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: method === "DELETE" ? undefined : JSON.stringify(body ?? {}),
+  const response = await coreApiFetch(path, {
+    ...options,
+    cache: "no-store",
   });
 
   if (!response.ok) {
     throw new Error(await extractErrorMessage(response));
   }
 
-  if (response.status === 204) {
-    return undefined as T;
+  return await readJsonOrUndefined<T>(response);
+}
+
+export async function apiFetchJson<T>(
+  path: string,
+  method: "POST" | "PUT" | "DELETE",
+  body?: unknown,
+): Promise<T> {
+  const response = await coreApiFetch(path, {
+    method,
+    headers:
+      method === "DELETE"
+        ? undefined
+        : {
+            "Content-Type": "application/json",
+          },
+    body: method === "DELETE" ? undefined : JSON.stringify(body ?? {}),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response));
   }
 
-  const text = await response.text();
-
-  if (!text) {
-    return undefined as T;
-  }
-
-  return JSON.parse(text) as T;
+  return await readJsonOrUndefined<T>(response);
 }

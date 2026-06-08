@@ -1,12 +1,59 @@
 "use client";
 
-import { authFetch } from "@/lib/ide/api";
+import { apiFetch } from "@/lib/api/apiClient";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+const WORKSPACE_API_BASE = "/api/workspaces";
+const DESIGN_API_BASE = "/api/design";
 
-const WORKSPACE_API_BASE = `${BASE_URL}/api/workspaces`;
-const DESIGN_API_BASE = `${BASE_URL}/api/design`;
+// ============================================================================
+// 설계관리 API - 공통 응답 처리
+// ============================================================================
+
+async function readResponseText(response) {
+  return await response.text().catch(() => "");
+}
+
+async function requestJson(path, options = {}, fallbackMessage = "요청 처리 중 오류가 발생했습니다.") {
+  const response = await apiFetch(path, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await readResponseText(response);
+
+  if (!response.ok) {
+    throw new Error(text || fallbackMessage);
+  }
+
+  if (!text) {
+    return null;
+  }
+
+  return JSON.parse(text);
+}
+
+async function requestVoid(path, options = {}, fallbackMessage = "요청 처리 중 오류가 발생했습니다.") {
+  const response = await apiFetch(path, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await readResponseText(response);
+
+  if (!response.ok) {
+    throw new Error(text || fallbackMessage);
+  }
+
+  return true;
+}
 
 // ============================================================================
 // 설계관리 API - 공통 정규화
@@ -68,18 +115,15 @@ export const fetchWorkspaceRequirementsApi = async (workspaceId) => {
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(
       workspaceId,
     )}/design/requirements`,
+    {
+      method: "GET",
+    },
+    "요구사항 목록 로드 실패",
   );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "요구사항 목록 로드 실패");
-  }
-
-  const data = await response.json();
 
   return Array.isArray(data) ? data.map(normalizeRequirementFromApi) : [];
 };
@@ -94,7 +138,7 @@ export const createWorkspaceRequirementApi = async ({
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(
       workspaceId,
     )}/design/requirements`,
@@ -106,14 +150,10 @@ export const createWorkspaceRequirementApi = async ({
         description,
       }),
     },
+    "요구사항 생성 실패",
   );
 
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "요구사항 생성 실패");
-  }
-
-  return normalizeRequirementFromApi(await response.json());
+  return normalizeRequirementFromApi(data);
 };
 
 export const updateRequirementApi = async ({
@@ -126,7 +166,7 @@ export const updateRequirementApi = async ({
     throw new Error("requirementId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${DESIGN_API_BASE}/requirements/${encodeURIComponent(requirementId)}`,
     {
       method: "PATCH",
@@ -136,14 +176,10 @@ export const updateRequirementApi = async ({
         description,
       }),
     },
+    "요구사항 수정 실패",
   );
 
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "요구사항 수정 실패");
-  }
-
-  return normalizeRequirementFromApi(await response.json());
+  return normalizeRequirementFromApi(data);
 };
 
 export const deleteRequirementApi = async (requirementId) => {
@@ -151,19 +187,13 @@ export const deleteRequirementApi = async (requirementId) => {
     throw new Error("requirementId가 없습니다.");
   }
 
-  const response = await authFetch(
+  return await requestVoid(
     `${DESIGN_API_BASE}/requirements/${encodeURIComponent(requirementId)}`,
     {
       method: "DELETE",
     },
+    "요구사항 삭제 실패",
   );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "요구사항 삭제 실패");
-  }
-
-  return true;
 };
 
 // ============================================================================
@@ -175,16 +205,13 @@ export const fetchWorkspaceApiSpecsApi = async (workspaceId) => {
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(workspaceId)}/design/apis`,
+    {
+      method: "GET",
+    },
+    "API 명세서 목록 로드 실패",
   );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "API 명세서 목록 로드 실패");
-  }
-
-  const data = await response.json();
 
   return Array.isArray(data) ? data.map(normalizeApiSpecFromApi) : [];
 };
@@ -201,7 +228,7 @@ export const createWorkspaceApiSpecApi = async ({
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const apiResponse = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(workspaceId)}/design/apis`,
     {
       method: "POST",
@@ -213,14 +240,10 @@ export const createWorkspaceApiSpecApi = async ({
         response,
       }),
     },
+    "API 명세서 생성 실패",
   );
 
-  if (!apiResponse.ok) {
-    const errMsg = await apiResponse.text();
-    throw new Error(errMsg || "API 명세서 생성 실패");
-  }
-
-  return normalizeApiSpecFromApi(await apiResponse.json());
+  return normalizeApiSpecFromApi(data);
 };
 
 export const updateApiSpecApi = async ({
@@ -235,7 +258,7 @@ export const updateApiSpecApi = async ({
     throw new Error("apiSpecId가 없습니다.");
   }
 
-  const apiResponse = await authFetch(
+  const data = await requestJson(
     `${DESIGN_API_BASE}/apis/${encodeURIComponent(apiSpecId)}`,
     {
       method: "PATCH",
@@ -247,14 +270,10 @@ export const updateApiSpecApi = async ({
         response,
       }),
     },
+    "API 명세서 수정 실패",
   );
 
-  if (!apiResponse.ok) {
-    const errMsg = await apiResponse.text();
-    throw new Error(errMsg || "API 명세서 수정 실패");
-  }
-
-  return normalizeApiSpecFromApi(await apiResponse.json());
+  return normalizeApiSpecFromApi(data);
 };
 
 export const deleteApiSpecApi = async (apiSpecId) => {
@@ -262,19 +281,13 @@ export const deleteApiSpecApi = async (apiSpecId) => {
     throw new Error("apiSpecId가 없습니다.");
   }
 
-  const response = await authFetch(
+  return await requestVoid(
     `${DESIGN_API_BASE}/apis/${encodeURIComponent(apiSpecId)}`,
     {
       method: "DELETE",
     },
+    "API 명세서 삭제 실패",
   );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "API 명세서 삭제 실패");
-  }
-
-  return true;
 };
 
 // ============================================================================
@@ -286,16 +299,15 @@ export const fetchWorkspaceDesignDocumentApi = async (workspaceId) => {
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(workspaceId)}/design/document`,
+    {
+      method: "GET",
+    },
+    "설계 문서 로드 실패",
   );
 
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "설계 문서 로드 실패");
-  }
-
-  return normalizeDesignDocumentFromApi(await response.json());
+  return normalizeDesignDocumentFromApi(data);
 };
 
 export const saveWorkspaceDesignDocumentApi = async ({
@@ -309,7 +321,7 @@ export const saveWorkspaceDesignDocumentApi = async ({
     throw new Error("workspaceId가 없습니다.");
   }
 
-  const response = await authFetch(
+  const data = await requestJson(
     `${WORKSPACE_API_BASE}/${encodeURIComponent(workspaceId)}/design/document`,
     {
       method: "PUT",
@@ -320,12 +332,8 @@ export const saveWorkspaceDesignDocumentApi = async ({
         flowEdgesJson,
       }),
     },
+    "설계 문서 저장 실패",
   );
 
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "설계 문서 저장 실패");
-  }
-
-  return normalizeDesignDocumentFromApi(await response.json());
+  return normalizeDesignDocumentFromApi(data);
 };

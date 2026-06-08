@@ -44,17 +44,8 @@ type AuthContextValue = {
   user: AuthUser | null;
   accessToken: string | null;
 
-  /**
-   * 새 이름
-   */
   isAuthenticated: boolean;
-
-  /**
-   * 기존 코드 호환용 이름.
-   * TopNav, IDE 기존 코드에서 isLoggedIn을 쓰고 있을 수 있어서 같이 제공합니다.
-   */
   isLoggedIn: boolean;
-
   loading: boolean;
 
   login: (
@@ -68,6 +59,17 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const isAuthExpiredStatus = (status: unknown) => status === 401 || status === 403;
+
+const getErrorStatus = (error: unknown): number | null => {
+  if (typeof error === "object" && error !== null && "status" in error) {
+    const status = Number((error as { status?: unknown }).status);
+    return Number.isFinite(status) ? status : null;
+  }
+
+  return null;
+};
 
 const normalizeAuthUser = (user: any): AuthUser | null => {
   const normalized = normalizeUser(user);
@@ -95,6 +97,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const [loading, setLoading] = useState(true);
+
+  const syncStateFromStorage = useCallback(() => {
+    setAccessTokenState(getAccessToken());
+    setUser(normalizeAuthUser(getAuthUser()));
+  }, []);
+
+  const clearAuthState = useCallback(() => {
+    clearAuth();
+    setAccessTokenState(null);
+    setUser(null);
+  }, []);
 
   const setAuthFromResponse = useCallback((data: any) => {
     const token = data?.accessToken || data?.token || null;
@@ -131,24 +144,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(normalizeAuthUser(result.user));
 
       return true;
-    } catch {
-      clearAuth();
-      setAccessTokenState(null);
-      setUser(null);
+    } catch (error) {
+      const status = getErrorStatus(error);
+
+      /*
+       * refresh token 자체가 만료/무효인 경우에만 인증 상태 제거.
+       * refresh 500, 네트워크 오류, 일시 서버 오류에서는 로그인 정보를 지우지 않습니다.
+       */
+      if (isAuthExpiredStatus(status)) {
+        clearAuthState();
+      } else {
+        syncStateFromStorage();
+      }
 
       return false;
     }
-  }, []);
+  }, [clearAuthState, syncStateFromStorage]);
 
   const login = useCallback(
     async (
       emailOrPayload: string | LegacyLoginPayload,
       password?: string,
     ) => {
-      /**
-       * 기존 코드 호환:
-       * login({ id, email, token }) 형태로 호출하는 코드도 유지합니다.
-       */
       if (typeof emailOrPayload === "object") {
         const payload = emailOrPayload;
 
@@ -190,61 +207,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-  let cancelled = false;
+    let cancelled = false;
 
-  const bootstrap = async () => {
-    try {
-      const currentAccessToken = getAccessToken();
-
-      /**
-       * accessToken 자체가 없으면 refresh를 호출하지 않습니다.
-       * refreshToken은 HttpOnly Cookie라 JS에서 확인할 수 없고,
-       * 없는 상태에서 refresh를 호출하면 브라우저 콘솔에 401이 찍힙니다.
-       */
-      if (!currentAccessToken) {
-        clearAuth();
-
-        if (!cancelled) {
-          setAccessTokenState(null);
-          setUser(null);
-        }
-
-        return;
-      }
-
-      /**
-       * accessToken이 있으면 우선 /api/auth/me로 사용자 복구를 시도합니다.
-       */
+    const bootstrap = async () => {
       try {
-        const me = await authClient.me();
+        const currentAccessToken = getAccessToken();
 
-        if (!cancelled) {
-          setUser(normalizeAuthUser(me));
-          setAccessTokenState(getAccessToken());
+        if (!currentAccessToken) {
+          clearAuth();
+
+          if (!cancelled) {
+            setAccessTokenState(null);
+            setUser(null);
+          }
+
+          return;
         }
 
-        return;
-      } catch {
-        /**
-         * accessToken이 만료됐을 가능성이 있으므로
-         * 이때만 refresh token으로 복구를 시도합니다.
-         */
+        try {
+          const me = await authClient.me();
+
+          if (!cancelled) {
+            setUser(normalizeAuthUser(me));
+            setAccessTokenState(getAccessToken());
+          }
+
+          return;
+        } catch (error) {
+          const status = getErrorStatus(error);
+
+          /*
+           * /me가 인증 만료로 실패한 경우에만 refresh 복구 시도.
+           * 서버 500, 네트워크 오류는 로그인 상태를 유지합니다.
+           */
+          if (isAuthExpiredStatus(status)) {
+            await refreshAuth();
+            return;
+          }
+
+          if (!cancelled) {
+            syncStateFromStorage();
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
+    };
 
-      await refreshAuth();
-    } finally {
-      if (!cancelled) {
-        setLoading(false);
-      }
-    }
-  };
+    bootstrap();
 
-  bootstrap();
-
-  return () => {
-    cancelled = true;
-  };
-}, [refreshAuth]);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshAuth, syncStateFromStorage]);
 
   const value = useMemo<AuthContextValue>(() => {
     const authenticated = Boolean(user && accessToken);

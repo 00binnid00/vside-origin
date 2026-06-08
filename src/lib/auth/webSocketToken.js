@@ -3,9 +3,11 @@
 // 경로: src/lib/auth/webSocketToken.js
 
 import { authClient } from "@/lib/auth/authClient";
-import { getAccessToken } from "@/lib/auth/tokenStore";
+import { getAccessToken, setAccessToken } from "@/lib/auth/tokenStore";
 
 const DEFAULT_REFRESH_MARGIN_MS = 60_000;
+
+let socketTokenPromise = null;
 
 const decodeBase64Url = (value) => {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -22,6 +24,7 @@ export const getJwtExpiresAtMs = (token) => {
 
   try {
     const [, payloadPart] = token.split(".");
+
     if (!payloadPart) return null;
 
     const payload = JSON.parse(decodeBase64Url(payloadPart));
@@ -46,6 +49,25 @@ export const isAccessTokenExpiringSoon = (
   return expiresAtMs - Date.now() <= marginMs;
 };
 
+const requestFreshSocketToken = async (marginMs) => {
+  const latestToken = getAccessToken();
+
+  if (latestToken && !isAccessTokenExpiringSoon(latestToken, marginMs)) {
+    return latestToken;
+  }
+
+  const refreshed = await authClient.refresh();
+  const refreshedToken = refreshed?.accessToken || getAccessToken();
+
+  if (!refreshedToken) {
+    throw new Error("웹소켓 인증 토큰을 준비하지 못했습니다.");
+  }
+
+  setAccessToken(refreshedToken);
+
+  return refreshedToken;
+};
+
 export const getFreshAccessTokenForSocket = async ({
   marginMs = DEFAULT_REFRESH_MARGIN_MS,
 } = {}) => {
@@ -55,7 +77,11 @@ export const getFreshAccessTokenForSocket = async ({
     return currentToken;
   }
 
-  const refreshed = await authClient.refresh();
+  if (!socketTokenPromise) {
+    socketTokenPromise = requestFreshSocketToken(marginMs).finally(() => {
+      socketTokenPromise = null;
+    });
+  }
 
-  return refreshed?.accessToken || getAccessToken();
+  return socketTokenPromise;
 };

@@ -39,16 +39,3 @@ export function getCurrentUser(): CurrentUser | null {
     return userId ? { id: String(userId) } : null;
   }
 }
-
-export function getAuthHeaders(): HeadersInit {
-  if (typeof window === "undefined") return {};
-
-  const token =
-    localStorage.getItem("accessToken") || localStorage.getItem("token");
-
-  if (!token) return {};
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}

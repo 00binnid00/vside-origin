@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CalendarRange } from "lucide-react";
-
-const API_BASE = "http://localhost:8080";
+import { apiJson } from "@/lib/api/apiClient";
 
 type ActivityHeaderProps = {
   workspaceId: string;
@@ -18,19 +17,6 @@ type ScheduleProgressResponse = {
   doneCount: number;
   progress: number;
 };
-
-function getAuthHeaders(): HeadersInit {
-  if (typeof window === "undefined") return {};
-
-  const token =
-    localStorage.getItem("accessToken") || localStorage.getItem("token");
-
-  if (!token) return {};
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
 
 function normalizeWorkspaceId(value: string | null | undefined) {
   if (!value) return "";
@@ -55,23 +41,15 @@ export function ActivityHeader({ workspaceId, mode }: ActivityHeaderProps) {
       try {
         setLoading(true);
 
-        const response = await fetch(
-          `${API_BASE}/api/schedules/progress?view=${encodeURIComponent(mode)}&workspaceId=${encodeURIComponent(safeWorkspaceId)}`,
-          {
-            method: "GET",
-            headers: {
-              ...getAuthHeaders(),
-            },
-            cache: "no-store",
-          },
-        );
+        const query = new URLSearchParams({
+          view: mode,
+          workspaceId: safeWorkspaceId,
+        });
 
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || "진행률 조회 실패");
-        }
+        const data = (await apiJson(`/api/schedules/progress?${query}`, {
+          cache: "no-store",
+        })) as ScheduleProgressResponse;
 
-        const data: ScheduleProgressResponse = await response.json();
         setTotalProgress(data.progress ?? 0);
       } catch (error) {
         console.error("[ActivityHeader] progress fetch error:", error);

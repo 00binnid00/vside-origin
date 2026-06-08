@@ -21,8 +21,8 @@ import {
   getDevlogHref,
   getScheduleHref,
 } from "@/components/main-dashboard/dashboard.utils";
+import { apiJson } from "@/lib/api/apiClient";
 
-const API_BASE = "http://localhost:8080";
 
 type ProjectType = "personal" | "team";
 
@@ -105,41 +105,6 @@ function getAiReportHref(project: DashboardCardItem) {
   }`;
 }
 
-function getStoredUserId(): string | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const rawUser = localStorage.getItem("user");
-
-    if (rawUser) {
-      const parsedUser = JSON.parse(rawUser);
-      const userId = parsedUser?.id;
-
-      if (userId !== undefined && userId !== null && userId !== "") {
-        return String(userId);
-      }
-    }
-
-    const userId = localStorage.getItem("userId");
-    return userId ? String(userId) : null;
-  } catch {
-    const userId = localStorage.getItem("userId");
-    return userId ? String(userId) : null;
-  }
-}
-
-function getAuthHeaders(): HeadersInit {
-  if (typeof window === "undefined") return {};
-
-  const token =
-    localStorage.getItem("accessToken") || localStorage.getItem("token");
-
-  if (!token) return {};
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
 
 function normalizeWorkspaceType(value?: string | null): ProjectType {
   if (!value) return "personal";
@@ -245,124 +210,91 @@ export default function DashboardProjectSelectPage() {
   }, []);
 
   async function loadDashboardProjects() {
-    try {
-      setLoading(true);
-      setError("");
+  try {
+    setLoading(true);
+    setError("");
 
-      const userId = getStoredUserId();
+    const rawWorkspaces = (await apiJson(
+      "/api/workspaces/me",
+      {
+        cache: "no-store",
+      },
+    )) as RawWorkspaceItem[];
 
-      if (!userId) {
-        setProjects([]);
-        setError("로그인 사용자 정보가 없습니다.");
-        return;
-      }
+    const workspaceList = Array.isArray(rawWorkspaces)
+      ? rawWorkspaces
+          .map(normalizeWorkspace)
+          .filter((workspace) => workspace.id)
+      : [];
 
-      const workspaceRes = await fetch(
-        `${API_BASE}/api/workspaces?userId=${encodeURIComponent(userId)}`,
-        {
-          method: "GET",
-          headers: {
-            ...getAuthHeaders(),
-          },
-          cache: "no-store",
-        },
-      );
+    const progressResults = await Promise.all(
+      workspaceList.map(async (workspace) => {
+        try {
+          const schedules = (await apiJson(
+            `/api/workspaces/${encodeURIComponent(workspace.id)}/schedules`,
+            {
+              cache: "no-store",
+            },
+          )) as RawScheduleItem[];
 
-      if (!workspaceRes.ok) {
-        const text = await workspaceRes.text();
-        throw new Error(text || "워크스페이스 목록 조회에 실패했습니다.");
-      }
+          return calculateScheduleProgress(
+            workspace,
+            Array.isArray(schedules) ? schedules : [],
+          );
+        } catch (err) {
+          console.warn(
+            `[main schedules] 일정 진행률 조회 실패: ${workspace.id}`,
+            err,
+          );
 
-      const rawWorkspaces: RawWorkspaceItem[] = await workspaceRes.json();
+          return {
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            type: workspace.type,
+            totalCount: 0,
+            doneCount: 0,
+            progress: 0,
+          } satisfies ScheduleProgressResponse;
+        }
+      }),
+    );
 
-      const workspaceList = Array.isArray(rawWorkspaces)
-        ? rawWorkspaces
-            .map(normalizeWorkspace)
-            .filter((workspace) => workspace.id)
-        : [];
+    const progressMap = new Map<string, ScheduleProgressResponse>();
 
-      const progressResults = await Promise.all(
-        workspaceList.map(async (workspace) => {
-          try {
-            const scheduleRes = await fetch(
-              `${API_BASE}/api/workspaces/${encodeURIComponent(
-                workspace.id,
-              )}/schedules`,
-              {
-                method: "GET",
-                headers: {
-                  ...getAuthHeaders(),
-                },
-                cache: "no-store",
-              },
-            );
+    progressResults.forEach((item) => {
+      progressMap.set(item.workspaceId, item);
+    });
 
-            if (!scheduleRes.ok) {
-              return {
-                workspaceId: workspace.id,
-                workspaceName: workspace.name,
-                type: workspace.type,
-                totalCount: 0,
-                doneCount: 0,
-                progress: 0,
-              } satisfies ScheduleProgressResponse;
-            }
+    const merged: DashboardCardItem[] = workspaceList.map((workspace) => {
+      const progressInfo = progressMap.get(workspace.id);
+      const progress = progressInfo?.progress ?? 0;
 
-            const schedules = await scheduleRes.json();
+      return {
+        id: workspace.id,
+        title: workspace.name,
+        description: workspace.description,
+        tech: `하위 ${workspace.projectCount}개`,
+        type: workspace.type,
+        progress,
+        status: progress >= 100 ? "completed" : "active",
+        lastModified: workspace.updatedAt,
+        memberCount: undefined,
+      };
+    });
 
-            return calculateScheduleProgress(
-              workspace,
-              Array.isArray(schedules) ? schedules : [],
-            );
-          } catch {
-            return {
-              workspaceId: workspace.id,
-              workspaceName: workspace.name,
-              type: workspace.type,
-              totalCount: 0,
-              doneCount: 0,
-              progress: 0,
-            } satisfies ScheduleProgressResponse;
-          }
-        }),
-      );
-
-      const progressMap = new Map<string, ScheduleProgressResponse>();
-
-      progressResults.forEach((item) => {
-        progressMap.set(item.workspaceId, item);
-      });
-
-      const merged: DashboardCardItem[] = workspaceList.map((workspace) => {
-        const progressInfo = progressMap.get(workspace.id);
-        const progress = progressInfo?.progress ?? 0;
-
-        return {
-          id: workspace.id,
-          title: workspace.name,
-          description: workspace.description,
-          tech: `하위 ${workspace.projectCount}개`,
-          type: workspace.type,
-          progress,
-          status: progress >= 100 ? "completed" : "active",
-          lastModified: workspace.updatedAt,
-          memberCount: undefined,
-        };
-      });
-
-      setProjects(merged);
-    } catch (err) {
-      console.error(err);
-      setProjects([]);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "대시보드 프로젝트 목록 조회 중 오류가 발생했습니다.",
-      );
-    } finally {
-      setLoading(false);
-    }
+    setProjects(merged);
+  } catch (err) {
+    console.error(err);
+    setProjects([]);
+    setError(
+      err instanceof Error
+        ? err.message
+        : "대시보드 프로젝트 목록 조회 중 오류가 발생했습니다.",
+    );
+  } finally {
+    setLoading(false);
   }
+}
 
   const filteredProjects = useMemo(() => {
     const keyword = search.trim().toLowerCase();

@@ -2,31 +2,7 @@ import type {
   ApiScheduleResponse,
   Mode,
 } from "@/components/schedule/schedule.types";
-import { API_BASE } from "@/lib/devlog/constants";
-
-function getAuthHeaders(): HeadersInit {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
-
-  if (!token) {
-    throw new Error("로그인 정보가 없습니다. 다시 로그인해주세요.");
-  }
-
-  return {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-}
-
-async function handleJsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || "요청 처리 중 오류가 발생했습니다.");
-  }
-
-  const text = await response.text();
-  return text ? (JSON.parse(text) as T) : ([] as T);
-}
+import { apiJson } from "@/lib/api/apiClient";
 
 /**
  * 개발일지 좌측 캘린더용 월간 일정 조회
@@ -44,13 +20,11 @@ export async function fetchDevlogMonthSchedules(
     month: String(month),
   });
 
-  const response = await fetch(`${API_BASE}/api/schedules/calendar?${query}`, {
-    method: "GET",
-    headers: getAuthHeaders(),
+  const data = await apiJson(`/api/schedules/calendar?${query}`, {
     cache: "no-store",
   });
 
-  return handleJsonResponse<ApiScheduleResponse[]>(response);
+  return Array.isArray(data) ? (data as ApiScheduleResponse[]) : [];
 }
 
 /**
@@ -68,13 +42,11 @@ export async function fetchDevlogDaySchedules(
     category: "all",
   });
 
-  const response = await fetch(`${API_BASE}/api/schedules?${query}`, {
-    method: "GET",
-    headers: getAuthHeaders(),
+  const data = await apiJson(`/api/schedules?${query}`, {
     cache: "no-store",
   });
 
-  return handleJsonResponse<ApiScheduleResponse[]>(response);
+  return Array.isArray(data) ? (data as ApiScheduleResponse[]) : [];
 }
 
 /**
@@ -91,11 +63,9 @@ export async function fetchDevlogWeekSchedules(
     date: dateISO,
   });
 
-  const response = await fetch(`${API_BASE}/api/schedules/weekly?${query}`, {
-    method: "GET",
-    headers: getAuthHeaders(),
+  const data = await apiJson(`/api/schedules/weekly?${query}`, {
     cache: "no-store",
   });
 
-  return handleJsonResponse<ApiScheduleResponse[]>(response);
+  return Array.isArray(data) ? (data as ApiScheduleResponse[]) : [];
 }
