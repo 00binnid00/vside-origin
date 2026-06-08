@@ -25,26 +25,51 @@ export default function BottomPanel() {
   const [outputContent, setOutputContent] = useState("");
   const [runInput, setRunInput] = useState("");
   const outputEndRef = useRef(null);
+  const pendingPreviewUrlRef = useRef(null);
 
-  useEffect(() => {
-    if (terminalOutput) {
-      if (terminalOutput.text === "__CLEAR__") {
-        setOutputContent("");
-      } else {
-        setOutputContent((prev) => prev + terminalOutput.text);
-        
-        // 포트 감지 자동 팝업 로직
-        if (terminalOutput.text.includes("[SERVER_STARTED_PORT:")) {
-          const match = terminalOutput.text.match(/\[SERVER_STARTED_PORT:(\d+)\]/);
-          if (match && match[1]) {
-            const port = match[1];
-            dispatch(setPreviewUrl(`http://localhost:${port}`));
-            dispatch(setIsPreviewVisible(true));
-          }
-        }
-      }
+useEffect(() => {
+  if (!terminalOutput) return;
+
+  const text = terminalOutput.text || "";
+
+  if (text === "__CLEAR__") {
+    setOutputContent("");
+    pendingPreviewUrlRef.current = null;
+    return;
+  }
+
+  setOutputContent((prev) => prev + text);
+
+  // 1. 백엔드가 mappedPort를 알려주면 URL만 저장한다.
+  if (text.includes("[SERVER_STARTED_PORT:")) {
+    const match = text.match(/\[SERVER_STARTED_PORT:(\d+)\]/);
+
+    if (match && match[1]) {
+      const port = match[1];
+      const url = `http://localhost:${port}`;
+
+      pendingPreviewUrlRef.current = url;
+      dispatch(setPreviewUrl(url));
     }
-  }, [terminalOutput, dispatch]);
+  }
+
+  // 2. 실제 개발 서버가 준비된 뒤 미리보기를 연다.
+  const isServerReady =
+    text.includes("ready in") ||
+    text.includes("Ready in") ||
+    text.includes("Local:") ||
+    text.includes("VITE") ||
+    text.includes("Compiled") ||
+    text.includes("compiled") ||
+    text.includes("Tomcat started on port") ||
+    text.includes("Started");
+
+  if (pendingPreviewUrlRef.current && isServerReady) {
+    dispatch(setPreviewUrl(pendingPreviewUrlRef.current));
+    dispatch(setIsPreviewVisible(true));
+    pendingPreviewUrlRef.current = null;
+  }
+}, [terminalOutput, dispatch]);
 
   useEffect(() => {
     outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
