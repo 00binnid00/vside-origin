@@ -36,6 +36,155 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
+const configureTypeScriptMonaco = (monacoInstance) => {
+  if (!monacoInstance?.languages?.typescript) return;
+
+  const ts = monacoInstance.languages.typescript;
+
+  const compilerOptions = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    jsx: ts.JsxEmit.ReactJSX ?? ts.JsxEmit.React,
+    allowJs: true,
+    checkJs: false,
+    allowNonTsExtensions: true,
+    esModuleInterop: true,
+    allowSyntheticDefaultImports: true,
+    strict: false,
+    noEmit: true,
+    isolatedModules: true,
+    skipLibCheck: true,
+    resolveJsonModule: true,
+  };
+
+  ts.typescriptDefaults.setCompilerOptions(compilerOptions);
+  ts.javascriptDefaults.setCompilerOptions(compilerOptions);
+
+  // 브라우저 Monaco는 실제 node_modules 타입을 완전히 못 읽기 때문에
+  // 의미 기반 타입 진단은 끄고, 문법 오류만 표시하게 둔다.
+  ts.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+    noSuggestionDiagnostics: true,
+  });
+
+  ts.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+    noSuggestionDiagnostics: true,
+  });
+
+  ts.typescriptDefaults.setEagerModelSync(true);
+
+  const reactAndNextTypes = `
+    declare namespace React {
+      type ReactNode = any;
+      type CSSProperties = any;
+
+      interface Attributes {
+        key?: string | number;
+      }
+
+      interface HTMLAttributes<T> {
+        className?: string;
+        id?: string;
+        style?: CSSProperties;
+        children?: ReactNode;
+        [key: string]: any;
+      }
+
+      interface DetailedHTMLProps<E, T> extends E {}
+
+      function createElement(...args: any[]): any;
+    }
+
+    declare namespace JSX {
+      interface Element {}
+      interface ElementClass {}
+      interface ElementAttributesProperty {
+        props: {};
+      }
+      interface ElementChildrenAttribute {
+        children: {};
+      }
+      interface IntrinsicAttributes {
+        key?: string | number;
+        [key: string]: any;
+      }
+      interface IntrinsicElements {
+        [elemName: string]: any;
+      }
+    }
+
+    declare module "react" {
+      export = React;
+      export as namespace React;
+    }
+
+    declare module "react/jsx-runtime" {
+      export const jsx: any;
+      export const jsxs: any;
+      export const Fragment: any;
+
+      export namespace JSX {
+        interface Element {}
+        interface ElementClass {}
+        interface ElementAttributesProperty {
+          props: {};
+        }
+        interface ElementChildrenAttribute {
+          children: {};
+        }
+        interface IntrinsicAttributes {
+          key?: string | number;
+          [key: string]: any;
+        }
+        interface IntrinsicElements {
+          [elemName: string]: any;
+        }
+      }
+    }
+
+    declare module "next" {
+      export type Metadata = {
+        title?: string;
+        description?: string;
+        [key: string]: any;
+      };
+    }
+
+    declare module "next/link" {
+      const Link: any;
+      export default Link;
+    }
+
+    declare module "next/image" {
+      const Image: any;
+      export default Image;
+    }
+
+    declare module "*.css" {
+      const content: any;
+      export default content;
+    }
+
+    declare module "*.module.css" {
+      const classes: { readonly [key: string]: string };
+      export default classes;
+    }
+  `;
+
+  ts.typescriptDefaults.addExtraLib(
+    reactAndNextTypes,
+    "file:///node_modules/@types/wevais-react-next/index.d.ts",
+  );
+
+  ts.javascriptDefaults.addExtraLib(
+    reactAndNextTypes,
+    "file:///node_modules/@types/wevais-react-next/index.d.ts",
+  );
+};
 
 class CustomWebSocket extends WebSocket {
   constructor(url, protocols) {
@@ -593,7 +742,11 @@ export default function CodeEditor() {
       }
     }
   }, [fetchedNickname, user]); 
+useEffect(() => {
+  if (!monaco) return;
 
+  configureTypeScriptMonaco(monaco);
+}, [monaco]);
   const isContentLoaded = fileContents[activeFileId] !== undefined;
 
   useEffect(() => {
@@ -963,6 +1116,10 @@ export default function CodeEditor() {
     setLastConflictCount(0);
     dispatch(setActiveActivity("git"));
   }, [dispatch, handleSaveCurrentFile]);
+
+  const handleEditorWillMount = (monacoInstance) => {
+  configureTypeScriptMonaco(monacoInstance);
+};
 
   const handleEditorDidMount = (editor, monacoInstance) => {
     editorRef.current = editor;
@@ -1715,20 +1872,37 @@ export default function CodeEditor() {
       <div className="flex-1 relative">
         {isDiffMode && (
           <div className="absolute inset-0 z-20 bg-white">
-            <DiffEditor height="100%" theme="light" language={getLanguage(activeFileId)} original={aiSuggestion?.originalCode || "// 코드 분석 중..."} modified={aiSuggestion?.suggestedCode || "// 코드 분석 중..."} options={{ renderSideBySide: true, readOnly: false, fontSize, fontFamily: "'D2Coding', 'Consolas', monospace", minimap: { enabled: editorSettings.minimap }, originalEditable: false }} />
+          <DiffEditor
+  height="100%"
+  theme="light"
+  language={getLanguage(activeFileId)}
+  original={aiSuggestion?.originalCode || "// 코드 분석 중..."}
+  modified={aiSuggestion?.suggestedCode || "// 코드 분석 중..."}
+  beforeMount={handleEditorWillMount}
+  options={{
+    renderSideBySide: true,
+    readOnly: false,
+    fontSize,
+    fontFamily: "'D2Coding', 'Consolas', monospace",
+    minimap: { enabled: editorSettings.minimap },
+    originalEditable: false,
+  }}
+/>
           </div>
         )}
 
         <div className={`absolute inset-0 z-10 bg-white ${isDiffMode ? "invisible" : ""}`}>
-          <Editor
-            height="100%"
-            theme="light"
-            path={activeFileId}
-            language={getLanguage(activeFileId)}
-            value={fileContents[activeFileId] || ""}
-            onChange={handleEditorChange}
-            onMount={handleEditorDidMount}
-            options={{
+<Editor
+  key={`${activeFileId}-${getLanguage(activeFileId)}`}
+  height="100%"
+  theme="light"
+  path={activeFileId}
+  language={getLanguage(activeFileId)}
+  value={fileContents[activeFileId] || ""}
+  beforeMount={handleEditorWillMount}
+  onChange={handleEditorChange}
+  onMount={handleEditorDidMount}
+  options={{
               fontSize,
               fontFamily: "'D2Coding', 'Consolas', monospace",
               minimap: { enabled: editorSettings.minimap },
