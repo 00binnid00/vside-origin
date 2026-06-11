@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import type { FormEvent, ReactNode } from "react";
+import {
+  ArrowRight,
+  Check,
+  Code2,
+  Eye,
+  EyeOff,
+  FileText,
+  GitBranch,
+  Sparkles,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/authClient";
 
@@ -16,7 +26,6 @@ function isEmail(v: string) {
 
 export default function SignupPage() {
   const [form, setForm] = useState({
-    name: "",
     nickname: "",
     email: "",
     password: "",
@@ -37,13 +46,20 @@ export default function SignupPage() {
 
   const router = useRouter();
 
+  const nicknameOk = useMemo(() => {
+    return form.nickname.trim().length >= 2;
+  }, [form.nickname]);
+
+  const emailOk = useMemo(() => {
+    return isEmail(form.email);
+  }, [form.email]);
+
   const passwordOk = useMemo(() => {
     return form.password.length >= 8;
   }, [form.password]);
 
   const passwordMatch = useMemo(() => {
-    if (!form.password2) return false;
-    return form.password === form.password2;
+    return form.password2.length > 0 && form.password === form.password2;
   }, [form.password, form.password2]);
 
   const requiredAgreed = useMemo(() => {
@@ -52,14 +68,14 @@ export default function SignupPage() {
 
   const canSubmit = useMemo(() => {
     return (
-      form.nickname.trim().length >= 2 &&
-      isEmail(form.email) &&
+      nicknameOk &&
+      emailOk &&
       passwordOk &&
       passwordMatch &&
       requiredAgreed &&
       !loading
     );
-  }, [form, passwordOk, passwordMatch, requiredAgreed, loading]);
+  }, [nicknameOk, emailOk, passwordOk, passwordMatch, requiredAgreed, loading]);
 
   const setAllAgree = (checked: boolean) => {
     setAgree({
@@ -80,7 +96,7 @@ export default function SignupPage() {
     setAgree({ ...next, all: allChecked });
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!canSubmit) return;
@@ -107,188 +123,164 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-gray-50 to-white">
-      <div className="flex min-h-dvh items-center justify-center px-6 py-10">
-        <div className="flex items-center justify-center">
-          <div className="w-[700px] rounded-3xl border border-gray-200 bg-white p-8 shadow-[0_10px_30px_rgba(0,0,0,0.06)]">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">회원가입</h2>
+    <main className="min-h-dvh overflow-hidden bg-[#f8fbff] text-slate-950">
+      <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-[0.92fr_1.08fr]">
+        <section className="relative hidden overflow-hidden bg-gradient-to-br from-blue-50 via-sky-50 to-white px-14 py-10 lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-blue-200/45 blur-3xl" />
+          <div className="absolute bottom-16 left-10 h-60 w-60 rounded-full bg-sky-200/45 blur-3xl" />
+          <div className="absolute -bottom-32 right-20 h-72 w-72 rounded-full bg-indigo-100/60 blur-3xl" />
+
+          <div className="relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-lg font-black text-white shadow-lg shadow-blue-200">
+                V
               </div>
 
-              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gray-900 font-bold text-white">
-                V
+              <div>
+                <p className="text-xl font-extrabold tracking-tight text-slate-950">
+                  WAIVS
+                </p>
+                <p className="text-sm font-medium text-slate-500">
+                  AI Collaborative IDE Platform
+                </p>
               </div>
             </div>
 
-            <form onSubmit={onSubmit} className="mt-6 space-y-4">
+            <div className="mt-16 max-w-xl">
+              <p className="mb-4 inline-flex rounded-full border border-blue-100 bg-white/70 px-4 py-2 text-sm font-bold text-blue-600 shadow-sm">
+                New Developer Project
+              </p>
+
+              <h1 className="text-5xl font-extrabold leading-[1.12] tracking-[-0.05em] text-slate-950">
+                계정을 만들고
+                <br />
+                프로젝트 작업을
+                <br />
+                시작하세요.
+              </h1>
+
+              <p className="mt-5 max-w-md text-[15px] leading-7 text-slate-600">
+                개인 프로젝트와 팀 프로젝트를 생성하고, 템플릿 선택부터 코드
+                작성, Git, 문서화까지 한 흐름으로 진행할 수 있습니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="relative z-10 space-y-2.5">
+            <InfoRow icon={<Code2 size={17} />} text="Monaco 기반 코드 에디터" />
+            <InfoRow icon={<GitBranch size={17} />} text="프로젝트별 Git 연동" />
+            <InfoRow icon={<FileText size={17} />} text="개발일지와 보고서 관리" />
+            <InfoRow icon={<Sparkles size={17} />} text="AI 코드 보조 및 문서 초안" />
+          </div>
+        </section>
+
+        <section className="flex min-h-dvh items-center justify-center px-6 py-5 sm:px-10 lg:px-14">
+          <div className="w-full max-w-[520px]">
+            <div className="mb-6 lg:hidden">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 text-base font-black text-white shadow-lg shadow-blue-200">
+                  W
+                </div>
+
+                <div>
+                  <p className="text-lg font-extrabold tracking-tight text-slate-950">
+                    WAIVS
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    AI Collaborative IDE Platform
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-bold text-blue-600">
+                새 프로젝트를 시작해요
+              </p>
+
+              <h2 className="mt-1.5 text-3xl font-extrabold tracking-[-0.045em] text-slate-950">
+                회원가입
+              </h2>
+
+              <p className="mt-2 text-sm leading-5 text-slate-500">
+                WAIVS에서 사용할 계정 정보를 입력해주세요.
+              </p>
+            </div>
+
+            <form onSubmit={onSubmit} className="mt-5 space-y-3">
               <Field
                 label="닉네임"
                 value={form.nickname}
                 placeholder="예) mongki"
                 onChange={(v) => setForm((p) => ({ ...p, nickname: v }))}
-                hint="2글자 이상"
-                ok={form.nickname.trim().length >= 2}
-                showOkWhenFilled
+                hint="2글자 이상 입력해주세요."
+                ok={nicknameOk}
               />
 
               <Field
-                label="아이디 (이메일)"
+                label="아이디"
                 value={form.email}
                 placeholder="you@example.com"
                 onChange={(v) => setForm((p) => ({ ...p, email: v }))}
-                hint="이메일 형식으로 입력"
-                ok={isEmail(form.email)}
-                showOkWhenFilled
+                hint="이메일 형식으로 입력해주세요."
+                ok={emailOk}
                 type="email"
               />
 
-              <div>
-                <LabelRow
-                  label="비밀번호"
-                  ok={passwordOk}
-                  showOkWhenFilled={!!form.password}
-                />
+              <PasswordField
+                label="비밀번호"
+                value={form.password}
+                placeholder="8자 이상"
+                visible={showPw}
+                onVisibleChange={() => setShowPw((s) => !s)}
+                onChange={(v) => setForm((p) => ({ ...p, password: v }))}
+                ok={passwordOk}
+                emptyHint="비밀번호는 8자 이상을 권장해요."
+                invalidHint="비밀번호는 8자 이상이어야 해요."
+                validHint="사용 가능한 비밀번호예요."
+              />
 
-                <div className="relative mt-1">
-                  <input
-                    type={showPw ? "text" : "password"}
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, password: e.target.value }))
-                    }
-                    placeholder="8자 이상"
-                    className={cn(
-                      "w-full rounded-2xl border bg-white px-4 py-3 pr-12 text-gray-900 outline-none transition",
-                      form.password
-                        ? passwordOk
-                          ? "border-emerald-200 ring-2 ring-emerald-50"
-                          : "border-rose-200 ring-2 ring-rose-50"
-                        : "border-gray-200 focus:ring-2 focus:ring-gray-100",
-                    )}
-                  />
+              <PasswordField
+                label="비밀번호 확인"
+                value={form.password2}
+                placeholder="비밀번호 다시 입력"
+                visible={showPw2}
+                onVisibleChange={() => setShowPw2((s) => !s)}
+                onChange={(v) => setForm((p) => ({ ...p, password2: v }))}
+                ok={passwordMatch}
+                emptyHint="비밀번호를 한 번 더 입력해주세요."
+                invalidHint="비밀번호가 일치하지 않아요."
+                validHint="비밀번호가 일치해요."
+              />
 
-                  <button
-                    type="button"
-                    onClick={() => setShowPw((s) => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-gray-500 hover:bg-gray-50"
-                    aria-label="비밀번호 보기 토글"
-                  >
-                    {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-
-                <p
-                  className={cn(
-                    "mt-1 text-xs",
-                    form.password
-                      ? passwordOk
-                        ? "text-emerald-600"
-                        : "text-rose-600"
-                      : "text-gray-400",
-                  )}
-                >
-                  {form.password
-                    ? passwordOk
-                      ? "사용 가능한 비밀번호예요."
-                      : "비밀번호는 8자 이상이어야 해요."
-                    : "비밀번호는 8자 이상을 권장해요."}
-                </p>
-              </div>
-
-              <div>
-                <LabelRow
-                  label="비밀번호 확인"
-                  ok={passwordMatch}
-                  showOkWhenFilled={!!form.password2}
-                />
-
-                <div className="relative mt-1">
-                  <input
-                    type={showPw2 ? "text" : "password"}
-                    value={form.password2}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, password2: e.target.value }))
-                    }
-                    placeholder="비밀번호 다시 입력"
-                    className={cn(
-                      "w-full rounded-2xl border bg-white px-4 py-3 pr-12 text-gray-900 outline-none transition",
-                      form.password2
-                        ? passwordMatch
-                          ? "border-emerald-200 ring-2 ring-emerald-50"
-                          : "border-rose-200 ring-2 ring-rose-50"
-                        : "border-gray-200 focus:ring-2 focus:ring-gray-100",
-                    )}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPw2((s) => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-gray-500 hover:bg-gray-50"
-                    aria-label="비밀번호 확인 보기 토글"
-                  >
-                    {showPw2 ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-
-                <p
-                  className={cn(
-                    "mt-1 text-xs",
-                    form.password2
-                      ? passwordMatch
-                        ? "text-emerald-600"
-                        : "text-rose-600"
-                      : "text-gray-400",
-                  )}
-                >
-                  {form.password2
-                    ? passwordMatch
-                      ? "비밀번호가 일치해요."
-                      : "비밀번호가 일치하지 않아요."
-                    : "비밀번호를 다시 한 번 입력해주세요"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <div className="rounded-2xl border border-blue-100 bg-white/80 p-3 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <label className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
                     <input
                       type="checkbox"
                       checked={agree.all}
                       onChange={(e) => setAllAgree(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300"
+                      className="h-4 w-4 rounded border-slate-300 accent-blue-600"
                     />
                     전체 동의
                   </label>
 
-                  <span className="text-xs text-gray-500">선택 포함</span>
+                  <span className="text-xs font-semibold text-slate-400">
+                    선택 포함
+                  </span>
                 </div>
 
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-1.5">
                   <AgreeRow
                     checked={agree.terms}
                     onChange={(v) => setAgreeItem("terms", v)}
-                    label={
-                      <>
-                        (필수) 이용약관 동의
-                        <span className="ml-2 text-xs text-gray-500">
-                          보기
-                        </span>
-                      </>
-                    }
+                    label="(필수) 이용약관 동의"
                   />
 
                   <AgreeRow
                     checked={agree.privacy}
                     onChange={(v) => setAgreeItem("privacy", v)}
-                    label={
-                      <>
-                        (필수) 개인정보 처리방침 동의
-                        <span className="ml-2 text-xs text-gray-500">
-                          보기
-                        </span>
-                      </>
-                    }
+                    label="(필수) 개인정보 처리방침 동의"
                   />
 
                   <AgreeRow
@@ -299,14 +291,14 @@ export default function SignupPage() {
                 </div>
 
                 {!requiredAgreed ? (
-                  <p className="mt-2 text-xs text-rose-600">
-                    필수 약관 2개는 반드시 동의해주세요.
+                  <p className="mt-2 text-xs font-semibold text-rose-600">
+                    필수 약관에 동의해야 회원가입을 진행할 수 있어요.
                   </p>
                 ) : null}
               </div>
 
               {error ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-600">
                   {error}
                 </div>
               ) : null}
@@ -315,60 +307,36 @@ export default function SignupPage() {
                 type="submit"
                 disabled={!canSubmit}
                 className={cn(
-                  "w-full rounded-2xl px-4 py-3 text-sm font-semibold transition",
+                  "group flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-extrabold transition",
                   canSubmit
-                    ? "bg-gray-900 text-white shadow-sm hover:bg-black"
-                    : "cursor-not-allowed bg-gray-200 text-gray-500",
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700"
+                    : "cursor-not-allowed bg-slate-200 text-slate-500",
                 )}
               >
                 {loading ? "가입 중..." : "회원가입 완료"}
+                {!loading && canSubmit ? (
+                  <ArrowRight
+                    size={17}
+                    className="transition group-hover:translate-x-0.5"
+                  />
+                ) : null}
               </button>
 
-              <p className="text-center text-sm text-gray-600">
-                이미 계정이 있어요{" "}
+              <div className="flex items-center justify-center gap-2 pt-0.5 text-sm">
+                <span className="text-slate-500">이미 계정이 있어요?</span>
+
                 <Link
                   href="/auth/login"
-                  className="font-semibold text-gray-900 hover:underline"
+                  className="font-extrabold text-blue-600 hover:text-blue-700 hover:underline"
                 >
                   로그인
                 </Link>
-              </p>
+              </div>
             </form>
           </div>
-        </div>
-
-        <div className="lg:hidden -mt-6 text-center text-xs text-gray-500">
-          가입 후 개인/팀 워크스페이스를 만들고 IDE로 바로 이동할 수 있어.
-        </div>
+        </section>
       </div>
-    </div>
-  );
-}
-
-function LabelRow({
-  label,
-  ok,
-  showOkWhenFilled,
-}: {
-  label: string;
-  ok: boolean;
-  showOkWhenFilled?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <label className="text-sm font-semibold text-gray-800">{label}</label>
-
-      {showOkWhenFilled ? (
-        <span
-          className={cn(
-            "text-xs font-medium",
-            ok ? "text-emerald-600" : "text-rose-600",
-          )}
-        >
-          {ok ? "OK" : "CHECK"}
-        </span>
-      ) : null}
-    </div>
+    </main>
   );
 }
 
@@ -379,27 +347,21 @@ function Field({
   onChange,
   hint,
   ok,
-  showOkWhenFilled,
   type = "text",
 }: {
   label: string;
   value: string;
   placeholder?: string;
   onChange: (v: string) => void;
-  hint?: string;
+  hint: string;
   ok: boolean;
-  showOkWhenFilled?: boolean;
   type?: string;
 }) {
   const filled = value.trim().length > 0;
 
   return (
     <div>
-      <LabelRow
-        label={label}
-        ok={ok}
-        showOkWhenFilled={showOkWhenFilled && filled}
-      />
+      <LabelRow label={label} ok={ok} show={filled} />
 
       <input
         type={type}
@@ -407,28 +369,125 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          "mt-1 w-full rounded-2xl border bg-white px-4 py-3 text-gray-900 outline-none transition",
+          "mt-1.5 h-11 w-full rounded-2xl border bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400",
+          "shadow-[0_10px_30px_rgba(15,23,42,0.04)]",
           filled
             ? ok
-              ? "border-emerald-200 ring-2 ring-emerald-50"
-              : "border-rose-200 ring-2 ring-rose-50"
-            : "border-gray-200 focus:ring-2 focus:ring-gray-100",
+              ? "border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              : "border-rose-300 bg-rose-50/50 focus:ring-4 focus:ring-rose-100"
+            : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100",
         )}
       />
 
-      {hint ? (
-        <p
+      <p
+        className={cn(
+          "mt-1 text-[11px] font-semibold",
+          filled ? (ok ? "text-slate-400" : "text-rose-600") : "text-slate-400",
+        )}
+      >
+        {filled ? (ok ? "입력 완료" : hint) : hint}
+      </p>
+    </div>
+  );
+}
+
+function PasswordField({
+  label,
+  value,
+  placeholder,
+  visible,
+  onVisibleChange,
+  onChange,
+  ok,
+  emptyHint,
+  invalidHint,
+  validHint,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  visible: boolean;
+  onVisibleChange: () => void;
+  onChange: (v: string) => void;
+  ok: boolean;
+  emptyHint: string;
+  invalidHint: string;
+  validHint: string;
+}) {
+  const filled = value.length > 0;
+
+  return (
+    <div>
+      <LabelRow label={label} ok={ok} show={filled} />
+
+      <div className="relative mt-1.5">
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
           className={cn(
-            "mt-1 text-xs",
+            "h-11 w-full rounded-2xl border bg-white px-4 pr-11 text-sm text-slate-900 outline-none transition placeholder:text-slate-400",
+            "shadow-[0_10px_30px_rgba(15,23,42,0.04)]",
             filled
               ? ok
-                ? "text-emerald-600"
-                : "text-rose-600"
-              : "text-gray-400",
+                ? "border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                : "border-rose-300 bg-rose-50/50 focus:ring-4 focus:ring-rose-100"
+              : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100",
+          )}
+        />
+
+        <button
+          type="button"
+          onClick={onVisibleChange}
+          className="absolute right-2.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-xl text-slate-400 transition hover:bg-blue-50 hover:text-blue-600"
+          aria-label={`${label} 보기 토글`}
+        >
+          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+
+      <p
+        className={cn(
+          "mt-1 text-[11px] font-semibold",
+          filled ? (ok ? "text-slate-400" : "text-rose-600") : "text-slate-400",
+        )}
+      >
+        {filled ? (ok ? validHint : invalidHint) : emptyHint}
+      </p>
+    </div>
+  );
+}
+
+function LabelRow({
+  label,
+  ok,
+  show,
+}: {
+  label: string;
+  ok: boolean;
+  show: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <label className="text-sm font-bold text-slate-800">{label}</label>
+
+      {show ? (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 text-[11px] font-extrabold",
+            ok ? "text-blue-600" : "text-rose-600",
           )}
         >
-          {filled ? (ok ? "입력 완료" : hint) : hint}
-        </p>
+          {ok ? (
+            <>
+              <Check size={12} />
+              OK
+            </>
+          ) : (
+            "CHECK"
+          )}
+        </span>
       ) : null}
     </div>
   );
@@ -441,18 +500,29 @@ function AgreeRow({
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
-  label: React.ReactNode;
+  label: string;
 }) {
   return (
-    <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2">
-      <span className="text-sm text-gray-700">{label}</span>
+    <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2 transition hover:border-blue-200 hover:bg-blue-50/40">
+      <span className="text-xs font-semibold text-slate-700">{label}</span>
 
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-gray-300"
+        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
       />
     </label>
+  );
+}
+
+function InfoRow({ icon, text }: { icon: ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-3xl border border-blue-100 bg-white/70 px-4 py-3 shadow-[0_12px_30px_rgba(37,99,235,0.08)] backdrop-blur">
+      <div className="grid h-9 w-9 place-items-center rounded-2xl bg-blue-50 text-blue-600">
+        {icon}
+      </div>
+      <p className="text-sm font-bold text-slate-700">{text}</p>
+    </div>
   );
 }
