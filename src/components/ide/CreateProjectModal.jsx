@@ -997,15 +997,7 @@ export default function CreateProjectModal({
                           onClick={() => setGitConnectMode("repo")}
                         />
 
-                        <GithubOptionCard
-                          selected={false}
-                          disabled
-                          icon={PlusCircle}
-                          title="새 저장소 생성"
-                          description="GitHub Repository 자동 생성 기능입니다."
-                          badge="추후"
-                          onClick={() => {}}
-                        />
+               
 
                         <GithubOptionCard
                           selected={gitConnectMode === "later"}
@@ -1041,47 +1033,69 @@ export default function CreateProjectModal({
                       </div>
                     )}
 
-                    {gitConnectMode === "repo" && (
-                      <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
-                        <label className="block">
-                          <div className="mb-1.5 text-sm font-black text-slate-700">
-                            Repository URL
-                          </div>
+                    <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+                      <label className="block">
+                        <div className="mb-1.5 flex items-center justify-between gap-3">
+                          <span className="text-sm font-black text-slate-700">
+                            GitHub 저장소 URL
+                          </span>
 
-                          <input
-                            className={[
-                              "h-11 w-full rounded-2xl px-4 font-mono text-sm font-bold outline-none transition",
-                              isGitUrlInvalid
+                          <span className="text-[11px] font-black text-slate-500">
+                            선택 입력
+                          </span>
+                        </div>
+
+                        <input
+                          className={[
+                            "h-11 w-full rounded-2xl px-4 font-mono text-sm font-bold outline-none transition",
+                            !isGithubConnected
+                              ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
+                              : isGitUrlInvalid
                                 ? "border border-red-300 bg-red-50 text-red-700 focus:ring-4 focus:ring-red-50"
                                 : "border border-blue-100 bg-white text-slate-800 focus:border-blue-400 focus:ring-4 focus:ring-blue-50",
-                            ].join(" ")}
-                            placeholder="https://github.com/username/repository.git"
-                            value={gitUrl}
-                            onChange={(event) =>
-                              setGitUrl(event.target.value)
+                          ].join(" ")}
+                          placeholder={
+                            isGithubConnected
+                              ? "https://github.com/username/repository.git"
+                              : "GitHub 계정 연결 후 입력할 수 있습니다."
+                          }
+                          value={gitUrl}
+                          disabled={!isGithubConnected}
+                          onFocus={() => {
+                            if (isGithubConnected) {
+                              setGitConnectMode("repo");
                             }
-                            onBlur={(event) =>
-                              setGitUrl(
-                                normalizeGitHubRepoUrl(event.target.value),
-                              )
-                            }
-                          />
-                        </label>
+                          }}
+                          onChange={(event) => {
+                            setGitConnectMode("repo");
+                            setGitUrl(event.target.value);
+                          }}
+                          onBlur={(event) =>
+                            setGitUrl(
+                              normalizeGitHubRepoUrl(event.target.value),
+                            )
+                          }
+                        />
+                      </label>
 
-                        {isGitUrlInvalid ? (
-                          <p className="mt-2 text-xs font-bold text-red-600">
-                            GitHub 저장소 주소는
-                            https://github.com/username/repository.git
-                            형식이어야 합니다.
-                          </p>
-                        ) : (
-                          <p className="mt-2 text-xs font-semibold text-slate-500">
-                            SSH 주소를 입력하면 가능한 경우 HTTPS 주소로 자동
-                            변환합니다.
-                          </p>
-                        )}
-                      </div>
-                    )}
+                      {isGitUrlInvalid ? (
+                        <p className="mt-2 text-xs font-bold text-red-600">
+                          GitHub 저장소 주소는
+                          https://github.com/username/repository.git
+                          형식이어야 합니다.
+                        </p>
+                      ) : isGithubConnected ? (
+                        <p className="mt-2 text-xs font-semibold text-slate-500">
+                          SSH 주소를 입력하면 가능한 경우 HTTPS 주소로 자동
+                          변환합니다.
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-xs font-semibold text-slate-500">
+                          GitHub 계정을 먼저 연결하면 저장소 URL을 입력할 수
+                          있습니다.
+                        </p>
+                      )}
+                    </div>
                   </section>
                 </div>
               </main>
