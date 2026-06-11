@@ -65,7 +65,7 @@ function getWorkspaceSubProjectCount(workspace?: WorkspaceListResponse | null) {
 }
 
 function getWorkspaceTechLabel(workspace?: WorkspaceListResponse | null) {
-  return `하위 ${getWorkspaceSubProjectCount(workspace)}개`;
+  return `작업 폴더 ${getWorkspaceSubProjectCount(workspace)}개`;
 }
 
 export default function MainDashboard({

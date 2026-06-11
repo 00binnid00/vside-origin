@@ -1315,7 +1315,7 @@ function MainStyleProjectListPanel({
                       {workspace.name}
                     </span>
                     <span className="mt-1 block truncate text-xs font-medium text-slate-400">
-                      {workspace.mode === "team" ? "팀" : "개인"} · 하위{" "}
+                      {workspace.mode === "team" ? "팀" : "개인"} · 작업 폴더{" "}
                       {workspace.childCount}개
                     </span>
                   </span>

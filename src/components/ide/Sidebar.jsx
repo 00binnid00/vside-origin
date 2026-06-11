@@ -206,7 +206,7 @@ const FileTreeItem = ({
 
         {isStartupProject && (
           <span className="shrink-0 ml-2 text-[9px] font-black text-blue-500 bg-blue-100/50 px-1.5 py-0.5 rounded border border-blue-100">
-            시작 프로젝트
+            현재 작업 폴더
           </span>
         )}
       </div>
@@ -875,7 +875,7 @@ export default function Sidebar() {
                 onClick={handleSetStartup}
               >
                 <VscRocket size={16} className="text-blue-500" />
-                시작 프로젝트로 설정
+                현재 작업 폴더로 설정
               </div>
 
               <div className="h-[1px] bg-gray-100 my-1.5 mx-3" />

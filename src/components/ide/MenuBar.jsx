@@ -872,7 +872,7 @@ if (tree && tree.children) {
               onClick={() => dispatch(openProjectModal())}
               className="flex items-center gap-1.5 px-3 py-1.5 h-8 bg-gray-800 text-white hover:bg-black active:scale-95 rounded-lg text-[12px] font-bold shadow-sm transition-all"
             >
-              <VscAdd size={14} /> 새 프로젝트
+              <VscAdd size={14} /> 새 작업폴더
             </button>
 
             <div className="w-px h-4 bg-gray-200"></div>

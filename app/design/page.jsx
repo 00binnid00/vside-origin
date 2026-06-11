@@ -134,7 +134,7 @@ function getWorkspaceSubProjectCount(workspace) {
 }
 
 function getWorkspaceSubText(workspace) {
-  return `하위 ${getWorkspaceSubProjectCount(workspace)}개`;
+  return `작업 폴더 ${getWorkspaceSubProjectCount(workspace)}개`;
 }
 
 function getWorkspaceModeLabel(mode) {
