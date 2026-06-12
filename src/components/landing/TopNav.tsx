@@ -259,13 +259,13 @@ export default function TopNav() {
     {
       key: "dashboard",
       href: "/main",
-      label: "대시보드",
+      label: "프로젝트",
       requiresWorkspace: false,
     },
     {
       key: "project",
       href: projectHref,
-      label: "프로젝트",
+      label: "대시보드",
       requiresWorkspace: true,
     },
       {
