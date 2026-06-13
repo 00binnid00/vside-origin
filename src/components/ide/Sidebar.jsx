@@ -54,9 +54,26 @@ import {
   fetchWorkspaceProjectsApi,
   deactivateVirtualViewApi,
   saveFileApi,
+  renameFileApi,
 } from "@/lib/ide/api";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
+
+const getBaseName = (path = "") => {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+};
+
+const getParentPath = (path = "") => {
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
+};
+
+const buildRenamedPath = (oldPath = "", newName = "") => {
+  const parentPath = getParentPath(oldPath);
+  return parentPath ? `${parentPath}/${newName}` : newName;
+};
 
 const getFileIcon = (name) => {
   if (!name) return <VscFile className="text-gray-400" />;
@@ -90,6 +107,9 @@ const FileTreeItem = ({
   pendingCreation,
   handleInputKeyDown,
   confirmInput,
+  renameTarget,
+  confirmRename,
+  cancelRename,
 }) => {
   const { activeFileId, activeProject, expandedFolders } = useSelector(
     (state) => state.fileSystem,
@@ -97,6 +117,7 @@ const FileTreeItem = ({
 
   const isExpanded = expandedFolders.includes(node.id || node.realPath);
   const inlineInputRef = useRef(null);
+  const renameInputRef = useRef(null);
   const dispatch = useDispatch();
 
   const currentProjectName = node.type === "project" ? node.name : projectName;
@@ -105,6 +126,9 @@ const FileTreeItem = ({
   const isProject = nodeType === "project";
   const isFolder = nodeType === "folder" || nodeType === "virtual_folder";
   const isFile = nodeType === "file" || (!isProject && !isFolder && !node.children);
+
+  const nodePath = node.realPath || node.id || node.name;
+  const isRenaming = renameTarget && renameTarget.path === nodePath;
 
   const isCreatingHere =
     pendingCreation && pendingCreation.parentId === (node.realPath || node.id);
@@ -130,6 +154,13 @@ const FileTreeItem = ({
     dispatch,
   ]);
 
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [isRenaming]);
+
   const getIcon = () => {
     if (isProject) return <VscRepo className="text-blue-600" />;
     if (isFolder) return <VscFolder className="text-yellow-500" />;
@@ -138,6 +169,8 @@ const FileTreeItem = ({
 
   const handleClick = async (e) => {
     e.stopPropagation();
+
+    if (isRenaming) return;
 
     if (isProject) {
       if (!isExpanded && (!node.children || node.children.length === 0)) {
@@ -189,15 +222,38 @@ const FileTreeItem = ({
 
           <span className="mr-2 shrink-0">{getIcon()}</span>
 
-          <span
-            className={`truncate tracking-wide ${
-              node.name?.startsWith(".") ? "opacity-50" : ""
-            } ${isStartupProject ? "font-bold text-blue-700" : ""}`}
-          >
-            {node.name}
-          </span>
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              defaultValue={node.name}
+              className="bg-white text-gray-800 border-2 border-blue-400 focus:border-blue-600 outline-none h-7 px-2 text-xs font-bold rounded shadow-sm min-w-[120px]"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirmRename(e.currentTarget.value);
+                }
 
-          {node.realPath && (
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelRename();
+                }
+              }}
+              onBlur={(e) => {
+                confirmRename(e.target.value);
+              }}
+            />
+          ) : (
+            <span
+              className={`truncate tracking-wide ${
+                node.name?.startsWith(".") ? "opacity-50" : ""
+              } ${isStartupProject ? "font-bold text-blue-700" : ""}`}
+            >
+              {node.name}
+            </span>
+          )}
+
+          {node.realPath && !isRenaming && (
             <span className="ml-2 text-[10px] text-gray-400 font-mono opacity-0 group-hover:opacity-100 truncate max-w-[120px]">
               {node.realPath}
             </span>
@@ -254,6 +310,9 @@ const FileTreeItem = ({
                 pendingCreation={pendingCreation}
                 handleInputKeyDown={handleInputKeyDown}
                 confirmInput={confirmInput}
+                renameTarget={renameTarget}
+                confirmRename={confirmRename}
+                cancelRename={cancelRename}
               />
             ))}
         </div>
@@ -280,7 +339,20 @@ export default function Sidebar() {
   const isVirtualMode = virtualTree !== null && virtualTree !== undefined;
   const inputRef = useRef(null);
   const fileTreeRefreshTimerRef = useRef(null);
+  const renameSubmittingRef = useRef(false);
+  const renameCancelledRef = useRef(false);
+
   const [contextMenu, setContextMenu] = useState(null);
+  const [renameTarget, setRenameTarget] = useState(null);
+
+  const getBranchForProject = useCallback(
+    (projectName) => {
+      return projectName === activeProject && activeBranch
+        ? activeBranch
+        : "master";
+    },
+    [activeProject, activeBranch],
+  );
 
   const handleExpandProject = useCallback(
     async (projectName) => {
@@ -595,8 +667,10 @@ export default function Sidebar() {
       x: e.clientX,
       y: e.clientY,
       fileId: node.id,
-      path: node.id,
+      path: node.realPath || node.id || node.name,
+      name: node.name,
       type: node.type,
+      projectName: targetProj,
       isRoot: node.type === "project",
       isJavaEnv,
     });
@@ -620,15 +694,18 @@ export default function Sidebar() {
     }
 
     try {
+      const targetProject = contextMenu.projectName || activeProject;
+      const targetBranch = getBranchForProject(targetProject);
+
       await deleteFileApi(
         workspaceId,
-        activeProject,
-        activeBranch || "master",
+        targetProject,
+        targetBranch,
         contextMenu.path,
       );
 
       dispatch(closeFilesByPath(contextMenu.path));
-      handleExpandProject(activeProject);
+      handleExpandProject(targetProject);
       setContextMenu(null);
     } catch (e) {
       alert("삭제 실패: " + e.message);
@@ -636,7 +713,84 @@ export default function Sidebar() {
   };
 
   const startRename = () => {
-    alert("이름 변경은 아직 지원하지 않습니다.");
+    if (!contextMenu) return;
+
+    if (contextMenu.isRoot) {
+      alert(
+        "프로젝트 이름 변경은 별도 프로젝트 rename API 연결이 필요합니다. 현재는 파일/폴더 이름 변경만 지원합니다.",
+      );
+      setContextMenu(null);
+      return;
+    }
+
+    setRenameTarget({
+      path: contextMenu.path,
+      oldName: contextMenu.name || getBaseName(contextMenu.path),
+      type: contextMenu.type,
+      projectName: contextMenu.projectName || activeProject,
+    });
+
+    setContextMenu(null);
+  };
+
+  const cancelRename = () => {
+    renameCancelledRef.current = true;
+    setRenameTarget(null);
+
+    setTimeout(() => {
+      renameCancelledRef.current = false;
+    }, 0);
+  };
+
+  const confirmRename = async (rawName) => {
+    if (!renameTarget) return;
+    if (renameSubmittingRef.current) return;
+    if (renameCancelledRef.current) return;
+
+    const newName = rawName.trim();
+    const oldName = renameTarget.oldName;
+    const oldPath = renameTarget.path;
+    const targetProject = renameTarget.projectName || activeProject;
+    const targetBranch = getBranchForProject(targetProject);
+
+    if (!newName || newName === oldName) {
+      setRenameTarget(null);
+      return;
+    }
+
+    if (newName.includes("/") || newName.includes("\\")) {
+      alert("이름만 입력해주세요. 경로 구분자(/, \\)는 사용할 수 없습니다.");
+      return;
+    }
+
+    renameSubmittingRef.current = true;
+
+    try {
+      await renameFileApi(
+        workspaceId,
+        targetProject,
+        targetBranch,
+        oldPath,
+        newName,
+      );
+
+      const newPath = buildRenamedPath(oldPath, newName);
+
+      dispatch(closeFilesByPath(oldPath));
+
+      await handleExpandProject(targetProject);
+
+      dispatch(
+        writeToTerminal(
+          `[System] 이름 변경 완료: ${oldPath} → ${newPath}\n`,
+        ),
+      );
+    } catch (e) {
+      alert("이름 변경 실패: " + e.message);
+    } finally {
+      setRenameTarget(null);
+      renameSubmittingRef.current = false;
+    }
   };
 
   const handleSetStartup = () => {
@@ -686,7 +840,6 @@ export default function Sidebar() {
       <div className="flex items-center justify-between px-4 h-[44px] border-b border-gray-100 shrink-0 bg-white">
         <span className="text-[12px] font-black text-gray-800 tracking-wider ">
           <span className="min-w-0 truncate whitespace-nowrap">탐색기</span>
-          
         </span>
 
         <div className="flex items-center gap-1 text-gray-500">
@@ -792,6 +945,9 @@ export default function Sidebar() {
               pendingCreation={pendingCreation}
               handleInputKeyDown={handleInputKeyDown}
               confirmInput={confirmInput}
+              renameTarget={renameTarget}
+              confirmRename={confirmRename}
+              cancelRename={cancelRename}
             />
           ))
         ) : (
