@@ -63,6 +63,101 @@ export type GithubAccountStatus = {
   connectedAt?: string | null;
 };
 
+export type ActivityHeatmapLevel = 0 | 1 | 2 | 3 | 4;
+
+export type ActivityHeatmapDayResponse = {
+  date: string;
+  count: number;
+  level: ActivityHeatmapLevel;
+};
+
+export type ActivityHeatmapResponse = {
+  days: ActivityHeatmapDayResponse[];
+  totalActivityCount: number;
+  activeDays: number;
+  devlogCount: number;
+  scheduleDoneCount: number;
+  commitCount: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getStringValue(value: unknown, fallback = "") {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number") return String(value);
+  return fallback;
+}
+
+function normalizeHeatmapLevel(value: unknown): ActivityHeatmapLevel {
+  const level = Number(value);
+
+  if (!Number.isFinite(level)) return 0;
+  if (level <= 0) return 0;
+  if (level === 1) return 1;
+  if (level === 2) return 2;
+  if (level === 3) return 3;
+  return 4;
+}
+
+function normalizeActivityHeatmapResponse(
+  value: unknown,
+): ActivityHeatmapResponse {
+  if (!isRecord(value)) {
+    return {
+      days: [],
+      totalActivityCount: 0,
+      activeDays: 0,
+      devlogCount: 0,
+      scheduleDoneCount: 0,
+      commitCount: 0,
+    };
+  }
+
+  const rawDays = Array.isArray(value.days)
+    ? value.days
+    : Array.isArray(value.data)
+      ? value.data
+      : [];
+
+  const days = rawDays
+    .filter(isRecord)
+    .map((day) => ({
+      date: getStringValue(day.date),
+      count: Number(day.count ?? day.activityCount ?? 0),
+      level: normalizeHeatmapLevel(day.level),
+    }))
+    .filter((day) => day.date);
+
+  return {
+    days,
+    totalActivityCount: Number(value.totalActivityCount ?? 0),
+    activeDays: Number(value.activeDays ?? 0),
+    devlogCount: Number(value.devlogCount ?? 0),
+    scheduleDoneCount: Number(value.scheduleDoneCount ?? 0),
+    commitCount: Number(value.commitCount ?? 0),
+  };
+}
+
+/**
+ * 마이페이지 개발 활동 히트맵 조회
+ *
+ * GET /api/users/me/activity/heatmap?days=49
+ */
+export async function fetchMyActivityHeatmapApi(
+  days = 49,
+): Promise<ActivityHeatmapResponse> {
+  const data = await apiJson(
+    `/api/users/me/activity/heatmap?days=${encodeURIComponent(days)}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  return normalizeActivityHeatmapResponse(data);
+}
+
 async function readErrorMessage(response: Response, fallback: string) {
   try {
     const text = await response.text();
@@ -84,16 +179,6 @@ async function readOptionalJson(response: Response) {
   } catch {
     return text;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getStringValue(value: unknown, fallback = "") {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  if (typeof value === "number") return String(value);
-  return fallback;
 }
 
 function normalizeWorkspaceMode(value: unknown): ScheduleView {
@@ -249,9 +334,6 @@ function extractDevlogArray(
 
 /**
  * 내 프로필 조회
- *
- * 기존 /api/users/me는 현재 500을 내고 있으므로,
- * 인증 컨텍스트와 같은 /api/auth/me를 사용한다.
  */
 export async function fetchMyProfile(): Promise<UserMeResponse> {
   const data = (await apiJson("/api/auth/me", {
@@ -263,8 +345,6 @@ export async function fetchMyProfile(): Promise<UserMeResponse> {
 
 /**
  * 내 워크스페이스 목록 조회
- *
- * GET /api/workspaces/me
  */
 export async function fetchMyWorkspaces(): Promise<WorkspaceListResponse[]> {
   const data = await apiJson("/api/workspaces/me", {
@@ -278,8 +358,6 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListResponse[]> {
 
 /**
  * 일정 진행률 조회
- *
- * GET /api/workspaces/{workspaceId}/schedules
  */
 export async function fetchScheduleProgress(
   _view: ScheduleView,
@@ -321,8 +399,6 @@ export async function fetchScheduleProgress(
 
 /**
  * 워크스페이스별 개발일지 조회
- *
- * GET /api/workspaces/{workspaceId}/devlogs
  */
 export async function fetchWorkspaceDevlogs(
   workspaceId: string,
