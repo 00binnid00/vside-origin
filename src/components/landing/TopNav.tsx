@@ -5,19 +5,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Menu, X, LogOut, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  getNotifications,
+  getUnreadNotificationCount,
+  markNotificationAsRead,
+  NotificationResponse,
+} from "@/lib/notification/notificationApi";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
-
-type DemoNotif = {
-  id: string;
-  title: string;
-  body: string;
-  time: string;
-  href?: string;
-  unread?: boolean;
-};
 
 type WorkspaceMode = "personal" | "team";
 
@@ -58,6 +55,32 @@ function getInitial(user: any) {
   return displayName.trim().charAt(0).toUpperCase() || "U";
 }
 
+function formatRelativeTime(value: string) {
+  if (!value) return "";
+
+  const created = new Date(value);
+  const now = new Date();
+
+  if (Number.isNaN(created.getTime())) {
+    return value;
+  }
+
+  const diffMs = now.getTime() - created.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 1) return "방금 전";
+  if (diffMinutes < 60) return `${diffMinutes}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  if (diffDays < 7) return `${diffDays}일 전`;
+
+  return created.toLocaleDateString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -68,6 +91,12 @@ export default function TopNav() {
   const [openUserMenu, setOpenUserMenu] = useState(false);
   const [openMobileNav, setOpenMobileNav] = useState(false);
   const [openNotif, setOpenNotif] = useState(false);
+
+  const [latestNotifications, setLatestNotifications] = useState<
+    NotificationResponse[]
+  >([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationLoading, setNotificationLoading] = useState(false);
 
   const [rememberedWorkspaceId, setRememberedWorkspaceId] = useState<
     string | null
@@ -172,42 +201,50 @@ export default function TopNav() {
   const communityHref = "/community";
   const myPageHref = "/my";
 
-  const demoNotifs: DemoNotif[] = [
-    {
-      id: "n1",
-      title: "일정 알림",
-      body: "오늘 오후 3시 팀 회의가 예정되어 있습니다",
-      time: "10분 전",
-      unread: true,
-      href: schedulesHref,
-    },
-    {
-      id: "n2",
-      title: "커밋 알림",
-      body: "김개발님이 main 브랜치에 커밋했습니다",
-      time: "30분 전",
-      unread: true,
-      href: aivsHref,
-    },
-    {
-      id: "n3",
-      title: "팀 채팅",
-      body: "이프로트: 코드 리뷰 부탁드립니다",
-      time: "1시간 전",
-      unread: false,
-      href: aivsHref,
-    },
-    {
-      id: "n4",
-      title: "오류 알림",
-      body: "빌드 프로세스에서 오류가 발생했습니다. 로그를 확인하세요",
-      time: "4시간 전",
-      unread: false,
-      href: projectHref,
-    },
-  ];
+  const fetchHeaderNotifications = async () => {
+    if (!isAuthenticated) {
+      setLatestNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
 
-  const unreadCount = demoNotifs.filter((n) => n.unread).length;
+    try {
+      setNotificationLoading(true);
+
+      const [pageResponse, unreadResponse] = await Promise.all([
+        getNotifications({
+          page: 0,
+          size: 4,
+        }),
+        getUnreadNotificationCount(),
+      ]);
+
+      setLatestNotifications(pageResponse.content ?? []);
+      setUnreadCount(unreadResponse.unreadCount ?? 0);
+    } catch (error) {
+      console.error("헤더 알림 조회 실패:", error);
+      setLatestNotifications([]);
+      setUnreadCount(0);
+    } finally {
+      setNotificationLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (loading) return;
+
+    fetchHeaderNotifications();
+  }, [loading, isAuthenticated, pathname]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const timer = window.setInterval(() => {
+      fetchHeaderNotifications();
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -241,13 +278,46 @@ export default function TopNav() {
 
     setRememberedWorkspaceId(null);
     setRememberedWorkspaceMode("personal");
+    setLatestNotifications([]);
+    setUnreadCount(0);
 
     router.replace("/");
   };
 
   const onToggleBell = () => {
     setOpenUserMenu(false);
-    setOpenNotif((v) => !v);
+    setOpenNotif((value) => !value);
+
+    if (!openNotif) {
+      fetchHeaderNotifications();
+    }
+  };
+
+  const handleNotificationClick = async (notification: NotificationResponse) => {
+    setOpenNotif(false);
+
+    if (!notification.read) {
+      try {
+        await markNotificationAsRead(notification.id);
+
+        setLatestNotifications((prev) =>
+          prev.map((item) =>
+            item.id === notification.id ? { ...item, read: true } : item,
+          ),
+        );
+
+        setUnreadCount((prev) => Math.max(prev - 1, 0));
+      } catch (error) {
+        console.error("알림 읽음 처리 실패:", error);
+      }
+    }
+
+    if (notification.targetUrl) {
+      router.push(notification.targetUrl);
+      return;
+    }
+
+    router.push("/notifications");
   };
 
   const NAV_ITEMS: Array<{
@@ -268,13 +338,13 @@ export default function TopNav() {
       label: "대시보드",
       requiresWorkspace: true,
     },
-      {
+    {
       key: "design",
       href: designHref,
       label: "설계관리",
       requiresWorkspace: true,
     },
-      {
+    {
       key: "schedules",
       href: schedulesHref,
       label: "일정관리",
@@ -286,8 +356,6 @@ export default function TopNav() {
       label: "AIVS",
       requiresWorkspace: true,
     },
-  
-  
     {
       key: "devlogs",
       href: devlogsHref,
@@ -362,8 +430,8 @@ export default function TopNav() {
   };
 
   return (
-   <header className="sticky top-0 z-[2000]  border-b border-gray-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1650px] items-center justify-between px-6 py-2 text-xl 3xl:max-w-[1920px] 2xl:px-12">
+    <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/90 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-[1650px] items-center justify-between px-6 py-2 text-xl 2xl:px-12 3xl:max-w-[1920px]">
         <Link
           href="/"
           className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-[22px] font-extrabold text-transparent"
@@ -395,7 +463,7 @@ export default function TopNav() {
           <button
             type="button"
             className="rounded-xl p-2 text-gray-700 hover:bg-gray-100 md:hidden"
-            onClick={() => setOpenMobileNav((v) => !v)}
+            onClick={() => setOpenMobileNav((value) => !value)}
             aria-label="메뉴 열기"
           >
             {openMobileNav ? (
@@ -464,43 +532,41 @@ export default function TopNav() {
                     </div>
 
                     <div className="max-h-80 overflow-auto">
-                      {demoNotifs.length === 0 ? (
+                      {notificationLoading ? (
+                        <div className="px-4 py-6 text-sm text-gray-500">
+                          알림을 불러오는 중...
+                        </div>
+                      ) : latestNotifications.length === 0 ? (
                         <div className="px-4 py-6 text-sm text-gray-500">
                           새 알림이 없어요.
                         </div>
                       ) : (
-                        demoNotifs.slice(0, 5).map((n) => (
+                        latestNotifications.map((notification) => (
                           <button
-                            key={n.id}
+                            key={notification.id}
                             type="button"
                             className="w-full border-b border-gray-50 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50"
-                            onClick={() => {
-                              setOpenNotif(false);
-
-                              if (n.href) {
-                                router.push(n.href);
-                              }
-                            }}
+                            onClick={() => handleNotificationClick(notification)}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-semibold text-gray-900">
-                                    {n.title}
+                                    {notification.title}
                                   </p>
 
-                                  {n.unread ? (
+                                  {!notification.read ? (
                                     <span className="h-2 w-2 rounded-full bg-blue-500" />
                                   ) : null}
                                 </div>
 
                                 <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">
-                                  {n.body}
+                                  {notification.body}
                                 </p>
                               </div>
 
                               <span className="shrink-0 text-[11px] text-gray-400">
-                                {n.time}
+                                {formatRelativeTime(notification.createdAt)}
                               </span>
                             </div>
                           </button>
@@ -526,7 +592,7 @@ export default function TopNav() {
                   type="button"
                   onClick={() => {
                     setOpenNotif(false);
-                    setOpenUserMenu((v) => !v);
+                    setOpenUserMenu((value) => !value);
                   }}
                   className="flex items-center gap-2 rounded-2xl px-2 py-1.5 transition hover:bg-gray-100"
                   aria-label="유저 메뉴"
