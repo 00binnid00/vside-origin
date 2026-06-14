@@ -359,7 +359,7 @@ function mapProjectsFromWorkspaces(
       description:
         workspace.description ||
         firstProject?.description ||
-        `${workspace.name} 워크스페이스입니다.`,
+        `${workspace.name} 프로젝트입니다.`,
       type: workspaceType,
       status,
       progress,
@@ -1092,7 +1092,7 @@ function buildFlowNodesForDraft(flowNodes: Record<string, unknown>[]) {
   }));
 }
 
-export default function MyPageDemo() {
+export default function 워MyPageDemo() {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [activeArchiveTab, setActiveArchiveTab] =
     useState<ArchiveTabKey>("devlog");
@@ -1177,7 +1177,7 @@ const summary = useMemo(
 
       if (failedScheduleRequests.length > 0) {
         console.warn(
-          "[mypage schedules] 일부 워크스페이스 일정 진행률 요청 실패:",
+          "[mypage schedules] 일부 프로젝트 일정 진행률 요청 실패:",
           failedScheduleRequests,
         );
       }
@@ -1202,7 +1202,7 @@ const summary = useMemo(
 
       if (failedDevlogRequests.length > 0) {
         console.warn(
-          "[mypage devlogs] 일부 워크스페이스 자료 요청 실패:",
+          "[mypage devlogs] 일부 프로젝트 자료 요청 실패:",
           failedDevlogRequests,
         );
       }
