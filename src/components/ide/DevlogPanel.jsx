@@ -10,6 +10,7 @@ import {
   VscClose,
   VscEdit,
   VscRefresh,
+  VscSearch,
   VscTrash,
 } from "react-icons/vsc";
 
@@ -18,6 +19,7 @@ import {
   deleteDevlogApi,
   fetchMainMonthSchedulesApi,
   fetchWorkspaceDevlogsApi,
+  getMyWorkspacesByTokenApi,
   updateDevlogApi,
 } from "@/lib/ide/api";
 
@@ -31,7 +33,7 @@ const scheduleStatusLabel = {
 const scheduleStatusStyle = {
   todo: "bg-slate-100 text-slate-600 border-slate-200",
   progress: "bg-blue-50 text-blue-700 border-blue-200",
-  done: "bg-purple-50 text-purple-700 border-purple-200",
+  done: "bg-indigo-50 text-indigo-700 border-indigo-200",
   delayed: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
@@ -70,6 +72,36 @@ function normalizeScheduleStatus(value) {
   if (!value) return "todo";
   if (value === "doing") return "progress";
   return value;
+}
+
+function normalizeWorkspaceId(value) {
+  if (value === undefined || value === null) return "";
+  return String(value);
+}
+
+function findWorkspaceNameFromList(workspaces, workspaceId) {
+  if (!Array.isArray(workspaces) || !workspaceId) return "";
+
+  const targetId = normalizeWorkspaceId(workspaceId);
+
+  const matched = workspaces.find((workspace) => {
+    const ids = [
+      workspace?.id,
+      workspace?.workspaceId,
+      workspace?.uuid,
+      workspace?.workspaceUuid,
+    ].map(normalizeWorkspaceId);
+
+    return ids.includes(targetId);
+  });
+
+  return (
+    matched?.name ||
+    matched?.workspaceName ||
+    matched?.projectName ||
+    matched?.title ||
+    ""
+  );
 }
 
 function normalizeSchedule(item) {
@@ -120,10 +152,12 @@ function normalizeDevlog(item) {
 
 function getWorkspaceNameFromState(fileSystem) {
   return (
-    fileSystem?.workspaceName ||
     fileSystem?.activeWorkspace?.name ||
-    fileSystem?.activeProject ||
-    "워크스페이스"
+    fileSystem?.workspace?.name ||
+    fileSystem?.currentWorkspace?.name ||
+    fileSystem?.selectedWorkspace?.name ||
+    fileSystem?.workspaceName ||
+    ""
   );
 }
 
@@ -179,7 +213,7 @@ function DevlogFormModal({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-9xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-6">
           <div>
             <h3 className="text-[18px] font-extrabold text-slate-950">
@@ -219,14 +253,14 @@ function DevlogFormModal({
                   }
                   className={`rounded-2xl border px-4 py-3 text-left transition ${
                     !form.scheduleId
-                      ? "border-slate-900 bg-slate-950 text-white shadow-sm"
+                      ? "border-blue-600 bg-blue-600 text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <p className="text-[13px] font-extrabold">일반 일지</p>
                   <p
                     className={`mt-1 text-[11px] ${
-                      !form.scheduleId ? "text-slate-300" : "text-slate-400"
+                      !form.scheduleId ? "text-blue-100" : "text-slate-400"
                     }`}
                   >
                     일정 연결 없이 작성
@@ -253,14 +287,14 @@ function DevlogFormModal({
                   }}
                   className={`rounded-2xl border px-4 py-3 text-left transition ${
                     form.scheduleId
-                      ? "border-slate-900 bg-slate-950 text-white shadow-sm"
+                      ? "border-blue-600 bg-blue-600 text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <p className="text-[13px] font-extrabold">일정 연결 일지</p>
                   <p
                     className={`mt-1 text-[11px] ${
-                      form.scheduleId ? "text-slate-300" : "text-slate-400"
+                      form.scheduleId ? "text-blue-100" : "text-slate-400"
                     }`}
                   >
                     선택한 일정에 기록 연결
@@ -288,10 +322,12 @@ function DevlogFormModal({
                         form.title.trim() ||
                         (schedule ? `${schedule.title} 개발일지` : ""),
                       workedDate:
-                        schedule?.startDate || form.workedDate || getTodayDateKey(),
+                        schedule?.startDate ||
+                        form.workedDate ||
+                        getTodayDateKey(),
                     });
                   }}
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 >
                   {schedules.map((schedule) => (
                     <option key={schedule.id} value={schedule.id}>
@@ -317,7 +353,7 @@ function DevlogFormModal({
                 value={form.title}
                 onChange={(event) => onChange({ title: event.target.value })}
                 placeholder="예: 로그인 토큰 저장 로직 수정"
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-slate-900"
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
               />
             </div>
 
@@ -332,7 +368,7 @@ function DevlogFormModal({
                 onChange={(event) =>
                   onChange({ workedDate: event.target.value })
                 }
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
               />
             </div>
 
@@ -350,7 +386,7 @@ function DevlogFormModal({
 - 개발일지 화면을 새 API 기준으로 분리
 - 일정 연결 일지와 일반 일지 작성 흐름 구성
 - 기존 개발일지 API 충돌 제거`}
-                className="min-h-[220px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[14px] leading-7 text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-slate-900"
+                className="min-h-[220px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[14px] leading-7 text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
               />
             </div>
 
@@ -365,7 +401,7 @@ function DevlogFormModal({
                   onChange={(event) =>
                     onChange({ scheduleStatusAfterWrite: event.target.value })
                   }
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-slate-900"
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 >
                   <option value="none">변경하지 않음</option>
                   <option value="todo">할 일</option>
@@ -391,7 +427,7 @@ function DevlogFormModal({
             type="button"
             onClick={onSubmit}
             disabled={isSubmitting}
-            className="h-10 rounded-xl bg-slate-950 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-10 rounded-xl bg-blue-600 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? "저장 중..." : mode === "edit" ? "수정 완료" : "저장"}
           </button>
@@ -407,16 +443,20 @@ export default function DevlogPanel() {
 
   const pathname = usePathname();
 
-  const workspaceName = useMemo(
+  const workspaceNameFromState = useMemo(
     () => getWorkspaceNameFromState(fileSystem),
     [fileSystem],
   );
 
   const [logs, setLogs] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [workspaceDisplayName, setWorkspaceDisplayName] = useState("");
 
   const [selectedLog, setSelectedLog] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
 
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
@@ -429,33 +469,14 @@ export default function DevlogPanel() {
 
   const isIdePage = useMemo(() => pathname?.includes("/ide/"), [pathname]);
 
-  const filteredLogs = useMemo(() => {
-    if (filter === "linked") {
-      return logs.filter((log) => log.scheduleId);
-    }
-
-    if (filter === "general") {
-      return logs.filter((log) => !log.scheduleId);
-    }
-
-    if (filter === "progress") {
-      return logs.filter((log) => log.status === "progress");
-    }
-
-    if (filter === "done") {
-      return logs.filter((log) => log.status === "done");
-    }
-
-    return logs;
-  }, [filter, logs]);
-
-  const selectedSchedule = useMemo(() => {
-    if (!form.scheduleId) return null;
-
-    return schedules.find(
-      (schedule) => String(schedule.id) === String(form.scheduleId),
+  const displayWorkspaceName = useMemo(() => {
+    return (
+      workspaceDisplayName ||
+      workspaceNameFromState ||
+      logs[0]?.projectName ||
+      "프로젝트"
     );
-  }, [form.scheduleId, schedules]);
+  }, [workspaceDisplayName, workspaceNameFromState, logs]);
 
   const linkedCount = useMemo(
     () => logs.filter((log) => log.scheduleId).length,
@@ -466,6 +487,73 @@ export default function DevlogPanel() {
     () => logs.filter((log) => !log.scheduleId).length,
     [logs],
   );
+
+  const progressCount = useMemo(
+    () => logs.filter((log) => log.status === "progress").length,
+    [logs],
+  );
+
+  const doneCount = useMemo(
+    () => logs.filter((log) => log.status === "done").length,
+    [logs],
+  );
+
+  const filteredLogs = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+
+    return logs.filter((log) => {
+      if (filter === "linked" && !log.scheduleId) return false;
+      if (filter === "general" && log.scheduleId) return false;
+      if (filter === "progress" && log.status !== "progress") return false;
+      if (filter === "done" && log.status !== "done") return false;
+
+      if (startDateFilter && log.workedDate < startDateFilter) return false;
+      if (endDateFilter && log.workedDate > endDateFilter) return false;
+
+      if (keyword) {
+        const searchableText = [
+          log.title,
+          log.content,
+          log.scheduleTitle,
+          log.projectName,
+          log.workedDate,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!searchableText.includes(keyword)) return false;
+      }
+
+      return true;
+    });
+  }, [filter, logs, searchKeyword, startDateFilter, endDateFilter]);
+
+  const selectedSchedule = useMemo(() => {
+    if (!form.scheduleId) return null;
+
+    return schedules.find(
+      (schedule) => String(schedule.id) === String(form.scheduleId),
+    );
+  }, [form.scheduleId, schedules]);
+
+  const loadWorkspaceName = useCallback(async () => {
+    if (!workspaceId) return;
+
+    try {
+      const workspaces = await getMyWorkspacesByTokenApi();
+      const foundName = findWorkspaceNameFromList(workspaces, workspaceId);
+
+      if (foundName) {
+        setWorkspaceDisplayName(foundName);
+      } else {
+        setWorkspaceDisplayName("");
+      }
+    } catch (error) {
+      console.error("워크스페이스 이름 로드 실패:", error);
+      setWorkspaceDisplayName("");
+    }
+  }, [workspaceId]);
 
   const loadLogs = useCallback(async () => {
     if (!workspaceId) return;
@@ -542,19 +630,38 @@ export default function DevlogPanel() {
   }, [workspaceId]);
 
   const reloadAll = useCallback(async () => {
-    await Promise.all([loadLogs(), loadSchedules()]);
-  }, [loadLogs, loadSchedules]);
+    await Promise.all([loadWorkspaceName(), loadLogs(), loadSchedules()]);
+  }, [loadWorkspaceName, loadLogs, loadSchedules]);
 
   useEffect(() => {
     if (!workspaceId) return;
     reloadAll();
   }, [workspaceId, reloadAll]);
 
+  useEffect(() => {
+    if (!selectedLog) return;
+
+    const exists = filteredLogs.some(
+      (log) => String(log.id) === String(selectedLog.id),
+    );
+
+    if (!exists) {
+      setSelectedLog(filteredLogs[0] || null);
+    }
+  }, [filteredLogs, selectedLog]);
+
   const updateForm = (patch) => {
     setForm((prev) => ({
       ...prev,
       ...patch,
     }));
+  };
+
+  const resetFilters = () => {
+    setFilter("all");
+    setSearchKeyword("");
+    setStartDateFilter("");
+    setEndDateFilter("");
   };
 
   const openCreateGeneral = () => {
@@ -677,8 +784,8 @@ export default function DevlogPanel() {
 
   if (!workspaceId) {
     return (
-      <div className="flex h-full w-full flex-1 items-center justify-center bg-[#f8fafc]">
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-10 py-8 text-center shadow-sm">
+      <div className="flex h-full w-full flex-1 items-center justify-center bg-[#f5f7fb]">
+        <div className="rounded-[28px] border border-dashed border-slate-300 bg-white px-10 py-8 text-center shadow-sm">
           <p className="text-[15px] font-extrabold text-slate-700">
             워크스페이스 정보를 불러올 수 없습니다.
           </p>
@@ -691,62 +798,64 @@ export default function DevlogPanel() {
   }
 
   return (
-    <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-[#f8fafc] font-sans">
-      <div className="flex-1 overflow-y-auto px-7 py-7">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
-          <section className="rounded-[28px] border border-slate-200 bg-white px-7 py-6 shadow-sm">
-            <div className="flex items-center justify-between gap-6">
-              <div>
-                {/* <div className="mb-3 flex items-center gap-2">
-                  <span className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-extrabold text-white">
-                    개발일지
-                  </span>
-
-                  {isIdePage ? (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-500">
-                      IDE 워크스페이스
+    <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-[#f5f7fb] font-sans">
+      <div className="flex-1 overflow-y-auto px-5 py-5 md:px-7 md:py-7 2xl:px-10">
+        <div className="mx-auto flex w-full max-w-[1870px] flex-col gap-5">
+          <section className="overflow-hidden rounded-[30px] border border-blue-100 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-slate-50 px-6 py-5 md:px-7">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-blue-600 px-3 py-1 text-[11px] font-extrabold text-white">
+                      개발일지
                     </span>
-                  ) : null}
-                </div> */}
 
-                <h1 className="text-[24px] font-black tracking-[-0.03em] text-slate-950">
-                  {workspaceName} 개발일지
-                </h1>
+                    {isIdePage ? (
+                      <span className="rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-bold text-blue-600">
+                        IDE 내부 패널
+                      </span>
+                    ) : null}
+                  </div>
 
-                <p className="mt-1.5 text-[13px] font-medium text-slate-500">
-                  일정에 연결된 일지와 일반 작업 일지를 한 화면에서 관리합니다.
-                </p>
-              </div>
+                  <h1 className="text-[25px] font-black tracking-[-0.03em] text-slate-950 md:text-[28px]">
+                    {displayWorkspaceName} 개발일지
+                  </h1>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={reloadAll}
-                  className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-extrabold text-slate-600 transition hover:bg-slate-50"
-                >
-                  <VscRefresh
-                    size={17}
-                    className={
-                      isLoadingLogs || isLoadingSchedules ? "animate-spin" : ""
-                    }
-                  />
-                  새로고침
-                </button>
+                  <p className="mt-1.5 text-[13px] font-medium text-slate-500">
+                    일정과 연결된 작업 기록, 일반 개발 기록을 한 화면에서 관리합니다.
+                  </p>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={openCreateGeneral}
-                  className="flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-slate-800"
-                >
-                  <VscAdd size={18} />새 개발일지
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={reloadAll}
+                    className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-extrabold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    <VscRefresh
+                      size={17}
+                      className={
+                        isLoadingLogs || isLoadingSchedules ? "animate-spin" : ""
+                      }
+                    />
+                    새로고침
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={openCreateGeneral}
+                    className="flex h-11 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-blue-700"
+                  >
+                    <VscAdd size={18} />새 개발일지
+                  </button>
+                </div>
               </div>
             </div>
+
+          
           </section>
 
-         
-
-          <section className="grid min-h-[620px] grid-cols-[360px_minmax(0,1fr)_420px] gap-5">
+          <section className="grid min-h-[650px] grid-cols-1 gap-5 xl:grid-cols-[340px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)_430px]">
             <aside className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
@@ -754,7 +863,7 @@ export default function DevlogPanel() {
                     워크스페이스 일정
                   </h2>
                   <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    일정별로 개발일지를 바로 작성할 수 있습니다.
+                    일정별로 개발일지를 작성할 수 있습니다.
                   </p>
                 </div>
 
@@ -770,9 +879,9 @@ export default function DevlogPanel() {
                 </button>
               </div>
 
-              <div className="mb-4 flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <div className="mb-4 flex items-center justify-between rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <VscCalendar className="text-slate-500" size={17} />
+                  <VscCalendar className="text-blue-600" size={17} />
                   <span className="text-[13px] font-extrabold text-slate-700">
                     이번 달 일정
                   </span>
@@ -801,7 +910,7 @@ export default function DevlogPanel() {
                     {schedules.map((schedule) => (
                       <article
                         key={schedule.id}
-                        className="rounded-3xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.03)] transition hover:border-slate-300 hover:shadow-md"
+                        className="rounded-3xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.03)] transition hover:border-blue-200 hover:shadow-md"
                       >
                         <div className="mb-2 flex flex-wrap items-center gap-1.5">
                           <ScheduleStatusBadge status={schedule.status} />
@@ -833,7 +942,7 @@ export default function DevlogPanel() {
                         <button
                           type="button"
                           onClick={() => openCreateFromSchedule(schedule)}
-                          className="mt-4 h-9 w-full rounded-xl bg-slate-950 text-[12px] font-extrabold text-white transition hover:bg-slate-800"
+                          className="mt-4 h-9 w-full rounded-xl bg-blue-600 text-[12px] font-extrabold text-white transition hover:bg-blue-700"
                         >
                           이 일정으로 일지 쓰기
                         </button>
@@ -845,49 +954,97 @@ export default function DevlogPanel() {
             </aside>
 
             <main className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-[18px] font-black text-slate-950">
-                    작성된 일지
-                  </h2>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    클릭하면 오른쪽에서 상세 내용을 확인합니다.
-                  </p>
+              <div className="mb-4 flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-[18px] font-black text-slate-950">
+                      작성된 일지
+                    </h2>
+                    <p className="mt-1 text-[12px] font-medium text-slate-400">
+                      검색하거나 날짜를 지정해 필요한 기록만 확인합니다.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={loadLogs}
+                    className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <VscRefresh
+                      size={18}
+                      className={isLoadingLogs ? "animate-spin" : ""}
+                    />
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={loadLogs}
-                  className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <VscRefresh
-                    size={18}
-                    className={isLoadingLogs ? "animate-spin" : ""}
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_160px_160px_auto]">
+                  <div className="relative">
+                    <VscSearch
+                      size={17}
+                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      value={searchKeyword}
+                      onChange={(event) => setSearchKeyword(event.target.value)}
+                      placeholder="제목, 내용, 연결 일정 검색"
+                      className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-[13px] font-bold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                    />
+                  </div>
+
+                  <input
+                    type="date"
+                    value={startDateFilter}
+                    onChange={(event) => setStartDateFilter(event.target.value)}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-600 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                   />
-                </button>
+
+                  <input
+                    type="date"
+                    value={endDateFilter}
+                    onChange={(event) => setEndDateFilter(event.target.value)}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-600 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-[12px] font-extrabold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  >
+                    초기화
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ["all", "전체"],
+                    ["linked", "일정 연결"],
+                    ["general", "일반"],
+                    ["progress", "진행 중"],
+                    ["done", "완료"],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFilter(key)}
+                      className={`h-9 rounded-xl px-3 text-[12px] font-extrabold transition ${
+                        filter === key
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="mb-4 flex flex-wrap gap-2">
-                {[
-                  ["all", "전체"],
-                  ["linked", "일정 연결"],
-                  ["general", "일반"],
-                  ["progress", "진행 중"],
-                  ["done", "완료"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setFilter(key)}
-                    className={`h-9 rounded-xl px-3 text-[12px] font-extrabold transition ${
-                      filter === key
-                        ? "bg-slate-950 text-white shadow-sm"
-                        : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="mb-3 flex items-center justify-between text-[12px]">
+                <span className="font-bold text-slate-400">
+                  총 {filteredLogs.length}개의 일지
+                </span>
+                {(searchKeyword || startDateFilter || endDateFilter) && (
+                  <span className="font-bold text-blue-600">필터 적용 중</span>
+                )}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -902,14 +1059,14 @@ export default function DevlogPanel() {
                     className="w-full rounded-3xl border border-dashed border-slate-300 py-16 text-center transition hover:bg-slate-50"
                   >
                     <p className="text-[14px] font-extrabold text-slate-500">
-                      작성된 개발일지가 없습니다.
+                      조건에 맞는 개발일지가 없습니다.
                     </p>
                     <p className="mt-1 text-[12px] font-medium text-slate-400">
-                      + 첫 개발일지를 작성해보세요.
+                      검색어나 날짜 필터를 조정하거나 새 일지를 작성해보세요.
                     </p>
                   </button>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="grid gap-3 2xl:grid-cols-2">
                     {filteredLogs.map((log) => {
                       const active = String(selectedLog?.id) === String(log.id);
 
@@ -919,69 +1076,43 @@ export default function DevlogPanel() {
                           onClick={() => setSelectedLog(log)}
                           className={`cursor-pointer rounded-3xl border p-5 transition ${
                             active
-                              ? "border-slate-950 bg-slate-950 text-white shadow-md"
-                              : "border-slate-100 bg-white text-slate-900 shadow-[0_2px_10px_rgba(15,23,42,0.03)] hover:border-slate-300 hover:shadow-md"
+                              ? "border-blue-500 bg-blue-50 shadow-md"
+                              : "border-slate-100 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.03)] hover:border-blue-200 hover:shadow-md"
                           }`}
                         >
                           <div className="mb-3 flex flex-wrap items-center gap-2">
-                            <span
-                              className={`text-[11px] font-black ${
-                                active ? "text-slate-300" : "text-slate-400"
-                              }`}
-                            >
+                            <span className="text-[11px] font-black text-slate-400">
                               {log.workedDate}
                             </span>
 
                             <span
                               className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
                                 log.scheduleId
-                                  ? active
-                                    ? "bg-white/15 text-blue-100"
-                                    : "bg-blue-50 text-blue-700"
-                                  : active
-                                    ? "bg-white/15 text-slate-200"
-                                    : "bg-slate-100 text-slate-600"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-slate-100 text-slate-600"
                               }`}
                             >
                               {log.scheduleId ? "일정 연결" : "일반 일지"}
                             </span>
 
                             {log.status ? (
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                                  active
-                                    ? "bg-white/15 text-slate-100"
-                                    : "bg-purple-50 text-purple-700"
-                                }`}
-                              >
+                              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700">
                                 {scheduleStatusLabel[log.status] || log.status}
                               </span>
                             ) : null}
                           </div>
 
-                          <h3
-                            className={`line-clamp-1 text-[16px] font-black ${
-                              active ? "text-white" : "text-slate-950"
-                            }`}
-                          >
+                          <h3 className="line-clamp-1 text-[16px] font-black text-slate-950">
                             {log.title}
                           </h3>
 
                           {log.scheduleTitle ? (
-                            <p
-                              className={`mt-2 line-clamp-1 text-[12px] font-bold ${
-                                active ? "text-blue-100" : "text-blue-600"
-                              }`}
-                            >
+                            <p className="mt-2 line-clamp-1 text-[12px] font-bold text-blue-600">
                               연결 일정: {log.scheduleTitle}
                             </p>
                           ) : null}
 
-                          <p
-                            className={`mt-2 line-clamp-2 text-[13px] leading-6 ${
-                              active ? "text-slate-300" : "text-slate-500"
-                            }`}
-                          >
+                          <p className="mt-2 line-clamp-2 text-[13px] leading-6 text-slate-500">
                             {log.content || "내용이 없습니다."}
                           </p>
                         </article>
@@ -992,7 +1123,7 @@ export default function DevlogPanel() {
               </div>
             </main>
 
-            <aside className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm">
+            <aside className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm xl:col-span-2 2xl:col-span-1">
               {selectedLog ? (
                 <>
                   <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
@@ -1070,8 +1201,8 @@ export default function DevlogPanel() {
                   </div>
                 </>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-slate-400">
+                <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-8 text-center">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-50 text-blue-500">
                     <VscCalendar size={26} />
                   </div>
 

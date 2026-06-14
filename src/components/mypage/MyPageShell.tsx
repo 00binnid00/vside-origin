@@ -31,6 +31,7 @@ import {
   fetchMyWorkspaces,
   fetchScheduleProgress,
   fetchWorkspaceDevlogs,
+  fetchMyActivityHeatmapApi,
   generateFinalReportDraftApi,
   type GithubAccountStatus,
   type MyPageDevlogResponse,
@@ -40,6 +41,7 @@ import {
   type WorkspaceDevlogsResponse,
   type WorkspaceListResponse,
   type WorkspaceProjectResponse,
+  type ActivityHeatmapResponse,
 } from "@/components/mypage/api";
 
 import {
@@ -50,7 +52,7 @@ import {
 
 import type {
   ActivitySummary,
-  Devlog,
+   Devlog,
   HeatmapLevel,
   Project,
   ProjectStatus,
@@ -93,10 +95,32 @@ type ParsedDesignDocument = {
   flowEdges: Record<string, unknown>[];
 };
 
-const fallbackHeatmapValues: HeatmapLevel[] = [
-  0, 1, 2, 0, 3, 1, 4, 2, 0, 1, 3, 0, 2, 1, 4, 3, 1, 0, 2, 4, 1, 0, 1, 3, 2, 0,
-  1, 4, 2, 3, 0, 1, 2, 4, 3, 1, 0, 2, 3, 4, 1, 2, 3, 1, 0, 2, 4, 3, 1,
-];
+const DEFAULT_HEATMAP_DAYS = 49;
+
+function createEmptyHeatmapValues(days = DEFAULT_HEATMAP_DAYS): HeatmapLevel[] {
+  return Array.from({ length: days }, () => 0 as HeatmapLevel);
+}
+
+function createEmptyActivityHeatmap(): ActivityHeatmapResponse {
+  return {
+    days: [],
+    totalActivityCount: 0,
+    activeDays: 0,
+    devlogCount: 0,
+    scheduleDoneCount: 0,
+    commitCount: 0,
+  };
+}
+
+function mapHeatmapValuesFromResponse(
+  heatmap: ActivityHeatmapResponse,
+): HeatmapLevel[] {
+  if (!Array.isArray(heatmap.days) || heatmap.days.length === 0) {
+    return createEmptyHeatmapValues();
+  }
+
+  return heatmap.days.map((day) => day.level as HeatmapLevel);
+}
 const OAUTH_RESULT_STORAGE_KEY = "wevaisGithubOAuthResult";
 const OAUTH_PENDING_STORAGE_KEY = "wevaisPendingGitRemoteAction";
 const OAUTH_RETURN_URL_STORAGE_KEY = "wevaisGithubOAuthReturnUrl";
@@ -642,6 +666,7 @@ function applyDevlogCountToProjects(
 function buildActivitySummary(
   projects: Project[],
   devlogCount: number,
+  commitCount: number,
 ): ActivitySummary {
   const progressProjectCount = projects.filter(
     (project) => project.status === "active",
@@ -672,7 +697,7 @@ function buildActivitySummary(
     completedProjectCount,
     devlogCount,
     doneScheduleCount,
-    commitCount: 0,
+    commitCount,
     primaryLanguage,
   };
 }
@@ -1076,7 +1101,12 @@ export default function MyPageDemo() {
   const [user, setUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [devlogs, setDevlogs] = useState<Devlog[]>([]);
-  const [heatmapValues] = useState<HeatmapLevel[]>(fallbackHeatmapValues);
+
+const [heatmapValues, setHeatmapValues] = useState<HeatmapLevel[]>(
+  createEmptyHeatmapValues(),
+);
+const [activityHeatmap, setActivityHeatmap] =
+  useState<ActivityHeatmapResponse>(createEmptyActivityHeatmap());
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1091,125 +1121,136 @@ export default function MyPageDemo() {
     [projects],
   );
 
-  const summary = useMemo(
-    () => buildActivitySummary(projects, devlogs.length),
-    [projects, devlogs.length],
-  );
+const summary = useMemo(
+  () =>
+    buildActivitySummary(
+      projects,
+      devlogs.length,
+      activityHeatmap.commitCount,
+    ),
+  [projects, devlogs.length, activityHeatmap.commitCount],
+);
 
   useEffect(() => {
-    let mounted = true;
+  let mounted = true;
 
-    async function loadMyPage() {
-      try {
-        setLoading(true);
-        setError("");
+  async function loadMyPage() {
+    try {
+      setLoading(true);
+      setError("");
 
-        const [profileDto, workspaceDtos] = await Promise.all([
-          fetchMyProfile(),
-          fetchMyWorkspaces(),
-        ]);
+      const [profileDto, workspaceDtos, heatmapResult] = await Promise.all([
+        fetchMyProfile(),
+        fetchMyWorkspaces(),
+        fetchMyActivityHeatmapApi(DEFAULT_HEATMAP_DAYS).catch((error) => {
+          console.warn("[mypage activity heatmap] 활동 히트맵 요청 실패:", error);
+          return createEmptyActivityHeatmap();
+        }),
+      ]);
 
-        const scheduleProgressResults = await Promise.allSettled(
-          workspaceDtos.map(async (workspace) => {
-            const view = getScheduleViewFromWorkspace(workspace);
-            const progress = await fetchScheduleProgress(view, workspace.id);
+      const scheduleProgressResults = await Promise.allSettled(
+        workspaceDtos.map(async (workspace) => {
+          const view = getScheduleViewFromWorkspace(workspace);
+          const progress = await fetchScheduleProgress(view, workspace.id);
 
-            return {
-              workspaceId: workspace.id,
-              progress,
-            };
-          }),
-        );
+          return {
+            workspaceId: workspace.id,
+            progress,
+          };
+        }),
+      );
 
-        const scheduleProgressMap = new Map<string, ScheduleProgressResponse>();
+      const scheduleProgressMap = new Map<string, ScheduleProgressResponse>();
 
-        for (const result of scheduleProgressResults) {
-          if (result.status === "fulfilled") {
-            scheduleProgressMap.set(
-              result.value.workspaceId,
-              result.value.progress,
-            );
-          }
-        }
-
-        const failedScheduleRequests = scheduleProgressResults.filter(
-          (result) => result.status === "rejected",
-        );
-
-        if (failedScheduleRequests.length > 0) {
-          console.warn(
-            "[mypage schedules] 일부 워크스페이스 일정 진행률 요청 실패:",
-            failedScheduleRequests,
+      for (const result of scheduleProgressResults) {
+        if (result.status === "fulfilled") {
+          scheduleProgressMap.set(
+            result.value.workspaceId,
+            result.value.progress,
           );
         }
-
-        const devlogResults = await Promise.allSettled(
-          workspaceDtos.map(async (workspace) => {
-            const response = await fetchWorkspaceDevlogs(workspace.id);
-
-            console.log(
-              "[mypage devlogs] workspace:",
-              workspace.name,
-              response,
-            );
-
-            return mapDevlogsFromWorkspaceResponse(response, workspace);
-          }),
-        );
-
-        const failedDevlogRequests = devlogResults.filter(
-          (result) => result.status === "rejected",
-        );
-
-        if (failedDevlogRequests.length > 0) {
-          console.warn(
-            "[mypage devlogs] 일부 워크스페이스 자료 요청 실패:",
-            failedDevlogRequests,
-          );
-        }
-
-        const nextDevlogs = devlogResults
-          .filter(
-            (result): result is PromiseFulfilledResult<Devlog[]> =>
-              result.status === "fulfilled",
-          )
-          .flatMap((result) => result.value)
-          .sort((a, b) => getDevlogSortTime(b) - getDevlogSortTime(a));
-
-        const nextProjects = mapProjectsFromWorkspaces(
-          workspaceDtos,
-          scheduleProgressMap,
-        );
-
-        const projectsWithDevlogCount = applyDevlogCountToProjects(
-          nextProjects,
-          nextDevlogs,
-        );
-
-        if (!mounted) return;
-
-        setUser(mapUser(profileDto));
-        setProjects(projectsWithDevlogCount);
-        setDevlogs(nextDevlogs);
-      } catch (error) {
-        if (!mounted) return;
-
-        setError(
-          error instanceof Error
-            ? error.message
-            : "마이페이지 정보를 불러오지 못했습니다.",
-        );
-      } finally {
-        if (mounted) setLoading(false);
       }
+
+      const failedScheduleRequests = scheduleProgressResults.filter(
+        (result) => result.status === "rejected",
+      );
+
+      if (failedScheduleRequests.length > 0) {
+        console.warn(
+          "[mypage schedules] 일부 워크스페이스 일정 진행률 요청 실패:",
+          failedScheduleRequests,
+        );
+      }
+
+      const devlogResults = await Promise.allSettled(
+        workspaceDtos.map(async (workspace) => {
+          const response = await fetchWorkspaceDevlogs(workspace.id);
+
+          console.log(
+            "[mypage devlogs] workspace:",
+            workspace.name,
+            response,
+          );
+
+          return mapDevlogsFromWorkspaceResponse(response, workspace);
+        }),
+      );
+
+      const failedDevlogRequests = devlogResults.filter(
+        (result) => result.status === "rejected",
+      );
+
+      if (failedDevlogRequests.length > 0) {
+        console.warn(
+          "[mypage devlogs] 일부 워크스페이스 자료 요청 실패:",
+          failedDevlogRequests,
+        );
+      }
+
+      const nextDevlogs = devlogResults
+        .filter(
+          (result): result is PromiseFulfilledResult<Devlog[]> =>
+            result.status === "fulfilled",
+        )
+        .flatMap((result) => result.value)
+        .sort((a, b) => getDevlogSortTime(b) - getDevlogSortTime(a));
+
+      const nextProjects = mapProjectsFromWorkspaces(
+        workspaceDtos,
+        scheduleProgressMap,
+      );
+
+      const projectsWithDevlogCount = applyDevlogCountToProjects(
+        nextProjects,
+        nextDevlogs,
+      );
+
+      if (!mounted) return;
+
+      setUser(mapUser(profileDto));
+      setProjects(projectsWithDevlogCount);
+      setDevlogs(nextDevlogs);
+      setActivityHeatmap(heatmapResult);
+      setHeatmapValues(mapHeatmapValuesFromResponse(heatmapResult));
+    } catch (error) {
+      if (!mounted) return;
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "마이페이지 정보를 불러오지 못했습니다.",
+      );
+    } finally {
+      if (mounted) setLoading(false);
     }
+  }
 
-    loadMyPage();
+  loadMyPage();
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   if (loading) {
     return (
@@ -1407,13 +1448,14 @@ export default function MyPageDemo() {
           <section className="min-w-0 space-y-5">
             {activeTab === "overview" && (
               <OverviewSection
-                summary={summary}
-                progressProjects={progressProjects}
-                devlogs={devlogs}
-                heatmapValues={heatmapValues}
-                keyword={keyword}
-                onKeywordChange={setKeyword}
-              />
+  summary={summary}
+  progressProjects={progressProjects}
+  devlogs={devlogs}
+  heatmapValues={heatmapValues}
+  activityHeatmap={activityHeatmap}
+  keyword={keyword}
+  onKeywordChange={setKeyword}
+/>
             )}
 
             {activeTab === "progress" && (
@@ -1464,6 +1506,7 @@ function OverviewSection({
   progressProjects,
   devlogs,
   heatmapValues,
+  activityHeatmap,
   keyword,
   onKeywordChange,
 }: {
@@ -1471,6 +1514,7 @@ function OverviewSection({
   progressProjects: Project[];
   devlogs: Devlog[];
   heatmapValues: HeatmapLevel[];
+  activityHeatmap: ActivityHeatmapResponse;
   keyword: string;
   onKeywordChange: (value: string) => void;
 }) {
@@ -1499,7 +1543,7 @@ function OverviewSection({
           label="커밋"
           value={`${summary.commitCount}개`}
           icon={Github}
-          description="GitHub 연동 후 표시"
+          description="연동 저장소 기준"
         />
       </div>
 
@@ -1513,13 +1557,13 @@ function OverviewSection({
         maxItems={4}
       />
 
-      <HeatmapSection heatmapValues={heatmapValues} />
-
-      <DevlogPreviewSection devlogs={devlogs} />
+      <HeatmapSection
+        heatmapValues={heatmapValues}
+        activityHeatmap={activityHeatmap}
+      />
     </div>
   );
 }
-
 function ProjectSection({
   title,
   description,
@@ -4008,15 +4052,14 @@ function DevlogCard({ devlog }: { devlog: Devlog }) {
   );
 }
 
-function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
+function HeatmapSection({
+  heatmapValues,
+  activityHeatmap,
+}: {
+  heatmapValues: HeatmapLevel[];
+  activityHeatmap: ActivityHeatmapResponse;
+}) {
   const heatmapStats = useMemo(() => {
-    const totalScore = heatmapValues.reduce<number>(
-      (sum, level) => sum + Number(level),
-      0,
-    );
-
-    const activeDays = heatmapValues.filter((level) => level > 0).length;
-
     const maxLevel: HeatmapLevel =
       heatmapValues.length > 0
         ? (Math.max(...heatmapValues) as HeatmapLevel)
@@ -4028,18 +4071,23 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
 
     const averageScore =
       heatmapValues.length > 0
-        ? Math.round((totalScore / heatmapValues.length) * 10) / 10
+        ? Math.round(
+            (activityHeatmap.totalActivityCount / heatmapValues.length) * 10,
+          ) / 10
         : 0;
 
     return {
-      totalScore,
-      activeDays,
+      totalScore: activityHeatmap.totalActivityCount,
+      activeDays: activityHeatmap.activeDays,
       maxLevel,
       maxLevelCount,
       averageScore,
       totalDays: heatmapValues.length,
+      devlogCount: activityHeatmap.devlogCount,
+      scheduleDoneCount: activityHeatmap.scheduleDoneCount,
+      commitCount: activityHeatmap.commitCount,
     };
-  }, [heatmapValues]);
+  }, [heatmapValues, activityHeatmap]);
 
   const levelGuide: {
     level: HeatmapLevel;
@@ -4087,7 +4135,7 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
           </div>
 
           <p className="mt-1 text-sm font-semibold text-slate-500">
-            날짜별 개발 활동량을 색상 강도로 시각화한 영역입니다.
+            개발일지, 일정 완료, GitHub 커밋 활동을 날짜별로 시각화합니다.
           </p>
         </div>
 
@@ -4127,7 +4175,7 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
                   <HeatCell
                     key={index}
                     level={level}
-                    title={`${index + 1}번째 날짜 · 활동 ${level}건`}
+                    title={`${index + 1}번째 날짜 · 활동 단계 ${level}`}
                   />
                 ))}
               </div>
@@ -4135,13 +4183,13 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
 
             <div className="grid grid-cols-2 gap-2">
               <HeatmapMetricCard
-                label="총 활동 점수"
-                value={`${heatmapStats.totalScore}점`}
-                description="누적 활동량"
+                label="총 활동 수"
+                value={`${heatmapStats.totalScore}건`}
+                description="일지·일정·커밋 합산"
               />
               <HeatmapMetricCard
                 label="평균 활동"
-                value={`${heatmapStats.averageScore}점`}
+                value={`${heatmapStats.averageScore}건`}
                 description="하루 평균"
               />
               <HeatmapMetricCard
@@ -4166,9 +4214,9 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
               이 히트맵은 무엇을 보여주나요?
             </p>
             <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-              하루 동안 발생한 개발일지 작성, 일정 완료, 프로젝트 생성, GitHub
-              커밋 기록을 합산해 활동 강도를 표시합니다. 색이 진할수록 해당
-              날짜에 더 많은 개발 활동이 있었다는 의미입니다.
+              하루 동안 발생한 개발일지 작성, 일정 완료 활동을 합산하고,
+              GitHub 저장소가 연결된 프로젝트는 커밋 기록까지 함께 반영해 개발
+              활동 강도를 표시합니다.
             </p>
           </div>
         </div>
@@ -4186,10 +4234,18 @@ function HeatmapSection({ heatmapValues }: { heatmapValues: HeatmapLevel[] }) {
             </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
-              <HeatmapRuleRow label="개발일지 작성" value="+1" />
-              <HeatmapRuleRow label="일정 완료 처리" value="+1" />
-              <HeatmapRuleRow label="프로젝트 생성" value="+1" />
-              <HeatmapRuleRow label="GitHub 커밋 기록" value="+1" />
+              <HeatmapRuleRow
+                label="개발일지 작성"
+                value={`${heatmapStats.devlogCount}건`}
+              />
+              <HeatmapRuleRow
+                label="일정 완료 처리"
+                value={`${heatmapStats.scheduleDoneCount}건`}
+              />
+              <HeatmapRuleRow
+                label="GitHub 커밋 기록"
+                value={`${heatmapStats.commitCount}건`}
+              />
             </div>
           </section>
 
@@ -4864,25 +4920,6 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-// function HeatCell({ level }: { level: HeatmapLevel }) {
-//   const bgClass =
-//     level === 0
-//       ? "bg-slate-200"
-//       : level === 1
-//         ? "bg-blue-100"
-//         : level === 2
-//           ? "bg-blue-300"
-//           : level === 3
-//             ? "bg-blue-500"
-//             : "bg-blue-700";
-
-//   return (
-//     <div
-//       title={`활동 ${level}`}
-//       className={`h-3.5 w-3.5 rounded-[4px] border border-white ${bgClass}`}
-//     />
-//   );
-// }
 
 function AccountRow({
   label,
