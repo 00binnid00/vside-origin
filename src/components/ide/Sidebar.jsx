@@ -52,7 +52,6 @@ import {
   deleteFileApi,
   fetchFileContentApi,
   fetchWorkspaceProjectsApi,
-  deactivateVirtualViewApi,
   saveFileApi,
   renameFileApi,
 } from "@/lib/ide/api";
@@ -581,18 +580,7 @@ export default function Sidebar() {
     refreshOpenFileContents,
   ]);
 
-  const handleDeactivateVirtualView = async () => {
-    if (!window.confirm("가상 뷰를 해제하고 원본 파일 구조로 돌아가시겠습니까?")) {
-      return;
-    }
-
-    try {
-      await deactivateVirtualViewApi(workspaceId, activeBranch);
-      dispatch(clearVirtualTree());
-    } catch (error) {
-      alert("가상 뷰 해제에 실패했습니다: " + error.message);
-    }
-  };
+  
 
   useEffect(() => {
     if (
