@@ -59,9 +59,21 @@ export default function CommunityDetailPage() {
   const handleLike = async () => {
     if (!currentUser) return alert("로그인이 필요합니다.");
     try {
-      const result = await toggleLike(Number(id));
-      // 백엔드에서 받은 새로운 상태(active)와 카운트로 화면 즉시 업데이트!
-      setPost((prev: any) => ({ ...prev, liked: result.active, likeCount: result.count }));
+      const result = (await toggleLike(Number(id))) as {
+      active: boolean;
+      count: number;
+    };
+
+    // 백엔드에서 받은 새로운 상태(active)와 카운트로 화면 즉시 업데이트!
+    setPost((prev: any) =>
+      prev
+        ? {
+            ...prev,
+            liked: result.active,
+            likeCount: result.count,
+          }
+        : prev,
+    );
     } catch (error) {
       alert("좋아요 처리에 실패했습니다.");
     }
@@ -71,9 +83,21 @@ export default function CommunityDetailPage() {
   const handleScrap = async () => {
     if (!currentUser) return alert("로그인이 필요합니다.");
     try {
-      const result = await toggleScrap(Number(id));
-      // 백엔드에서 받은 새로운 상태로 업데이트
-      setPost((prev: any) => ({ ...prev, scrapped: result.active, scrapCount: result.count }));
+      const result = (await toggleScrap(Number(id))) as {
+  active: boolean;
+  count: number;
+};
+
+// 백엔드에서 받은 새로운 상태로 업데이트
+setPost((prev: any) =>
+  prev
+    ? {
+        ...prev,
+        scrapped: result.active,
+        scrapCount: result.count,
+      }
+    : prev,
+);
     } catch (error) {
       alert("스크랩 처리에 실패했습니다.");
     }
