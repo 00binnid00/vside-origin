@@ -325,12 +325,14 @@ export default function Sidebar() {
   const dispatch = useDispatch();
 
   const {
-    tree,
-    virtualTree,
-    workspaceId,
-    activeProject,
-    activeBranch,
-  } = useSelector((state) => state.fileSystem);
+  tree,
+  virtualTree,
+  workspaceId,
+  activeProject,
+  activeBranch,
+  activeFileId,
+  openFiles,
+} = useSelector((state) => state.fileSystem);
 
   const { isSidebarVisible, pendingCreation } = useSelector(
     (state) => state.ui,
@@ -448,6 +450,72 @@ export default function Sidebar() {
     handleExpandProject,
   ]);
 
+  const refreshOpenFileContents = useCallback(
+  async (branchName) => {
+    if (!workspaceId || !activeProject || isVirtualMode) return;
+
+    const targetBranch = branchName || activeBranch || "master";
+
+    const filesToRefresh = [];
+
+    if (Array.isArray(openFiles)) {
+      openFiles.forEach((file) => {
+        const fileId = file?.id;
+
+        if (!fileId) return;
+        if (String(fileId).startsWith("virtual:")) return;
+        if (String(fileId).includes("codemap")) return;
+
+        filesToRefresh.push(fileId);
+      });
+    }
+
+    if (
+      activeFileId &&
+      !String(activeFileId).startsWith("virtual:") &&
+      !String(activeFileId).includes("codemap") &&
+      !filesToRefresh.includes(activeFileId)
+    ) {
+      filesToRefresh.push(activeFileId);
+    }
+
+    if (filesToRefresh.length === 0) return;
+
+    await Promise.allSettled(
+      filesToRefresh.map(async (filePath) => {
+        const latestContent = await fetchFileContentApi(
+          workspaceId,
+          activeProject,
+          targetBranch,
+          filePath,
+        );
+
+        dispatch(
+          updateFileContent({
+            filePath,
+            content: latestContent,
+          }),
+        );
+      }),
+    );
+
+    dispatch(
+      writeToTerminal(
+        `[System] 열린 파일 최신화 완료: ${activeProject} (${targetBranch})\n`,
+      ),
+    );
+  },
+  [
+    workspaceId,
+    activeProject,
+    activeBranch,
+    activeFileId,
+    openFiles,
+    isVirtualMode,
+    dispatch,
+  ],
+);
+
   useEffect(() => {
     if (!workspaceId || !activeProject || isVirtualMode) return;
 
@@ -480,8 +548,9 @@ export default function Sidebar() {
           clearTimeout(fileTreeRefreshTimerRef.current);
         }
 
-        fileTreeRefreshTimerRef.current = setTimeout(() => {
-          handleExpandProject(message.projectName);
+        fileTreeRefreshTimerRef.current = setTimeout(async () => {
+          await handleExpandProject(message.projectName);
+          await refreshOpenFileContents(message.branchName || branchName);
         }, 100);
       } catch (error) {
         console.error("WorkspaceEvents 메시지 처리 실패:", error);
@@ -509,6 +578,7 @@ export default function Sidebar() {
     activeBranch,
     isVirtualMode,
     handleExpandProject,
+    refreshOpenFileContents,
   ]);
 
   const handleDeactivateVirtualView = async () => {

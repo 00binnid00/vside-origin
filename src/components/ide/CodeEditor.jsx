@@ -367,6 +367,19 @@ export default function CodeEditor() {
   const activeContent = activeFileId ? fileContents[activeFileId] || "" : "";
   const hasMergeConflicts = mergeConflicts.length > 0;
 
+  const monacoModelPath = useMemo(() => {
+  if (!activeFileId) return "";
+
+  return [
+    workspaceId || "workspace",
+    activeProject || "project",
+    activeBranch || "master",
+    activeFileId,
+  ]
+    .map((part) => encodeURIComponent(String(part)))
+    .join("/");
+}, [workspaceId, activeProject, activeBranch, activeFileId]);
+
   const stateRef = useRef({
     activeFileId,
     workspaceId,
@@ -377,6 +390,10 @@ export default function CodeEditor() {
   const ydocRef = useRef(null);
   const providerRef = useRef(null);
   const bindingRef = useRef(null);
+  const collabSessionRef = useRef(0);
+  const providerStatusListenerRef = useRef(null);
+  const bindTimeoutsRef = useRef([]);
+  const awarenessChangeListenerRef = useRef(null);
 
   const isTeamMode = pathname?.includes("/team");
   
@@ -496,62 +513,158 @@ export default function CodeEditor() {
     return "익명 개발자"; 
   };
 
-  const cleanupCollaboration = () => {
-    const originalConsoleError = console.error;
-    console.error = (...args) => {
-      if (typeof args[0] === 'string' && args[0].includes('[yjs] Tried to remove event handler')) {
-        return; 
-      }
-      originalConsoleError.apply(console, args);
-    };
+  const cleanupCollaboration = useCallback(() => {
+  collabSessionRef.current += 1;
 
-    try {
-      if (cursorListenerRef.current) {
-        cursorListenerRef.current.dispose();
-        cursorListenerRef.current = null;
-      }
-      if (editorRef.current && lockDecosRef.current.length > 0) {
-        const model = editorRef.current.getModel();
-        if (model && !model.isDisposed()) {
-          editorRef.current.deltaDecorations(lockDecosRef.current, []);
-        }
-        lockDecosRef.current = [];
-      }
-      lockedLinesRef.current = {};
+  bindTimeoutsRef.current.forEach((timerId) => {
+    window.clearTimeout(timerId);
+  });
+  bindTimeoutsRef.current = [];
 
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-      if (providerRef.current) {
-        if (providerRef.current.awareness) {
-          providerRef.current.awareness.setLocalState(null);
-        }
-        providerRef.current.disconnect();
-        providerRef.current = null;
-      }
-      if (ydocRef.current) {
-        ydocRef.current.destroy();
-        ydocRef.current = null;
-      }
-    } catch (e) {
-    } finally {
-      console.error = originalConsoleError;
+  const provider = providerRef.current;
+  const statusListener = providerStatusListenerRef.current;
+  const awarenessListener = awarenessChangeListenerRef.current;
+
+  try {
+    if (provider && statusListener && typeof provider.off === "function") {
+      provider.off("status", statusListener);
     }
-  };
+  } catch {
+    // provider status listener cleanup failure ignored
+  }
 
-  const setupCollaboration = (editor) => {
+  try {
+    if (
+      provider?.awareness &&
+      awarenessListener &&
+      typeof provider.awareness.off === "function"
+    ) {
+      provider.awareness.off("change", awarenessListener);
+    }
+  } catch {
+    // awareness listener cleanup failure ignored
+  }
+
+  providerStatusListenerRef.current = null;
+  awarenessChangeListenerRef.current = null;
+
+  try {
+    if (cursorListenerRef.current) {
+      cursorListenerRef.current.dispose();
+      cursorListenerRef.current = null;
+    }
+
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+
+    if (
+      editor &&
+      model &&
+      !model.isDisposed() &&
+      lockDecosRef.current.length > 0
+    ) {
+      editor.deltaDecorations(lockDecosRef.current, []);
+    }
+
+    lockDecosRef.current = [];
+    lockedLinesRef.current = {};
+
+    const binding = bindingRef.current;
+    bindingRef.current = null;
+
+    if (binding) {
+      const originalConsoleError = console.error;
+
+      console.error = (...args) => {
+        const firstArg = String(args?.[0] || "");
+
+        if (
+          firstArg.includes("[yjs] Tried to remove event handler") ||
+          firstArg.includes("Tried to remove event handler that doesn't exist")
+        ) {
+          return;
+        }
+
+        originalConsoleError.apply(console, args);
+      };
+
+      try {
+        binding.destroy();
+      } catch (error) {
+        const message = String(error?.message || error || "");
+
+        if (
+          !message.includes("Tried to remove event handler") &&
+          !message.includes("event handler that doesn't exist")
+        ) {
+          throw error;
+        }
+      } finally {
+        console.error = originalConsoleError;
+      }
+    }
+
+    if (providerRef.current) {
+      try {
+        providerRef.current.awareness?.setLocalState(null);
+      } catch {}
+
+      try {
+        providerRef.current.disconnect();
+      } catch {}
+
+      try {
+        providerRef.current.destroy?.();
+      } catch {}
+
+      providerRef.current = null;
+    }
+
+    if (ydocRef.current) {
+      try {
+        ydocRef.current.destroy();
+      } catch {}
+
+      ydocRef.current = null;
+    }
+  } catch {
+    // Monaco/Yjs cleanup race condition ignored
+  }
+}, []);
+
+  const setupCollaboration = useCallback(
+  (editor) => {
     cleanupCollaboration();
+
     if (!activeFileId || !workspaceId || !activeProject) return;
 
-    const model = editor.getModel();
-    if (!model || model.isDisposed()) return;
+    const initialModel = editor?.getModel?.();
 
-    if (monacoRef.current) {
-      model.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
+    if (!initialModel || initialModel.isDisposed()) return;
+
+    const sessionId = collabSessionRef.current + 1;
+    collabSessionRef.current = sessionId;
+
+    const isLiveSession = () => {
+      const currentModel = editor?.getModel?.();
+
+      return (
+        collabSessionRef.current === sessionId &&
+        editorRef.current === editor &&
+        currentModel &&
+        !currentModel.isDisposed() &&
+        providerRef.current &&
+        ydocRef.current
+      );
+    };
+
+    if (monacoRef.current && !initialModel.isDisposed()) {
+      initialModel.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
     }
 
-    const roomName = `${workspaceId}:${activeProject}:${activeBranch || "master"}:${activeFileId}`;
+    const roomName = `${workspaceId}:${activeProject}:${
+      activeBranch || "master"
+    }:${activeFileId}`;
 
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
@@ -564,64 +677,79 @@ export default function CodeEditor() {
         WebSocketPolyfill: CustomWebSocket,
       },
     );
+
     providerRef.current = provider;
 
     const awareness = provider.awareness;
-    const myColor = "#" + Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0");
+    const myColor =
+      "#" + Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0");
     const myName = getMyDisplayName();
 
     const initialPos = editor.getPosition();
-    
+
     awareness.setLocalStateField("user", {
       name: myName,
       color: myColor,
     });
-    
+
     awareness.setLocalStateField("lockData", {
       name: myName,
-      line: initialPos ? initialPos.lineNumber : 1, 
+      line: initialPos ? initialPos.lineNumber : 1,
     });
 
-    cursorListenerRef.current = editor.onDidChangeCursorPosition((e) => {
-      if (!isTeamModeRef.current) return;
-      const line = e.position.lineNumber;
-      
+    cursorListenerRef.current = editor.onDidChangeCursorPosition((event) => {
+      if (!isTeamModeRef.current || !isLiveSession()) return;
+
+      const line = event.position.lineNumber;
+
       awareness.setLocalStateField("lockData", {
         name: myName,
-        line: line,
+        line,
       });
 
-      if (lockedLinesRef.current[line]) {
-        editor.updateOptions({ readOnly: true });
-      } else {
-        editor.updateOptions({ readOnly: false });
-      }
+      editor.updateOptions({
+        readOnly: Boolean(lockedLinesRef.current[line]),
+      });
     });
 
     const updateLockDecorations = () => {
-      if (!editorRef.current || !monacoRef.current) return; 
-      const model = editorRef.current.getModel();
-      if (!model || model.isDisposed()) return;
-      
-      const decos = [];
-      Object.entries(lockedLinesRef.current).forEach(([lineStr, lockerName]) => {
-        const line = Number(lineStr);
-        decos.push({
-          range: new monacoRef.current.Range(line, 1, line, 1),
-          options: {
-            isWholeLine: true,
-            className: "locked-line-bg",
-            linesDecorationsClassName: "locked-line-margin", 
-            glyphMarginClassName: "locked-glyph", 
-            hoverMessage: { value: `🚫 **${lockerName}**님이 이 줄을 수정 중입니다.` },
-          },
-        });
-      });
+      if (!isLiveSession() || !monacoRef.current) return;
 
-      lockDecosRef.current = editorRef.current.deltaDecorations(lockDecosRef.current, decos);
+      const currentEditor = editorRef.current;
+      const model = currentEditor?.getModel?.();
+
+      if (!currentEditor || !model || model.isDisposed()) return;
+
+      const decorations = [];
+
+      Object.entries(lockedLinesRef.current).forEach(
+        ([lineStr, lockerName]) => {
+          const line = Number(lineStr);
+
+          decorations.push({
+            range: new monacoRef.current.Range(line, 1, line, 1),
+            options: {
+              isWholeLine: true,
+              className: "locked-line-bg",
+              linesDecorationsClassName: "locked-line-margin",
+              glyphMarginClassName: "locked-glyph",
+              hoverMessage: {
+                value: `🚫 **${lockerName}**님이 이 줄을 수정 중입니다.`,
+              },
+            },
+          });
+        },
+      );
+
+      lockDecosRef.current = currentEditor.deltaDecorations(
+        lockDecosRef.current,
+        decorations,
+      );
     };
 
-    awareness.on("change", () => {
+    const awarenessChangeHandler = () => {
+      if (!isLiveSession()) return;
+
       const styleId = "yjs-dynamic-cursors";
       let styleEl = document.getElementById(styleId);
 
@@ -667,56 +795,102 @@ export default function CodeEditor() {
           `);
         }
 
-        if (clientId !== awareness.clientID && state.lockData && state.lockData.line) {
+        if (
+          clientId !== awareness.clientID &&
+          state.lockData &&
+          state.lockData.line
+        ) {
           newLockedLines[state.lockData.line] = state.lockData.name;
         }
       });
+
       styleEl.innerHTML = styles.join("\n");
-      
+
       lockedLinesRef.current = newLockedLines;
       updateLockDecorations();
 
-      const currentPos = editorRef.current?.getPosition();
-      if (currentPos && lockedLinesRef.current[currentPos.lineNumber]) {
-        editorRef.current.updateOptions({ readOnly: true });
-      } else if (editorRef.current) {
-        editorRef.current.updateOptions({ readOnly: false });
-      }
-    });
+      const currentEditor = editorRef.current;
+      const currentPos = currentEditor?.getPosition?.();
+
+      if (!currentEditor || !currentPos) return;
+
+      currentEditor.updateOptions({
+        readOnly: Boolean(lockedLinesRef.current[currentPos.lineNumber]),
+      });
+    };
+
+    awarenessChangeListenerRef.current = awarenessChangeHandler;
+    awareness.on("change", awarenessChangeHandler);
 
     const yText = ydoc.getText("monaco");
-    
     const rawContent = fileContentsRef.current[activeFileId] || "";
     const localContent = rawContent.replace(/\r\n/g, "\n");
 
     const doBind = () => {
+      if (!isLiveSession()) return;
       if (bindingRef.current) return;
+
+      const currentModel = editor.getModel();
+
+      if (!currentModel || currentModel.isDisposed()) return;
 
       if (yText.length === 0 && localContent !== "") {
         const clients = Array.from(awareness.getStates().keys()).sort();
+
         if (clients.length === 0 || clients[0] === awareness.clientID) {
-           yText.insert(0, localContent);
+          yText.insert(0, localContent);
         }
       }
 
-      if (model.getValue() !== yText.toString()) {
-        model.setValue(yText.toString());
+      if (!isLiveSession()) return;
+
+      const yTextValue = yText.toString();
+
+      if (!currentModel.isDisposed() && currentModel.getValue() !== yTextValue) {
+        currentModel.setValue(yTextValue);
       }
 
-      bindingRef.current = new MonacoBinding(yText, model, new Set([editor]), awareness);
+      if (!isLiveSession()) return;
+
+      bindingRef.current = new MonacoBinding(
+        yText,
+        currentModel,
+        new Set([editor]),
+        awareness,
+      );
     };
 
     if (provider.synced) {
       doBind();
     } else {
-      provider.on('status', ({ status }) => {
-        if (status === 'connected') {
-          setTimeout(doBind, 300);
-        }
-      });
-      setTimeout(doBind, 1500); 
+      const statusHandler = ({ status }) => {
+        if (status !== "connected") return;
+
+        const timerId = window.setTimeout(() => {
+          if (isLiveSession()) doBind();
+        }, 300);
+
+        bindTimeoutsRef.current.push(timerId);
+      };
+
+      providerStatusListenerRef.current = statusHandler;
+      provider.on("status", statusHandler);
+
+      const fallbackTimerId = window.setTimeout(() => {
+        if (isLiveSession()) doBind();
+      }, 1500);
+
+      bindTimeoutsRef.current.push(fallbackTimerId);
     }
-  };
+  },
+  [
+    activeBranch,
+    activeFileId,
+    activeProject,
+    cleanupCollaboration,
+    workspaceId,
+  ],
+);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -750,13 +924,20 @@ useEffect(() => {
   const isContentLoaded = fileContents[activeFileId] !== undefined;
 
   useEffect(() => {
-    if (isEditorReady && editorRef.current && isContentLoaded) {
-      if (isTeamMode) setupCollaboration(editorRef.current);
-      else cleanupCollaboration();
-    }
+  if (!isEditorReady || !editorRef.current || !isContentLoaded) {
+    return undefined;
+  }
 
-    return () => cleanupCollaboration();
-  }, [
+  if (isTeamMode) {
+    setupCollaboration(editorRef.current);
+  } else {
+    cleanupCollaboration();
+  }
+
+  return () => {
+    cleanupCollaboration();
+  };
+}, [
     isEditorReady,
     activeFileId,
     workspaceId,
@@ -764,6 +945,8 @@ useEffect(() => {
     activeBranch,
     isContentLoaded,
     isTeamMode,
+    setupCollaboration,
+    cleanupCollaboration,
   ]);
 
   useEffect(() => {
@@ -1893,10 +2076,10 @@ useEffect(() => {
 
         <div className={`absolute inset-0 z-10 bg-white ${isDiffMode ? "invisible" : ""}`}>
 <Editor
-  key={`${activeFileId}-${getLanguage(activeFileId)}`}
+  key={`${monacoModelPath}-${getLanguage(activeFileId)}`}
   height="100%"
   theme="light"
-  path={activeFileId}
+  path={monacoModelPath || activeFileId}
   language={getLanguage(activeFileId)}
   value={fileContents[activeFileId] || ""}
   beforeMount={handleEditorWillMount}
