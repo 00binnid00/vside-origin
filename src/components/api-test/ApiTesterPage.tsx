@@ -13,8 +13,7 @@ import {
   Timer,
   Link2,
 } from "lucide-react";
-
-const API_BASE = "http://localhost:8080";
+import { apiFetch, apiJson } from "@/lib/api/apiClient";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DEL";
 
@@ -194,11 +193,7 @@ function normalizeHistoryItem(h: any): HistoryItem {
     }
   } else {
     responseData =
-      h.responseData ??
-      h.response ??
-      h.data ??
-      h.result ??
-      undefined;
+      h.responseData ?? h.response ?? h.data ?? h.result ?? undefined;
   }
 
   const numericStatus = Number(status);
@@ -220,6 +215,18 @@ function normalizeHistoryItem(h: any): HistoryItem {
     durationMs: h.durationMs,
     responseData,
   };
+}
+
+async function readProxyResponse(response: Response) {
+  const text = await response.text().catch(() => "");
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 export default function ApiTesterPage() {
@@ -255,23 +262,10 @@ export default function ApiTesterPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [testsRes, histRes] = await Promise.all([
-          fetch(`${API_BASE}/api/test`, { cache: "no-store" }),
-          fetch(`${API_BASE}/api/history?limit=20`, { cache: "no-store" }),
+        const [tests, hist] = await Promise.all([
+          apiJson("/api/test", { cache: "no-store" }),
+          apiJson("/api/history?limit=20", { cache: "no-store" }),
         ]);
-
-        if (!testsRes.ok) {
-          const t = await testsRes.text().catch(() => "");
-          throw new Error(`GET /api/test failed: ${testsRes.status} ${t}`);
-        }
-
-        if (!histRes.ok) {
-          const t = await histRes.text().catch(() => "");
-          throw new Error(`GET /api/history failed: ${histRes.status} ${t}`);
-        }
-
-        const tests = await testsRes.json();
-        const hist = await histRes.json();
 
         setSavedTests(
           (Array.isArray(tests) ? tests : []).map((t: any) => ({
@@ -285,7 +279,7 @@ export default function ApiTesterPage() {
           })),
         );
 
-        setHistory((hist ?? []).map(normalizeHistoryItem));
+        setHistory((Array.isArray(hist) ? hist : []).map(normalizeHistoryItem));
       } catch (e) {
         console.error("initial load failed:", e);
       }
@@ -362,9 +356,8 @@ export default function ApiTesterPage() {
         headersObj["Content-Type"] = "application/json";
       }
 
-      const res = await fetch(`${API_BASE}/api/proxy`, {
+      const res = await apiFetch("/api/proxy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: targetFullUrl,
           method: normalizedMethod,
@@ -373,18 +366,14 @@ export default function ApiTesterPage() {
         }),
       });
 
-      let data: any = null;
-
-      try {
-        data = await res.json();
-      } catch {
-        data = await res.text().catch(() => "");
-      }
+      const data = await readProxyResponse(res);
 
       const time = Math.round(performance.now() - start);
 
       const normalizedStatus =
-        typeof data?.status === "number" ? data.status : res.status;
+        data && typeof data === "object" && typeof data.status === "number"
+          ? data.status
+          : res.status;
 
       const normalizedPayload =
         data && typeof data === "object" && "data" in data ? data.data : data;
@@ -398,32 +387,31 @@ export default function ApiTesterPage() {
       setResponse(nextResponse);
 
       try {
-      await fetch(`${API_BASE}/api/history`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    method: normalizedMethod,
-    url: targetFullUrl,
-    status: normalizedStatus,
-    success:
-      typeof normalizedStatus === "number"
-        ? normalizedStatus >= 200 && normalizedStatus < 400
-        : false,
-    durationMs: time,
-    responseBody:
-      typeof normalizedPayload === "string"
-        ? normalizedPayload
-        : JSON.stringify(normalizedPayload),
-  }),
-});
+        await apiJson("/api/history", {
+          method: "POST",
+          body: JSON.stringify({
+            method: normalizedMethod,
+            url: targetFullUrl,
+            status: normalizedStatus,
+            success:
+              typeof normalizedStatus === "number"
+                ? normalizedStatus >= 200 && normalizedStatus < 400
+                : false,
+            durationMs: time,
+            responseBody:
+              typeof normalizedPayload === "string"
+                ? normalizedPayload
+                : JSON.stringify(normalizedPayload),
+          }),
+        });
 
-        const histRes = await fetch(`${API_BASE}/api/history?limit=20`, {
+        const hist = await apiJson("/api/history?limit=20", {
           cache: "no-store",
         });
 
-        const hist = await histRes.json();
-
-        const mappedHistory = (hist ?? []).map(normalizeHistoryItem);
+        const mappedHistory = (Array.isArray(hist) ? hist : []).map(
+          normalizeHistoryItem,
+        );
 
         const localFirstItem: HistoryItem = {
           id: `local-${Date.now()}`,
@@ -511,9 +499,8 @@ export default function ApiTesterPage() {
     if (!title) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/test`, {
+      const saved = await apiJson("/api/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
           method: toRequestMethod(method),
@@ -523,13 +510,6 @@ export default function ApiTesterPage() {
           body,
         }),
       });
-
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`save failed: ${res.status} ${t}`);
-      }
-
-      const saved = await res.json();
 
       const newItem: SavedTestItem = {
         id: saved.id,
@@ -559,10 +539,6 @@ export default function ApiTesterPage() {
               저장 테스트와 실행 기록
             </p>
           </div>
-
-          {/* <button className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
-            <Plus size={15} />
-          </button> */}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
@@ -945,7 +921,8 @@ export default function ApiTesterPage() {
               <div>
                 <h2 className="text-sm font-bold text-slate-800">Response</h2>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  Send 결과 또는 왼쪽 히스토리에서 선택한 응답을 확인할 수 있습니다.
+                  Send 결과 또는 왼쪽 히스토리에서 선택한 응답을 확인할 수
+                  있습니다.
                 </p>
               </div>
 
