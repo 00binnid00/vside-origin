@@ -2,25 +2,27 @@ import { ProjectManagerList } from "@/components/projects/ProjectManagerList";
 import type { WorkspaceMode } from "@/components/main-dashboard/dashboard.types";
 
 type PageProps = {
-  params: {
+  params: Promise<{
     workspaceId: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     mode?: string;
-  };
+  }>;
 };
 
-export default function AivsPage({ params, searchParams }: PageProps) {
+export default async function AivsPage({ params, searchParams }: PageProps) {
+  const { workspaceId } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+
   const mode: WorkspaceMode =
-    searchParams?.mode === "team" || searchParams?.mode === "personal"
-      ? searchParams.mode
+    resolvedSearchParams.mode === "team" ||
+    resolvedSearchParams.mode === "personal"
+      ? resolvedSearchParams.mode
       : "personal";
 
   return (
     <main className="">
-      
-        <ProjectManagerList workspaceId={params.workspaceId} mode={mode} />
-    
+      <ProjectManagerList workspaceId={workspaceId} mode={mode} />
     </main>
   );
 }
