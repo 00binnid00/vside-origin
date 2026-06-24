@@ -69,6 +69,8 @@ type WorkspaceLike = {
 
 type WorkspaceSidebarItem = {
   id: string;
+  uuid?: string;
+  workspaceId?: string;
   name: string;
   mode: WorkspaceMode;
   role?: string;
@@ -119,6 +121,8 @@ function mapWorkspaceFromApi(item: WorkspaceLike): WorkspaceSidebarItem | null {
 
   return {
     id,
+    uuid: item.uuid,
+    workspaceId: item.workspaceId,
     name: item.name || item.title || item.projectName || "이름 없는 프로젝트",
     mode,
     role: item.role,
@@ -128,6 +132,17 @@ function mapWorkspaceFromApi(item: WorkspaceLike): WorkspaceSidebarItem | null {
       item.childrenCount ??
       (Array.isArray(item.children) ? item.children.length : 0),
   };
+}
+
+function isSameWorkspace(
+  workspace: WorkspaceSidebarItem,
+  targetWorkspaceId: string,
+) {
+  return (
+    workspace.id === targetWorkspaceId ||
+    workspace.uuid === targetWorkspaceId ||
+    workspace.workspaceId === targetWorkspaceId
+  );
 }
 
 
@@ -227,24 +242,61 @@ export default function DevlogManagementMock() {
 
       setWorkspaces(mapped);
 
-      const matchedWorkspace = mapped.find(
-        (workspace) => workspace.id === workspaceId,
+      if (mapped.length === 0) {
+        setWorkspaceName("프로젝트");
+        setWorkspaceErrorMessage("접근 가능한 프로젝트가 없습니다.");
+        return;
+      }
+
+      if (!workspaceId) {
+        const firstWorkspace = mapped[0];
+        const params = new URLSearchParams(searchParams.toString());
+
+        params.set("workspaceId", firstWorkspace.id);
+        params.set("mode", firstWorkspace.mode);
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem("currentWorkspaceId", firstWorkspace.id);
+          localStorage.setItem("currentWorkspaceMode", firstWorkspace.mode);
+        }
+
+        setWorkspaceName(firstWorkspace.name);
+        router.replace(`${pathname}?${params.toString()}`);
+        return;
+      }
+
+      const matchedWorkspace = mapped.find((workspace) =>
+        isSameWorkspace(workspace, workspaceId),
       );
 
       if (matchedWorkspace) {
         setWorkspaceName(matchedWorkspace.name);
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem("currentWorkspaceId", matchedWorkspace.id);
+          localStorage.setItem("currentWorkspaceMode", matchedWorkspace.mode);
+        }
+
         return;
       }
 
-      if (!workspaceId && mapped[0]) {
-        const params = new URLSearchParams(searchParams.toString());
-
-        params.set("workspaceId", mapped[0].id);
-        params.set("mode", mapped[0].mode);
-
-        setWorkspaceName(mapped[0].name);
-        router.replace(`${pathname}?${params.toString()}`);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("currentWorkspaceId");
+        localStorage.removeItem("currentWorkspaceMode");
       }
+
+      const firstWorkspace = mapped[0];
+      const params = new URLSearchParams(searchParams.toString());
+
+      params.set("workspaceId", firstWorkspace.id);
+      params.set("mode", firstWorkspace.mode);
+
+      setWorkspaceName(firstWorkspace.name);
+      setWorkspaceErrorMessage(
+        "접근 권한이 없는 프로젝트입니다. 접근 가능한 프로젝트로 이동합니다.",
+      );
+
+      router.replace(`${pathname}?${params.toString()}`);
     } catch {
       setWorkspaceErrorMessage("프로젝트 목록을 불러오지 못했습니다.");
     } finally {
@@ -258,8 +310,8 @@ export default function DevlogManagementMock() {
       return;
     }
 
-    const matchedWorkspace = workspaces.find(
-      (workspace) => workspace.id === workspaceId,
+    const matchedWorkspace = workspaces.find((workspace) =>
+      isSameWorkspace(workspace, workspaceId),
     );
 
     if (matchedWorkspace) {
@@ -291,11 +343,39 @@ export default function DevlogManagementMock() {
   };
 
   const loadDevlogData = async () => {
+    if (workspaceLoading) {
+      return;
+    }
+
     if (!workspaceId) {
       setLoading(false);
       setErrorMessage(
         "workspaceId가 없습니다. 메인에서 프로젝트를 다시 선택해주세요.",
       );
+      return;
+    }
+
+    const matchedWorkspace = workspaces.find((workspace) =>
+      isSameWorkspace(workspace, workspaceId),
+    );
+
+    if (!matchedWorkspace) {
+      setLoading(false);
+      setSchedules([]);
+      setDevlogs([]);
+      setErrorMessage(
+        "접근 권한이 없는 프로젝트입니다. 메인에서 프로젝트를 다시 선택해주세요.",
+      );
+
+      if (typeof window !== "undefined") {
+        const savedWorkspaceId = localStorage.getItem("currentWorkspaceId");
+
+        if (savedWorkspaceId === workspaceId) {
+          localStorage.removeItem("currentWorkspaceId");
+          localStorage.removeItem("currentWorkspaceMode");
+        }
+      }
+
       return;
     }
 
@@ -344,10 +424,12 @@ export default function DevlogManagementMock() {
   }, []);
 
   useEffect(() => {
+    if (workspaceLoading) return;
+
     void loadWorkspaceName();
     void loadDevlogData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, [workspaceId, workspaceLoading, workspaces]);
 
   const noDevlogSchedules = useMemo(() => {
     return schedules.filter((schedule) => {
