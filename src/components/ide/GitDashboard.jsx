@@ -27,6 +27,8 @@ import {
   VscSourceControl,
   VscTrash,
   VscWarning,
+  VscCopy,
+  VscInfo,
 } from "react-icons/vsc";
 
 import {
@@ -51,6 +53,7 @@ import {
   fetchFileContentApi,
   fetchGitHistoryApi,
   fetchGitStatusApi,
+  mergeBranchesApi,
   mergeCommitApi,
   pullFromRemoteApi,
   pushToRemoteApi,
@@ -103,6 +106,245 @@ const hasConflictMarkers = (content = "") => {
   return /(^|\n)<{7}|(^|\n)={7}|(^|\n)>{7}/m.test(String(content || ""));
 };
 
+const isProtectedBranchName = (branchName = "") => {
+  return ["master", "main"].includes(String(branchName).toLowerCase());
+};
+
+const isSandboxBranchName = (branchName = "") => {
+  const value = String(branchName || "");
+  return value.startsWith("focus-") || value.startsWith("focus/");
+};
+
+const normalizeBranchListForMerge = (branches = []) => {
+  return Array.from(new Set(Array.isArray(branches) ? branches : []))
+    .filter(Boolean)
+    .filter((branch) => !isSandboxBranchName(branch))
+    .sort((a, b) => {
+      const priority = (branch) => {
+        const lower = String(branch).toLowerCase();
+
+        if (lower === "master") return 0;
+        if (lower === "main") return 1;
+        if (lower === "develop") return 2;
+        if (lower.startsWith("feature/")) return 3;
+        if (lower.startsWith("release/")) return 4;
+        if (lower.startsWith("hotfix/")) return 5;
+
+        return 6;
+      };
+
+      const diff = priority(a) - priority(b);
+      if (diff !== 0) return diff;
+
+      return String(a).localeCompare(String(b));
+    });
+};
+
+const getDashboardBranchMeta = (branchName = "") => {
+  const branch = String(branchName || "");
+  const lower = branch.toLowerCase();
+
+  if (lower === "master" || lower === "main") {
+    return {
+      label: "MAIN",
+      dotClass: "bg-slate-500",
+      badgeClass: "border-slate-200 bg-slate-50 text-slate-700",
+      activeClass: "border-slate-200 bg-slate-50 text-slate-900",
+    };
+  }
+
+  if (lower === "develop") {
+    return {
+      label: "DEVELOP",
+      dotClass: "bg-blue-500",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+      activeClass: "border-blue-200 bg-blue-50 text-blue-900",
+    };
+  }
+
+  if (lower.startsWith("feature/")) {
+    return {
+      label: "FEATURE",
+      dotClass: "bg-violet-500",
+      badgeClass: "border-violet-200 bg-violet-50 text-violet-700",
+      activeClass: "border-violet-200 bg-violet-50 text-violet-900",
+    };
+  }
+
+  if (lower.startsWith("release/")) {
+    return {
+      label: "RELEASE",
+      dotClass: "bg-amber-500",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+      activeClass: "border-amber-200 bg-amber-50 text-amber-900",
+    };
+  }
+
+  if (lower.startsWith("hotfix/")) {
+    return {
+      label: "HOTFIX",
+      dotClass: "bg-rose-500",
+      badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
+      activeClass: "border-rose-200 bg-rose-50 text-rose-900",
+    };
+  }
+
+  return {
+    label: "BRANCH",
+    dotClass: "bg-emerald-500",
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    activeClass: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  };
+};
+
+function DashboardBranchBadge({ branch }) {
+  const meta = getDashboardBranchMeta(branch);
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-black tracking-wide ${meta.badgeClass}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function BranchMergeSelect({
+  value,
+  options = [],
+  onChange,
+  placeholder = "브랜치 선택",
+  excludeValue = "",
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  const visibleOptions = options.filter((option) => option !== excludeValue);
+  const selectedValue = value || "";
+
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const getBranchBadgeClass = (branchName = "") => {
+    const lower = String(branchName).toLowerCase();
+
+    if (lower === "master" || lower === "main") {
+      return "bg-slate-100 text-slate-700 border-slate-200";
+    }
+
+    if (lower === "develop") {
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    }
+
+    if (lower.startsWith("feature/")) {
+      return "bg-violet-50 text-violet-700 border-violet-200";
+    }
+
+    if (lower.startsWith("release/")) {
+      return "bg-amber-50 text-amber-700 border-amber-200";
+    }
+
+    if (lower.startsWith("hotfix/")) {
+      return "bg-rose-50 text-rose-700 border-rose-200";
+    }
+
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={`flex h-11 w-full items-center justify-between rounded-xl border bg-white px-3 text-left text-sm font-bold shadow-sm outline-none transition-all ${
+          open
+            ? "border-emerald-400 ring-4 ring-emerald-50"
+            : "border-slate-200 hover:border-slate-300"
+        }`}
+      >
+        <span className="min-w-0 truncate">
+          {selectedValue ? (
+            <span
+              className={`inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-black ${getBranchBadgeClass(
+                selectedValue,
+              )}`}
+            >
+              <span className="truncate">{selectedValue}</span>
+            </span>
+          ) : (
+            <span className="text-slate-400">{placeholder}</span>
+          )}
+        </span>
+
+        <span
+          className={`ml-3 text-slate-400 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[10050] mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.18)]">
+          <div className="max-h-56 overflow-y-auto p-1.5">
+            {visibleOptions.length === 0 && (
+              <div className="px-3 py-3 text-center text-xs font-bold text-slate-400">
+                선택할 브랜치가 없습니다.
+              </div>
+            )}
+
+            {visibleOptions.map((option) => {
+              const selected = option === selectedValue;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all ${
+                    selected
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span
+                    className={`inline-flex max-w-[220px] items-center rounded-full border px-2.5 py-1 text-xs font-black ${getBranchBadgeClass(
+                      option,
+                    )}`}
+                  >
+                    <span className="truncate">{option}</span>
+                  </span>
+
+                  {selected && (
+                    <span className="ml-3 text-xs font-black text-emerald-600">
+                      ✓
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GitDashboard() {
   const dispatch = useDispatch();
   const { workspaceId, activeProject, activeBranch, projectList } = useSelector(
@@ -128,9 +370,20 @@ export default function GitDashboard() {
 
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
+  const [commitDetailModal, setCommitDetailModal] = useState(null);
 
   const [branchContextMenu, setBranchContextMenu] = useState(null);
   const branchContextMenuRef = useRef(null);
+
+  const [branchMergeModal, setBranchMergeModal] = useState(null);
+  const [branchMergeDraft, setBranchMergeDraft] = useState({
+    sourceBranch: "",
+    targetBranch: DEFAULT_BRANCH,
+    mergeMode: "NO_FF",
+    deleteSourceAfterMerge: false,
+    checkoutTargetAfterMerge: true,
+  });
+  const [isBranchMerging, setIsBranchMerging] = useState(false);
 
   const [conflictNotice, setConflictNotice] = useState(null);
   const [appDialog, setAppDialog] = useState(null);
@@ -377,13 +630,16 @@ export default function GitDashboard() {
     dispatch(setActiveBranch(branchName));
   };
 
-  const handleBranchRightClick = (event, branchName) => {
+    const handleBranchRightClick = (event, branchName) => {
     event.preventDefault();
 
-    if (["master", "main"].includes(String(branchName).toLowerCase())) return;
-    if (branchName === currentBranch) return;
+    if (!branchName) return;
 
-    setBranchContextMenu({ x: event.pageX, y: event.pageY, branch: branchName });
+    setBranchContextMenu({
+      x: event.pageX,
+      y: event.pageY,
+      branch: branchName,
+    });
   };
 
   const handleDeleteBranch = async () => {
@@ -395,7 +651,8 @@ export default function GitDashboard() {
     const confirmed = await showConfirm({
       title: "브랜치를 삭제할까요?",
       message: `'${branchName}' 브랜치를 삭제합니다. 삭제된 브랜치의 워크트리도 함께 제거됩니다.`,
-      detail: "현재 작업 중인 브랜치는 삭제할 수 없습니다. 다른 브랜치로 이동한 뒤 진행하세요.",
+      detail:
+        "현재 작업 중인 브랜치는 삭제할 수 없습니다. 다른 브랜치로 이동한 뒤 진행하세요.",
       variant: "danger",
       confirmText: "삭제하기",
       cancelText: "취소",
@@ -405,8 +662,11 @@ export default function GitDashboard() {
 
     try {
       setIsLoading(true);
+
       await deleteBranchApi(workspaceId, activeProject, branchName);
+
       setBranchList((prev) => prev.filter((branch) => branch !== branchName));
+
       showAlert({
         title: "브랜치 삭제 완료",
         message: `'${branchName}' 브랜치가 삭제되었습니다.`,
@@ -422,6 +682,211 @@ export default function GitDashboard() {
       setIsLoading(false);
     }
   };
+
+  const openBranchMergeModal = ({
+    sourceBranch,
+    targetBranch = currentBranch,
+    checkoutTargetAfterMerge = true,
+  } = {}) => {
+    if (!sourceBranch) return;
+
+    const normalBranches = normalizeBranchListForMerge(branchList);
+
+    const safeTarget =
+      targetBranch && targetBranch !== sourceBranch
+        ? targetBranch
+        : normalBranches.find((branch) => branch !== sourceBranch) ||
+          DEFAULT_BRANCH;
+
+    setBranchMergeDraft({
+      sourceBranch,
+      targetBranch: safeTarget,
+      mergeMode: "NO_FF",
+      deleteSourceAfterMerge: false,
+      checkoutTargetAfterMerge,
+    });
+
+    setBranchContextMenu(null);
+
+    setBranchMergeModal({
+      sourceBranch,
+    });
+  };
+
+  const applyBranchMergeStatusToScreen = async (targetBranch) => {
+    const statusData = await fetchGitStatusApi(
+      workspaceId,
+      activeProject,
+      targetBranch,
+    );
+
+    const nextConflictedFiles = statusData.conflicted || [];
+
+    setStagedFiles(statusData.staged || []);
+    setUnstagedFiles(statusData.unstaged || []);
+    setConflictedFiles(nextConflictedFiles);
+    setIsMerging(Boolean(statusData.isMerging || nextConflictedFiles.length));
+
+    if (statusData.isMerging || nextConflictedFiles.length > 0) {
+      setActiveView("status");
+
+      setConflictNotice({
+        branchName: targetBranch,
+        files: nextConflictedFiles,
+        fileCount: nextConflictedFiles.length,
+        createdAt: Date.now(),
+      });
+    }
+  };
+
+  const executeBranchMerge = async () => {
+    const {
+      sourceBranch,
+      targetBranch,
+      mergeMode,
+      deleteSourceAfterMerge,
+      checkoutTargetAfterMerge,
+    } = branchMergeDraft;
+
+    if (!sourceBranch || !targetBranch) {
+      showAlert({
+        title: "브랜치 선택이 필요합니다",
+        message: "병합할 브랜치와 병합 받을 브랜치를 모두 선택해주세요.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    if (sourceBranch === targetBranch) {
+      showAlert({
+        title: "브랜치 병합 불가",
+        message: "같은 브랜치끼리는 병합할 수 없습니다.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    if (isMerging) {
+      showAlert({
+        title: "병합 충돌 해결 중입니다",
+        message:
+          "현재 진행 중인 병합을 완료하거나 취소한 뒤 다른 브랜치 병합을 실행하세요.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: "브랜치를 병합할까요?",
+      message: `${sourceBranch} → ${targetBranch}`,
+      detail:
+        "충돌이 발생하면 대상 브랜치에서 충돌 해결 모드로 전환됩니다. 병합 전 대상 브랜치에 커밋하지 않은 변경사항이 없어야 합니다.",
+      variant: "warning",
+      confirmText: "병합 시작",
+      cancelText: "취소",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      setIsBranchMerging(true);
+      setIsLoading(true);
+
+      const result = await mergeBranchesApi({
+        workspaceId,
+        projectName: activeProject,
+        sourceBranch,
+        targetBranch,
+        mergeMode,
+        deleteSourceAfterMerge,
+      });
+
+      await loadBranches();
+
+      if (checkoutTargetAfterMerge || targetBranch === currentBranch) {
+        dispatch(closeAllFiles());
+        dispatch(clearVirtualTree());
+        dispatch(setActiveBranch(targetBranch));
+
+        setActiveView("status");
+
+        await applyBranchMergeStatusToScreen(targetBranch);
+      }
+
+      setBranchMergeModal(null);
+
+      showAlert({
+        title: "브랜치 병합 완료",
+        message:
+          typeof result === "object" && result?.message
+            ? result.message
+            : `${sourceBranch} 브랜치가 ${targetBranch} 브랜치에 병합되었습니다.`,
+        variant: "success",
+      });
+
+      await loadGitStatus();
+    } catch (error) {
+      setBranchMergeModal(null);
+
+      if (targetBranch) {
+        dispatch(closeAllFiles());
+        dispatch(clearVirtualTree());
+        dispatch(setActiveBranch(targetBranch));
+
+        setActiveView("status");
+
+        try {
+          await applyBranchMergeStatusToScreen(targetBranch);
+        } catch {
+          // 충돌 상태 조회 실패는 alert에서 처리
+        }
+      }
+
+      showAlert({
+        title: "브랜치 병합 실패",
+        message: error.message,
+        detail:
+          "충돌이 발생했다면 대상 브랜치의 File Status에서 충돌 파일을 해결한 뒤 Merge 완료 커밋을 진행하세요.",
+        variant: "danger",
+      });
+    } finally {
+      setIsBranchMerging(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleBranchContextAction = async (action) => {
+  if (!branchContextMenu) return;
+
+  const branchName = branchContextMenu.branch;
+
+  if (action === "switch") {
+    setBranchContextMenu(null);
+    handleBranchChange(branchName);
+    return;
+  }
+
+  if (action === "merge") {
+    const fallbackTarget =
+      branchName === currentBranch
+        ? normalizeBranchListForMerge(branchList).find(
+            (branch) => branch !== branchName,
+          ) || DEFAULT_BRANCH
+        : currentBranch;
+
+    openBranchMergeModal({
+      sourceBranch: branchName,
+      targetBranch: fallbackTarget,
+      checkoutTargetAfterMerge: true,
+    });
+
+    return;
+  }
+
+  if (action === "delete") {
+    await handleDeleteBranch();
+  }
+};
 
   const handleStage = async (filePattern) => {
     try {
@@ -851,16 +1316,58 @@ export default function GitDashboard() {
     setContextMenu({ x: event.pageX, y: event.pageY, commit: log });
   };
 
+  const copyCommitHash = async (hash) => {
+    if (!hash) return;
+
+    try {
+      await navigator.clipboard.writeText(hash);
+
+      showAlert({
+        title: "커밋 해시 복사 완료",
+        message: hash,
+        variant: "success",
+      });
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = hash;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+
+      showAlert({
+        title: "커밋 해시 복사 완료",
+        message: hash,
+        variant: "success",
+      });
+    }
+  };
+
   const handleContextMenuAction = async (action) => {
     if (!contextMenu) return;
 
-    const targetHash = contextMenu.commit.hash;
+    const targetCommit = contextMenu.commit;
+    const targetHash = targetCommit.hash;
+
     setContextMenu(null);
+
+    if (action === "detail") {
+      setCommitDetailModal(targetCommit);
+      return;
+    }
+
+    if (action === "copy") {
+      await copyCommitHash(targetHash);
+      return;
+    }
 
     if (isMerging) {
       showAlert({
         title: "병합 충돌 해결 중입니다",
-        message: "현재 병합 작업이 일시정지되어 있습니다. 충돌 파일을 해결 완료 처리하거나 병합을 취소한 뒤 다른 Git 작업을 진행하세요.",
+        message:
+          "현재 병합 작업이 일시정지되어 있습니다. 충돌 파일을 해결 완료 처리하거나 병합을 취소한 뒤 다른 Git 작업을 진행하세요.",
         variant: "warning",
       });
       return;
@@ -868,6 +1375,8 @@ export default function GitDashboard() {
 
     try {
       setIsLoading(true);
+
+      // 여기 아래 checkout / merge / reset 기존 로직은 그대로 유지
 
       if (action === "checkout") {
         const confirmed = await showConfirm({
@@ -1100,58 +1609,447 @@ export default function GitDashboard() {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-[9999] w-72 rounded-md border border-gray-200 bg-white py-1 text-sm text-gray-700 shadow-xl"
+          className="fixed z-[9999] w-76 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 text-sm text-slate-700 shadow-[0_18px_50px_rgba(15,23,42,0.18)]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
-          <div className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
-            <span className="font-mono text-xs font-bold text-blue-600">
-              Commit: {contextMenu.commit.hash.substring(0, 7)}
-            </span>
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+              Commit
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-xs font-black text-blue-700">
+                {contextMenu.commit.hash.substring(0, 7)}
+              </span>
+              {contextMenu.commit.refs && (
+                <span className="truncate text-[11px] font-bold text-slate-500">
+                  {contextMenu.commit.refs}
+                </span>
+              )}
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => handleContextMenuAction("detail")}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 hover:text-slate-900"
+          >
+            <VscInfo size={16} className="text-slate-500" />
+            커밋 상세 보기
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleContextMenuAction("copy")}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 hover:text-slate-900"
+          >
+            <VscCopy size={16} className="text-slate-500" />
+            커밋 해시 복사
+          </button>
+
+          <div className="my-1 border-t border-slate-100" />
+
           <button
             type="button"
             onClick={() => handleContextMenuAction("checkout")}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
           >
             <VscRepoForked size={16} /> 이 커밋으로 Checkout
           </button>
+
           <button
             type="button"
             onClick={() => handleContextMenuAction("merge")}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-emerald-50 hover:text-emerald-700"
           >
             <VscSourceControl size={16} /> 현재 브랜치로 병합
           </button>
+
+          <div className="my-1 border-t border-slate-100" />
+
           <button
             type="button"
             onClick={() => handleContextMenuAction("reset")}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left font-bold text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
           >
             <VscHistory size={16} /> 이 커밋으로 초기화
           </button>
         </div>
       )}
 
-      {branchContextMenu && (
-        <div
-          ref={branchContextMenuRef}
-          className="fixed z-[9999] w-48 rounded-md border border-gray-200 bg-white py-1 text-sm text-gray-700 shadow-xl"
-          style={{ top: branchContextMenu.y, left: branchContextMenu.x }}
+      {commitDetailModal && (
+  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[3px]">
+    <div className="w-full max-w-[560px] overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.28)] animate-fade-in-up">
+      <div className="relative border-b border-slate-100 bg-gradient-to-br from-white via-slate-50 to-blue-50/70 px-7 py-6">
+        <button
+          type="button"
+          onClick={() => setCommitDetailModal(null)}
+          className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-white hover:text-slate-700"
+          title="닫기"
         >
-          <div className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
-            <span className="font-mono text-xs font-bold text-gray-600">
-              Branch: {branchContextMenu.branch}
-            </span>
+          <VscClose size={16} />
+        </button>
+
+        <div className="flex items-start gap-4 pr-10">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-600 shadow-sm">
+            <VscInfo size={28} />
           </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                Commit Detail
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">
+                Git History
+              </span>
+            </div>
+
+            <h2 className="text-[19px] font-black tracking-tight text-slate-950">
+              커밋 상세 정보
+            </h2>
+
+            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
+              선택한 커밋의 해시, 작성자, 날짜, 메시지를 확인합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 bg-white px-7 py-6">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+            Commit Hash
+          </div>
+
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-black text-slate-800">
+              {commitDetailModal.hash}
+            </code>
+
+            <button
+              type="button"
+              onClick={() => copyCommitHash(commitDetailModal.hash)}
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+            >
+              <VscCopy size={14} />
+              복사
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <div className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+              Author
+            </div>
+            <div className="truncate text-sm font-black text-slate-800">
+              {commitDetailModal.author || "-"}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <div className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+              Date
+            </div>
+            <div className="truncate text-sm font-black text-slate-800">
+              {commitDetailModal.date || "-"}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+          <div className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+            Message
+          </div>
+          <div className="whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-800">
+            {commitDetailModal.message || "-"}
+          </div>
+        </div>
+
+        {commitDetailModal.refs && (
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <div className="mb-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
+              References
+            </div>
+            <div className="text-sm font-bold text-slate-700">
+              {commitDetailModal.refs}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-7 py-5">
+        <button
+          type="button"
+          onClick={() => setCommitDetailModal(null)}
+          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+        >
+          닫기
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+      {branchContextMenu && (
+  <div
+    ref={branchContextMenuRef}
+    className="fixed z-[9999] w-64 rounded-md border border-gray-200 bg-white py-1 text-sm text-gray-700 shadow-xl"
+    style={{ top: branchContextMenu.y, left: branchContextMenu.x }}
+  >
+    <div className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
+      <span className="font-mono text-xs font-bold text-gray-600">
+        Branch: {branchContextMenu.branch}
+      </span>
+    </div>
+
+    {branchContextMenu.branch !== currentBranch && (
+      <button
+        type="button"
+        onClick={() => handleBranchContextAction("switch")}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-blue-50 hover:text-blue-600"
+      >
+        <VscRepoForked size={16} /> 이 브랜치로 전환
+      </button>
+    )}
+
+    <button
+      type="button"
+      onClick={() => handleBranchContextAction("merge")}
+      className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+    >
+      <VscSourceControl size={16} /> 브랜치 병합...
+    </button>
+
+    {!isProtectedBranchName(branchContextMenu.branch) &&
+      branchContextMenu.branch !== currentBranch && (
+        <>
+          <div className="my-1 border-t border-gray-100" />
           <button
             type="button"
-            onClick={handleDeleteBranch}
+            onClick={() => handleBranchContextAction("delete")}
             className="flex w-full items-center gap-2 px-4 py-2 text-left font-bold text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
           >
             <VscTrash size={16} /> 브랜치 삭제
           </button>
-        </div>
+        </>
       )}
+  </div>
+)}
+
+{branchMergeModal && (
+  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[3px]">
+    <div className="w-full max-w-[520px] overflow-visible rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.28)] animate-fade-in-up">
+      <div className="relative rounded-t-3xl border-b border-slate-100 bg-gradient-to-br from-white via-slate-50 to-emerald-50/60 px-7 py-6">
+        <button
+          type="button"
+          onClick={() => setBranchMergeModal(null)}
+          className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-white hover:text-slate-700"
+          title="닫기"
+        >
+          <VscClose size={16} />
+        </button>
+
+        <div className="flex items-start gap-4 pr-10">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-600 shadow-sm">
+            <VscSourceControl size={28} />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-700">
+                Branch Merge
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">
+                Sourcetree Flow
+              </span>
+            </div>
+
+            <h2 className="text-[19px] font-black tracking-tight text-slate-950">
+              브랜치 병합
+            </h2>
+
+            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
+              선택한 source 브랜치를 target 브랜치로 병합합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white px-7 py-6">
+        <div className="grid gap-4">
+          <div>
+            <label className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">
+              Source Branch
+            </label>
+
+            <BranchMergeSelect
+              value={branchMergeDraft.sourceBranch}
+              options={normalizeBranchListForMerge(branchList)}
+              placeholder="병합할 브랜치 선택"
+              onChange={(nextSourceBranch) =>
+                setBranchMergeDraft((prev) => ({
+                  ...prev,
+                  sourceBranch: nextSourceBranch,
+                  targetBranch:
+                    nextSourceBranch === prev.targetBranch
+                      ? normalizeBranchListForMerge(branchList).find(
+                          (branch) => branch !== nextSourceBranch,
+                        ) || DEFAULT_BRANCH
+                      : prev.targetBranch,
+                }))
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700">
+            <span className="max-w-[190px] truncate font-mono text-blue-700">
+              {branchMergeDraft.sourceBranch || "source"}
+            </span>
+            <VscArrowRight className="mx-3 text-emerald-600" size={18} />
+            <span className="max-w-[190px] truncate font-mono text-emerald-700">
+              {branchMergeDraft.targetBranch || "target"}
+            </span>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">
+              Target Branch
+            </label>
+
+            <BranchMergeSelect
+              value={branchMergeDraft.targetBranch}
+              options={normalizeBranchListForMerge(branchList)}
+              excludeValue={branchMergeDraft.sourceBranch}
+              placeholder="병합 받을 브랜치 선택"
+              onChange={(nextTargetBranch) =>
+                setBranchMergeDraft((prev) => ({
+                  ...prev,
+                  targetBranch: nextTargetBranch,
+                }))
+              }
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">
+              Merge Mode
+            </label>
+
+            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setBranchMergeDraft((prev) => ({
+                    ...prev,
+                    mergeMode: "NO_FF",
+                  }))
+                }
+                className={`rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+                  branchMergeDraft.mergeMode === "NO_FF"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                No Fast-Forward
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setBranchMergeDraft((prev) => ({
+                    ...prev,
+                    mergeMode: "FF",
+                  }))
+                }
+                className={`rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+                  branchMergeDraft.mergeMode === "FF"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Fast-Forward 허용
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+              <input
+                type="checkbox"
+                checked={branchMergeDraft.checkoutTargetAfterMerge}
+                onChange={(event) =>
+                  setBranchMergeDraft((prev) => ({
+                    ...prev,
+                    checkoutTargetAfterMerge: event.target.checked,
+                  }))
+                }
+                className="h-4 w-4"
+              />
+              병합 후 target 브랜치로 이동
+            </label>
+
+            <label className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-700">
+              <input
+                type="checkbox"
+                checked={branchMergeDraft.deleteSourceAfterMerge}
+                onChange={(event) =>
+                  setBranchMergeDraft((prev) => ({
+                    ...prev,
+                    deleteSourceAfterMerge: event.target.checked,
+                  }))
+                }
+                className="h-4 w-4"
+              />
+              병합 성공 후 source 브랜치 삭제
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-bold leading-relaxed text-amber-800">
+              병합 전 target 브랜치에 커밋하지 않은 변경사항이 있으면 병합이 중단됩니다.
+              충돌이 발생하면 File Status에서 충돌 파일을 해결한 뒤 Merge 완료 커밋을 진행하세요.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 rounded-b-3xl border-t border-slate-100 bg-slate-50/80 px-7 py-5">
+        <button
+          type="button"
+          onClick={() => setBranchMergeModal(null)}
+          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+        >
+          취소
+        </button>
+
+        <button
+          type="button"
+          onClick={executeBranchMerge}
+          disabled={
+            isBranchMerging ||
+            !branchMergeDraft.sourceBranch ||
+            !branchMergeDraft.targetBranch ||
+            branchMergeDraft.sourceBranch === branchMergeDraft.targetBranch
+          }
+          className="flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isBranchMerging ? (
+            <>
+              <VscRefresh className="animate-spin" size={15} />
+              병합 중
+            </>
+          ) : (
+            <>
+              <VscCheck size={15} />
+              병합 실행
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {renderAppDialog()}
 
@@ -1529,27 +2427,68 @@ export default function GitDashboard() {
             </div>
 
             <div className="mt-1 flex flex-col gap-0.5">
-              {branchList.map((branch) => (
-                <button
-                  type="button"
-                  key={branch}
-                  onClick={() => handleBranchChange(branch)}
-                  onContextMenu={(event) => handleBranchRightClick(event, branch)}
-                  className={`flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
-                    branch === currentBranch
-                      ? "border-l-2 border-blue-500 bg-gray-100 font-bold text-gray-800"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-800"
-                  }`}
-                >
-                  <span className="flex min-w-0 items-center gap-2 truncate">
+              {branchList.map((branch) => {
+                const isActiveBranch = branch === currentBranch;
+                const branchMeta = getDashboardBranchMeta(branch);
+
+                return (
+                  <button
+                    key={branch}
+                    type="button"
+                    onClick={() => handleBranchChange(branch)}
+                    onContextMenu={(event) => handleBranchRightClick(event, branch)}
+                    className={`group flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      isActiveBranch
+                        ? `${branchMeta.activeClass} shadow-sm`
+                        : "border-transparent bg-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:shadow-sm"
+                    }`}
+                    title={`${branch} 브랜치`}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${branchMeta.dotClass}`}
+                      />
+
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className={`truncate text-[12px] font-black ${
+                              isActiveBranch ? "text-slate-950" : "text-slate-700"
+                            }`}
+                          >
+                            {branch}
+                          </span>
+
+                          {isActiveBranch && (
+                            <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] font-black text-blue-600">
+                              현재
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <DashboardBranchBadge branch={branch} />
+
+                          {!isProtectedBranchName(branch) && branch !== currentBranch && (
+                            <span className="text-[9px] font-bold text-slate-400 opacity-0 transition-opacity group-hover:opacity-100">
+                              우클릭 메뉴
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <VscRepoForked
-                      size={16}
-                      className={branch === currentBranch ? "text-blue-600" : "text-gray-400"}
+                      size={14}
+                      className={`shrink-0 transition-colors ${
+                        isActiveBranch
+                          ? "text-blue-500"
+                          : "text-slate-300 group-hover:text-slate-500"
+                      }`}
                     />
-                    <span className="truncate">{branch}</span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

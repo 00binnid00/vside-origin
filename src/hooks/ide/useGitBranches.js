@@ -17,20 +17,107 @@ import {
   deleteBranchApi,
   fetchBranchListApi,
   fetchProjectFilesApi,
+  mergeBranchesApi,
   saveFileApi,
 } from "@/lib/ide/api";
 
 export const DEFAULT_BRANCH = "master";
+export const DEVELOP_BRANCH = "develop";
 export const PROTECTED_BRANCHES = ["master", "main"];
 
 const RESERVED_BRANCH_NAMES = new Set(["head", "fetch_head", "orig_head"]);
 
+const normalizeBranchValue = (branch) => {
+  if (typeof branch === "string") {
+    const value = branch.trim();
+    return value === "[object Object]" ? "" : value;
+  }
+
+  if (branch && typeof branch === "object") {
+    const value =
+      branch.branchName ||
+      branch.sandboxBranchName ||
+      branch.sandboxBranch ||
+      branch.branch ||
+      branch.name ||
+      branch.currentBranch ||
+      branch.data?.branchName ||
+      branch.data?.sandboxBranchName ||
+      branch.data?.sandboxBranch ||
+      branch.result?.branchName ||
+      branch.result?.sandboxBranchName ||
+      branch.result?.sandboxBranch ||
+      "";
+
+    return normalizeBranchValue(value);
+  }
+
+  return "";
+};
+
+const extractSandboxBranchName = (payload) => {
+  const branchName = normalizeBranchValue(payload);
+
+  if (!branchName) {
+    throw new Error(
+      "서버가 샌드박스 브랜치명을 올바르게 반환하지 않았습니다.",
+    );
+  }
+
+  if (!isSandboxBranch(branchName)) {
+    throw new Error(`샌드박스 브랜치명이 올바르지 않습니다: ${branchName}`);
+  }
+
+  return branchName;
+};
+
+const getSandboxResultMessage = (payload, fallbackMessage) => {
+  if (!payload) return fallbackMessage;
+
+  if (typeof payload === "string") {
+    return payload || fallbackMessage;
+  }
+
+  if (typeof payload === "object") {
+    return (
+      payload.message ||
+      payload.resultMessage ||
+      payload.result ||
+      payload.status ||
+      fallbackMessage
+    );
+  }
+
+  return fallbackMessage;
+};
+
+const getMergeResultMessage = (payload, fallbackMessage) => {
+  if (!payload) return fallbackMessage;
+
+  if (typeof payload === "string") {
+    return payload || fallbackMessage;
+  }
+
+  if (typeof payload === "object") {
+    return (
+      payload.message ||
+      payload.resultMessage ||
+      payload.result ||
+      payload.status ||
+      fallbackMessage
+    );
+  }
+
+  return fallbackMessage;
+};
+
 export const isProtectedBranch = (branchName) => {
-  return PROTECTED_BRANCHES.includes(String(branchName || "").toLowerCase());
+  const normalized = normalizeBranchValue(branchName).toLowerCase();
+  return PROTECTED_BRANCHES.includes(normalized);
 };
 
 export const isSandboxBranch = (branchName) => {
-  const normalized = String(branchName || "");
+  const normalized = normalizeBranchValue(branchName);
   return normalized.startsWith("focus-") || normalized.startsWith("focus/");
 };
 
@@ -38,7 +125,7 @@ const normalizeBranchList = (branches) => {
   const uniqueBranches = Array.from(
     new Set(
       (Array.isArray(branches) ? branches : [])
-        .map((branch) => String(branch || "").trim())
+        .map(normalizeBranchValue)
         .filter(Boolean),
     ),
   );
@@ -48,8 +135,15 @@ const normalizeBranchList = (branches) => {
 
     if (lowerBranch === "master") return 0;
     if (lowerBranch === "main") return 1;
+    if (lowerBranch === "develop") return 2;
+    if (lowerBranch.startsWith("feature/")) return 3;
+    if (lowerBranch.startsWith("release/")) return 4;
+    if (lowerBranch.startsWith("hotfix/")) return 5;
+    if (lowerBranch.startsWith("focus-") || lowerBranch.startsWith("focus/")) {
+      return 6;
+    }
 
-    return 2;
+    return 7;
   };
 
   return uniqueBranches.sort((a, b) => {
@@ -62,7 +156,7 @@ const normalizeBranchList = (branches) => {
 };
 
 export const validateBranchName = (rawBranchName, branches = []) => {
-  const branchName = String(rawBranchName || "").trim();
+  const branchName = normalizeBranchValue(rawBranchName);
 
   if (!branchName) return "브랜치명을 입력해주세요.";
   if (branchName.length > 120) return "브랜치명은 120자 이하로 입력해주세요.";
@@ -77,9 +171,11 @@ export const validateBranchName = (rawBranchName, branches = []) => {
     return "Git 예약어는 브랜치명으로 사용할 수 없습니다.";
   }
 
+  const normalizedBranches = normalizeBranchList(branches);
+
   if (
-    branches.some(
-      (branch) => String(branch || "").toLowerCase() === lowerBranchName,
+    normalizedBranches.some(
+      (branch) => branch.toLowerCase() === lowerBranchName,
     )
   ) {
     return "이미 존재하는 브랜치입니다.";
@@ -134,6 +230,24 @@ export const validateBranchName = (rawBranchName, branches = []) => {
   return "";
 };
 
+const validateExistingBranchName = (rawBranchName, branches = []) => {
+  const branchName = normalizeBranchValue(rawBranchName);
+
+  if (!branchName) return "기준 브랜치를 선택해주세요.";
+
+  const normalizedBranches = normalizeBranchList(branches);
+
+  if (
+    !normalizedBranches.some(
+      (branch) => branch.toLowerCase() === branchName.toLowerCase(),
+    )
+  ) {
+    return `브랜치를 찾을 수 없습니다: ${branchName}`;
+  }
+
+  return "";
+};
+
 const sanitizeSandboxTaskName = (taskName) => {
   return String(taskName || "")
     .trim()
@@ -141,6 +255,20 @@ const sanitizeSandboxTaskName = (taskName) => {
     .replace(/[~^:?*\[\]@{}]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
+};
+
+const resolveDefaultMergeTarget = (branches) => {
+  const normalizedBranches = normalizeBranchList(branches);
+
+  if (
+    normalizedBranches.some(
+      (branch) => branch.toLowerCase() === DEVELOP_BRANCH,
+    )
+  ) {
+    return DEVELOP_BRANCH;
+  }
+
+  return DEFAULT_BRANCH;
 };
 
 export function useGitBranches({
@@ -159,29 +287,55 @@ export function useGitBranches({
   const [isDeletingBranchName, setIsDeletingBranchName] = useState("");
   const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
   const [isApplyingSandbox, setIsApplyingSandbox] = useState(false);
+  const [isMergingBranches, setIsMergingBranches] = useState(false);
+
+  const activeBranchName = normalizeBranchValue(activeBranch);
 
   const currentBranch = activeProject
-    ? activeBranch || DEFAULT_BRANCH
+    ? activeBranchName || DEFAULT_BRANCH
     : "No Project";
 
-  const isSandboxMode = Boolean(activeProject) && isSandboxBranch(currentBranch);
+  const isTeamMode = mode === "team";
+
+  const isSandboxMode =
+    isTeamMode && Boolean(activeProject) && isSandboxBranch(currentBranch);
 
   const visibleBranches = useMemo(() => {
-    if (mode !== "team") return branches;
+    const normalizedBranches = normalizeBranchList(branches);
 
-    const nickname = String(currentNickname || "dev");
-
-    return branches.filter((branch) => {
-      if (isSandboxBranch(branch)) {
-        return (
-          branch.startsWith(`focus-${nickname}-`) ||
-          branch.startsWith(`focus/${nickname}/`)
-        );
+    return normalizedBranches.filter((branch) => {
+      if (!isSandboxBranch(branch)) {
+        return true;
       }
 
-      return true;
+      if (!isTeamMode) {
+        return false;
+      }
+
+      const nickname = String(currentNickname || "dev");
+
+      return (
+        branch.startsWith(`focus-${nickname}-`) ||
+        branch.startsWith(`focus/${nickname}/`)
+      );
     });
-  }, [branches, currentNickname, mode]);
+  }, [branches, currentNickname, isTeamMode]);
+
+  const defaultMergeTarget = useMemo(
+    () => resolveDefaultMergeTarget(branches),
+    [branches],
+  );
+
+  useEffect(() => {
+    if (!activeProject) return;
+    if (!activeBranch) return;
+
+    const normalized = normalizeBranchValue(activeBranch);
+
+    if (!normalized) {
+      dispatch(setActiveBranch(DEFAULT_BRANCH));
+    }
+  }, [activeProject, activeBranch, dispatch]);
 
   const loadBranches = useCallback(async () => {
     if (!workspaceId || !activeProject) {
@@ -211,10 +365,12 @@ export function useGitBranches({
     async (branchName) => {
       if (!workspaceId || !activeProject) return null;
 
+      const targetBranch = normalizeBranchValue(branchName) || DEFAULT_BRANCH;
+
       const files = await fetchProjectFilesApi(
         workspaceId,
         activeProject,
-        branchName || DEFAULT_BRANCH,
+        targetBranch,
       );
 
       dispatch(
@@ -231,15 +387,20 @@ export function useGitBranches({
 
   const switchBranch = useCallback(
     async (nextBranchName) => {
-      const nextBranch = String(nextBranchName || "").trim();
+      const nextBranch = normalizeBranchValue(nextBranchName);
 
       if (!workspaceId || !activeProject) {
         throw new Error("프로젝트를 먼저 선택해주세요.");
       }
 
-      if (!nextBranch || nextBranch === currentBranch) return;
+      if (!nextBranch) {
+        throw new Error("올바르지 않은 브랜치명입니다.");
+      }
 
-      const previousBranch = activeBranch || DEFAULT_BRANCH;
+      if (nextBranch === currentBranch) return;
+
+      const previousBranch =
+        normalizeBranchValue(activeBranch) || DEFAULT_BRANCH;
 
       setIsSwitchingBranch(true);
 
@@ -279,13 +440,47 @@ export function useGitBranches({
     ],
   );
 
+  /**
+   * Sourcetree식 브랜치 생성.
+   *
+   * 기존 호환:
+   * createBranch("feature/login")
+   *
+   * 신규:
+   * createBranch({
+   *   branchName: "feature/login",
+   *   baseBranch: "develop",
+   *   checkoutAfterCreate: true,
+   * })
+   */
   const createBranch = useCallback(
-    async (rawBranchName) => {
-      const branchName = String(rawBranchName || "").trim();
+    async (input) => {
+      const branchName = normalizeBranchValue(
+        typeof input === "object" ? input.branchName : input,
+      );
+
+      const baseBranch = normalizeBranchValue(
+        typeof input === "object" ? input.baseBranch : currentBranch,
+      ) || DEFAULT_BRANCH;
+
+      const checkoutAfterCreate =
+        typeof input === "object" && typeof input.checkoutAfterCreate === "boolean"
+          ? input.checkoutAfterCreate
+          : true;
+
       const validationMessage = validateBranchName(branchName, branches);
 
       if (validationMessage) {
         throw new Error(validationMessage);
+      }
+
+      const baseBranchValidationMessage = validateExistingBranchName(
+        baseBranch,
+        branches,
+      );
+
+      if (baseBranchValidationMessage) {
+        throw new Error(baseBranchValidationMessage);
       }
 
       if (!workspaceId || !activeProject) {
@@ -295,25 +490,47 @@ export function useGitBranches({
       setIsCreatingBranch(true);
 
       try {
-        await createBranchApi(workspaceId, activeProject, branchName);
+        await createBranchApi(
+          workspaceId,
+          activeProject,
+          branchName,
+          baseBranch,
+          checkoutAfterCreate,
+        );
 
         setBranches((prev) => normalizeBranchList([...prev, branchName]));
 
-        await switchBranch(branchName);
+        if (checkoutAfterCreate) {
+          await switchBranch(branchName);
+        } else {
+          await loadBranches();
+        }
 
-        dispatch(writeToTerminal(`[Git] 브랜치 생성 완료: ${branchName}\n`));
+        dispatch(
+          writeToTerminal(
+            `[Git] 브랜치 생성 완료: ${branchName} (base: ${baseBranch})\n`,
+          ),
+        );
 
         return branchName;
       } finally {
         setIsCreatingBranch(false);
       }
     },
-    [workspaceId, activeProject, branches, switchBranch, dispatch],
+    [
+      workspaceId,
+      activeProject,
+      branches,
+      currentBranch,
+      switchBranch,
+      loadBranches,
+      dispatch,
+    ],
   );
 
   const deleteBranch = useCallback(
     async (branchName) => {
-      const targetBranch = String(branchName || "").trim();
+      const targetBranch = normalizeBranchValue(branchName);
 
       if (!targetBranch) return;
 
@@ -348,8 +565,141 @@ export function useGitBranches({
     [workspaceId, activeProject, currentBranch, dispatch],
   );
 
+  /**
+   * Sourcetree식 브랜치 병합.
+   *
+   * sourceBranch -> targetBranch
+   */
+  const mergeBranches = useCallback(
+    async ({
+      sourceBranch,
+      targetBranch,
+      mergeMode = "NO_FF",
+      deleteSourceAfterMerge = false,
+      checkoutTargetAfterMerge = false,
+    }) => {
+      const normalizedSourceBranch = normalizeBranchValue(sourceBranch);
+      const normalizedTargetBranch = normalizeBranchValue(targetBranch);
+
+      if (!workspaceId || !activeProject) {
+        throw new Error("프로젝트를 먼저 선택해주세요.");
+      }
+
+      if (!normalizedSourceBranch) {
+        throw new Error("병합할 브랜치를 선택해주세요.");
+      }
+
+      if (!normalizedTargetBranch) {
+        throw new Error("병합 받을 브랜치를 선택해주세요.");
+      }
+
+      if (normalizedSourceBranch === normalizedTargetBranch) {
+        throw new Error("같은 브랜치끼리는 병합할 수 없습니다.");
+      }
+
+      const sourceValidationMessage = validateExistingBranchName(
+        normalizedSourceBranch,
+        branches,
+      );
+
+      if (sourceValidationMessage) {
+        throw new Error(sourceValidationMessage);
+      }
+
+      const targetValidationMessage = validateExistingBranchName(
+        normalizedTargetBranch,
+        branches,
+      );
+
+      if (targetValidationMessage) {
+        throw new Error(targetValidationMessage);
+      }
+
+      setIsMergingBranches(true);
+
+      try {
+        const resultPayload = await mergeBranchesApi({
+          workspaceId,
+          projectName: activeProject,
+          sourceBranch: normalizedSourceBranch,
+          targetBranch: normalizedTargetBranch,
+          mergeMode,
+          deleteSourceAfterMerge,
+        });
+
+        await loadBranches();
+
+        if (
+          checkoutTargetAfterMerge ||
+          normalizeBranchValue(activeBranch) === normalizedTargetBranch
+        ) {
+          dispatch(closeAllFiles());
+          dispatch(clearVirtualTree());
+          dispatch(setActiveBranch(normalizedTargetBranch));
+
+          await refreshProjectTree(normalizedTargetBranch);
+        }
+
+        const resultMessage = getMergeResultMessage(
+          resultPayload,
+          `${normalizedSourceBranch} 브랜치가 ${normalizedTargetBranch} 브랜치에 병합되었습니다.`,
+        );
+
+        dispatch(
+          writeToTerminal(
+            `[Git] 브랜치 병합 완료: ${normalizedSourceBranch} -> ${normalizedTargetBranch}\n`,
+          ),
+        );
+
+        return resultMessage;
+      } finally {
+        setIsMergingBranches(false);
+      }
+    },
+    [
+      workspaceId,
+      activeProject,
+      activeBranch,
+      branches,
+      dispatch,
+      loadBranches,
+      refreshProjectTree,
+    ],
+  );
+
   const createSandbox = useCallback(
-    async (rawTaskName) => {
+    async (input) => {
+      if (!isTeamMode) {
+        throw new Error("샌드박스는 팀 모드에서만 사용할 수 있습니다.");
+      }
+
+      const rawTaskName =
+        typeof input === "object" && input !== null ? input.taskName : input;
+
+      const baseBranch =
+        normalizeBranchValue(
+          typeof input === "object" && input !== null
+            ? input.baseBranch
+            : currentBranch,
+        ) || DEFAULT_BRANCH;
+
+      if (!baseBranch) {
+        throw new Error("샌드박스 기준 브랜치를 선택해주세요.");
+      }
+
+      if (isSandboxBranch(baseBranch)) {
+        throw new Error("샌드박스 브랜치를 기준으로 새 샌드박스를 만들 수 없습니다.");
+      }
+
+      const baseBranchValidationMessage = validateExistingBranchName(
+        baseBranch,
+        branches,
+      );
+
+      if (baseBranchValidationMessage) {
+        throw new Error(baseBranchValidationMessage);
+      }
+
       const taskName = sanitizeSandboxTaskName(rawTaskName);
 
       if (!taskName) {
@@ -363,19 +713,26 @@ export function useGitBranches({
       setIsCreatingSandbox(true);
 
       try {
-        const sandboxBranchName = await createSandboxApi(
+        const sandboxResponse = await createSandboxApi(
           workspaceId,
           activeProject,
           currentNickname || "dev",
           taskName,
+          {
+            baseBranch,
+          },
         );
+
+        const sandboxBranchName = extractSandboxBranchName(sandboxResponse);
 
         setBranches((prev) => normalizeBranchList([...prev, sandboxBranchName]));
 
         await switchBranch(sandboxBranchName);
 
         dispatch(
-          writeToTerminal(`[Git] 샌드박스 생성 완료: ${sandboxBranchName}\n`),
+          writeToTerminal(
+            `[Git] 샌드박스 생성 완료: ${sandboxBranchName} (base: ${baseBranch})\n`,
+          ),
         );
 
         return sandboxBranchName;
@@ -383,19 +740,45 @@ export function useGitBranches({
         setIsCreatingSandbox(false);
       }
     },
-    [workspaceId, activeProject, currentNickname, switchBranch, dispatch],
+    [
+      isTeamMode,
+      currentBranch,
+      branches,
+      workspaceId,
+      activeProject,
+      currentNickname,
+      switchBranch,
+      dispatch,
+    ],
   );
 
   const applySandbox = useCallback(
-    async ({ fileContents = {}, commitMessage }) => {
-      const message = String(commitMessage || "").trim();
-
-      if (!isSandboxMode) {
-        throw new Error("샌드박스 브랜치에서만 메인 병합을 실행할 수 있습니다.");
+    async ({ fileContents = {}, commitMessage, targetBranch }) => {
+      if (!isTeamMode) {
+        throw new Error("샌드박스 병합은 팀 모드에서만 사용할 수 있습니다.");
       }
+
+      const sandboxBranch = normalizeBranchValue(activeBranch);
+
+      if (!isSandboxBranch(sandboxBranch)) {
+        throw new Error("샌드박스 브랜치에서만 병합을 실행할 수 있습니다.");
+      }
+
+      const message = String(commitMessage || "").trim();
 
       if (!message) {
         throw new Error("병합 전 남길 커밋 메시지를 입력해주세요.");
+      }
+
+      if (!workspaceId || !activeProject) {
+        throw new Error("프로젝트를 먼저 선택해주세요.");
+      }
+
+      const resolvedTargetBranch =
+        normalizeBranchValue(targetBranch) || defaultMergeTarget;
+
+      if (sandboxBranch === resolvedTargetBranch) {
+        throw new Error("샌드박스 브랜치와 병합 대상 브랜치가 같습니다.");
       }
 
       setIsApplyingSandbox(true);
@@ -411,7 +794,7 @@ export function useGitBranches({
               saveFileApi(
                 workspaceId,
                 activeProject,
-                activeBranch || DEFAULT_BRANCH,
+                sandboxBranch,
                 path,
                 content || "",
               ),
@@ -419,24 +802,30 @@ export function useGitBranches({
           );
         }
 
-        const resultMessage = await applySandboxApi(
+        const resultPayload = await applySandboxApi(
           workspaceId,
           activeProject,
-          activeBranch,
+          sandboxBranch,
+          resolvedTargetBranch,
           message,
           currentNickname || "dev",
         );
 
+        const resultMessage = getSandboxResultMessage(
+          resultPayload,
+          `성공적으로 ${resolvedTargetBranch} 브랜치에 반영되었습니다.`,
+        );
+
         dispatch(closeAllFiles());
         dispatch(clearVirtualTree());
-        dispatch(setActiveBranch(DEFAULT_BRANCH));
+        dispatch(setActiveBranch(resolvedTargetBranch));
 
-        await refreshProjectTree(DEFAULT_BRANCH);
+        await refreshProjectTree(resolvedTargetBranch);
         await loadBranches();
 
         dispatch(
           writeToTerminal(
-            "[Git] 샌드박스 병합 완료. master 브랜치로 이동했습니다.\n",
+            `[Git] 샌드박스 병합 완료. ${resolvedTargetBranch} 브랜치로 이동했습니다.\n`,
           ),
         );
 
@@ -446,11 +835,12 @@ export function useGitBranches({
       }
     },
     [
+      isTeamMode,
       workspaceId,
       activeProject,
       activeBranch,
       currentNickname,
-      isSandboxMode,
+      defaultMergeTarget,
       dispatch,
       refreshProjectTree,
       loadBranches,
@@ -467,6 +857,7 @@ export function useGitBranches({
     branches,
     visibleBranches,
     currentBranch,
+    defaultMergeTarget,
     isSandboxMode,
 
     isLoadingBranches,
@@ -475,12 +866,14 @@ export function useGitBranches({
     isDeletingBranchName,
     isCreatingSandbox,
     isApplyingSandbox,
+    isMergingBranches,
 
     loadBranches,
     refreshProjectTree,
     switchBranch,
     createBranch,
     deleteBranch,
+    mergeBranches,
     createSandbox,
     applySandbox,
   };

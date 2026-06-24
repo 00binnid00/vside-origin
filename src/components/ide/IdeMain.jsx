@@ -21,7 +21,7 @@ import DevlogPanel from "@/components/ide/DevlogPanel";
 import CreateProjectModal from "@/components/ide/CreateProjectModal";
 import WebPreview from "@/components/ide/WebPreview";
 
-import { fetchWorkspaceProjectsApi, fetchVirtualViewsApi } from "@/lib/ide/api";
+import { fetchWorkspaceProjectsApi } from "@/lib/ide/api";
 
 import {
   setWorkspaceTree,
@@ -213,43 +213,7 @@ export default function IdeMain() {
     }
   }, [workspaceId, activeProject, activeBranch]);
 
-  useEffect(() => {
-    if (!workspaceId || !activeBranch) return;
-
-    const syncBranchVirtualView = async () => {
-      try {
-        const views = await fetchVirtualViewsApi(workspaceId, activeBranch);
-        const activeView = views.find(
-          (v) => v.isActive === true || v.active === true,
-        );
-
-        if (activeView) {
-          let parsedData = [];
-
-          if (typeof activeView.treeDataJson === "string") {
-            parsedData = JSON.parse(activeView.treeDataJson);
-          } else {
-            parsedData = activeView.treeDataJson || activeView.treeData || [];
-          }
-
-          dispatch(
-            setVirtualTree({
-              name: activeView.viewName || activeView.name || "가상 뷰",
-              children: parsedData,
-              branchName: activeBranch,
-            }),
-          );
-        } else {
-          dispatch(clearVirtualTree());
-        }
-      } catch (error) {
-        console.error("fetchVirtualViewsApi error:", error);
-        dispatch(clearVirtualTree());
-      }
-    };
-
-    syncBranchVirtualView();
-  }, [workspaceId, activeBranch, dispatch]);
+  
 
   const renderMainContent = () => {
     switch (activeActivity) {
