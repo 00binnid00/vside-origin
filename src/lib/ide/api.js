@@ -819,35 +819,73 @@ export const buildProjectApi = async (
 };
 
 // ============================================================================
-// GIT API (마법 추가 구간 ✨)
+// GIT API
 // ============================================================================
 
 export const fetchBranchListApi = async (workspaceId, projectName) => {
   const response = await authFetch(
     `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(projectName)}/branches`,
   );
-  if (!response.ok) throw new Error("브랜치 목록 로드 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "브랜치 목록 로드 실패");
+  }
+
   return await response.json();
 };
 
 export const updateGitUrlApi = async (workspaceId, projectName, gitUrl) => {
   const response = await authFetch(`${GIT_API_BASE}/project/git-url`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, gitUrl }),
-  });
-  if (!response.ok) throw new Error("Git 연동 실패");
-};
-
-export const createBranchApi = async (workspaceId, projectName, branchName) => {
-  const response = await authFetch(`${GIT_API_BASE}/branches`, {
-    method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      gitUrl,
+    }),
   });
 
   if (!response.ok) {
-    const msg = await response.text();
-    throw new Error("브랜치 생성 실패: " + msg);
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "Git 연동 실패");
   }
+
+  return await response.text();
+};
+
+/**
+ * Sourcetree식 브랜치 생성 API
+ *
+ * 예:
+ * createBranchApi(workspaceId, projectName, "feature/login", "develop")
+ *
+ * 의미:
+ * develop 브랜치 기준으로 feature/login 생성
+ */
+export const createBranchApi = async (
+  workspaceId,
+  projectName,
+  branchName,
+  baseBranch = "master",
+  checkoutAfterCreate = true,
+) => {
+  const response = await authFetch(`${GIT_API_BASE}/branches`, {
+    method: "POST",
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      baseBranch,
+      checkoutAfterCreate,
+    }),
+  });
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error("브랜치 생성 실패: " + (msg || "알 수 없는 오류"));
+  }
+
+  return await response.text();
 };
 
 export const fetchGitStatusApi = async (
@@ -856,9 +894,16 @@ export const fetchGitStatusApi = async (
   branchName = "master",
 ) => {
   const response = await authFetch(
-    `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(projectName)}/status?branchName=${encodeURIComponent(branchName)}`,
+    `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(
+      projectName,
+    )}/status?branchName=${encodeURIComponent(branchName || "master")}`,
   );
-  if (!response.ok) throw new Error("Git 상태 조회 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "Git 상태 조회 실패");
+  }
+
   return await response.json();
 };
 
@@ -870,9 +915,20 @@ export const stageFilesApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/stage`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, filePattern }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      filePattern,
+    }),
   });
-  if (!response.ok) throw new Error("스테이징 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "스테이징 실패");
+  }
+
+  return await response.text();
 };
 
 export const unstageFilesApi = async (
@@ -883,9 +939,20 @@ export const unstageFilesApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/unstage`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, filePattern }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      filePattern,
+    }),
   });
-  if (!response.ok) throw new Error("언스테이징 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "언스테이징 실패");
+  }
+
+  return await response.text();
 };
 
 export const commitChangesApi = async (
@@ -907,10 +974,52 @@ export const commitChangesApi = async (
       authorEmail,
     }),
   });
-  if (!response.ok) throw new Error("커밋 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "커밋 실패");
+  }
+
+  return await response.text();
 };
 
-// 💡 [수정] 토큰이 없어도 요청을 보낼 수 있게 기본값을 ""로 변경하고, 403 에러를 가로챕니다!
+/**
+ * Fetch
+ *
+ * 원격 저장소의 최신 refs 정보를 가져오지만,
+ * 현재 브랜치에 merge/rebase하지는 않는다.
+ */
+export const fetchRemoteApi = async (
+  workspaceId,
+  projectName,
+  branchName = "master",
+  token = "",
+) => {
+  const response = await authFetch(`${GIT_API_BASE}/fetch`, {
+    method: "POST",
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      token,
+    }),
+  });
+
+  if (!response.ok) {
+    const errMsg = await response.text().catch(() => "");
+
+    if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
+      const error = new Error("깃허브 계정 연동이 필요합니다.");
+      error.code = "GITHUB_AUTH_REQUIRED";
+      throw error;
+    }
+
+    throw new Error(errMsg || "Fetch 실패");
+  }
+
+  return await response.text();
+};
+
 export const pushToRemoteApi = async (
   workspaceId,
   projectName,
@@ -919,13 +1028,17 @@ export const pushToRemoteApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/push`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, token }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      token,
+    }),
   });
 
   if (!response.ok) {
-    const errMsg = await response.text();
+    const errMsg = await response.text().catch(() => "");
 
-    // 🚨 백엔드에서 우리가 설계한 "연동창 띄워!" 에러 코드가 오면 특수한 에러를 던집니다.
     if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
       const error = new Error("깃허브 계정 연동이 필요합니다.");
       error.code = "GITHUB_AUTH_REQUIRED";
@@ -934,9 +1047,10 @@ export const pushToRemoteApi = async (
 
     throw new Error(errMsg || "푸시 실패");
   }
+
+  return await response.text();
 };
 
-// 💡 [수정] Pull 로직도 Push와 똑같이 방어 로직을 추가합니다!
 export const pullFromRemoteApi = async (
   workspaceId,
   projectName,
@@ -945,11 +1059,16 @@ export const pullFromRemoteApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/pull`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, token }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      token,
+    }),
   });
 
   if (!response.ok) {
-    const errMsg = await response.text();
+    const errMsg = await response.text().catch(() => "");
 
     if (response.status === 403 && errMsg.includes("GITHUB_TOKEN")) {
       const error = new Error("깃허브 계정 연동이 필요합니다.");
@@ -959,6 +1078,7 @@ export const pullFromRemoteApi = async (
 
     throw new Error(errMsg || "Pull 실패");
   }
+
   return await response.text();
 };
 
@@ -969,11 +1089,17 @@ export const fetchGitHistoryApi = async (
 ) => {
   try {
     const response = await authFetch(
-      `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(projectName)}/history?branchName=${encodeURIComponent(branchName)}`,
+      `${GIT_API_BASE}/${workspaceId}/${encodeURIComponent(
+        projectName,
+      )}/history?branchName=${encodeURIComponent(branchName || "master")}`,
     );
-    if (!response.ok) throw new Error("히스토리 로드 실패");
+
+    if (!response.ok) {
+      throw new Error("히스토리 로드 실패");
+    }
 
     const data = await response.json();
+
     return data.map((log) => ({
       graph: log.graph || "",
       hash: log.hash || log.commitHash || log.id || "",
@@ -995,9 +1121,20 @@ export const resetCommitApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/reset`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, targetHash }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      targetHash,
+    }),
   });
-  if (!response.ok) throw new Error("Reset 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "Reset 실패");
+  }
+
+  return await response.text();
 };
 
 export const checkoutCommitApi = async (
@@ -1008,12 +1145,27 @@ export const checkoutCommitApi = async (
 ) => {
   const response = await authFetch(`${GIT_API_BASE}/checkout-commit`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName, targetHash }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+      targetHash,
+    }),
   });
-  if (!response.ok) throw new Error("체크아웃 실패");
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || "체크아웃 실패");
+  }
+
+  return await response.text();
 };
 
-
+/**
+ * 기존 커밋 기준 병합 API
+ *
+ * GitDashboard의 커밋 우클릭 병합 기능 호환용.
+ */
 export const mergeCommitApi = async (
   workspaceId,
   projectName,
@@ -1034,13 +1186,59 @@ export const mergeCommitApi = async (
     await throwApiResponseError(response, "병합 요청 실패");
   }
 
-  return await response.json();
+  return await readApiBody(response);
+};
+
+/**
+ * Sourcetree식 브랜치 병합 API
+ *
+ * sourceBranch -> targetBranch
+ *
+ * 예:
+ * mergeBranchesApi({
+ *   workspaceId,
+ *   projectName,
+ *   sourceBranch: "feature/login",
+ *   targetBranch: "develop",
+ *   mergeMode: "NO_FF",
+ *   deleteSourceAfterMerge: false,
+ * });
+ */
+export const mergeBranchesApi = async ({
+  workspaceId,
+  projectName,
+  sourceBranch,
+  targetBranch,
+  mergeMode = "NO_FF",
+  deleteSourceAfterMerge = false,
+}) => {
+  const response = await authFetch(`${GIT_API_BASE}/branches/merge`, {
+    method: "POST",
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      sourceBranch,
+      targetBranch,
+      mergeMode,
+      deleteSourceAfterMerge,
+    }),
+  });
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "브랜치 병합 실패");
+  }
+
+  return await readApiBody(response);
 };
 
 export const abortMergeApi = async (workspaceId, projectName, branchName) => {
   const response = await authFetch(`${GIT_API_BASE}/merge/abort`, {
     method: "POST",
-    body: JSON.stringify({ workspaceId, projectName, branchName }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+    }),
   });
 
   if (!response.ok) {
@@ -1076,7 +1274,11 @@ export const discardChangesApi = async (
 export const deleteBranchApi = async (workspaceId, projectName, branchName) => {
   const response = await authFetch(`${GIT_API_BASE}/branches`, {
     method: "DELETE",
-    body: JSON.stringify({ workspaceId, projectName, branchName }),
+    body: JSON.stringify({
+      workspaceId,
+      projectName,
+      branchName,
+    }),
   });
 
   if (!response.ok) {
@@ -1276,152 +1478,44 @@ export const fetchChatHistoryApi = async (workspaceId, userId) => {
   return await response.json();
 };
 
-// ============================================================================
-// 가상 뷰 API
-// ============================================================================
 
-export const fetchVirtualViewsApi = async (
-  workspaceId,
-  branchName = "master",
-) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange?branchName=${encodeURIComponent(branchName)}`,
-  );
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "가상 뷰 목록을 불러오지 못했습니다.");
-  }
-
-  const text = await response.text();
-  if (!text) return [];
-
-  try {
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    throw new Error("가상 뷰 응답 형식이 올바르지 않습니다.");
-  }
-};
-
-export const generateVirtualViewApi = async (
-  workspaceId,
-  viewName,
-  prompt,
-  branchName = "master",
-) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange/generate`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        workspaceId,
-        viewName,
-        prompt,
-        branchName,
-      }),
-    },
-  );
-
-  if (response.status === 409) {
-    throw new Error("이미 동일한 이름으로 생성된 뷰가 있습니다.");
-  }
-
-  if (!response.ok) {
-    const errMsg = await response.text();
-    throw new Error(errMsg || "AI 가상 뷰 생성에 실패했습니다.");
-  }
-
-  return await response.json();
-};
-
-export const deleteVirtualViewApi = async (workspaceId, viewId) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange/${viewId}`,
-    {
-      method: "DELETE",
-    },
-  );
-  if (!response.ok) throw new Error("뷰 삭제에 실패했습니다.");
-  return true;
-};
-
-export const activateVirtualViewApi = async (
-  workspaceId,
-  treeId,
-  branchName = "master",
-) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange/${treeId}/activate?branchName=${encodeURIComponent(branchName)}`,
-    { method: "POST" },
-  );
-  if (!response.ok) throw new Error("가상 뷰 활성화에 실패했습니다.");
-  return true;
-};
-
-export const deactivateVirtualViewApi = async (
-  workspaceId,
-  branchName = "master",
-) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange/deactivate?branchName=${encodeURIComponent(branchName)}`,
-    { method: "POST" },
-  );
-  if (!response.ok) throw new Error("가상 뷰 비활성화에 실패했습니다.");
-  return true;
-};
-
-export const updateVirtualViewApi = async (
-  workspaceId,
-  treeId,
-  treeDataJson,
-) => {
-  const response = await authFetch(
-    `${API_BASE}/${workspaceId}/rearrange/${treeId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        treeDataJson:
-          typeof treeDataJson === "string"
-            ? treeDataJson
-            : JSON.stringify(treeDataJson),
-      }),
-    },
-  );
-  if (!response.ok) throw new Error("뷰 구조 업데이트에 실패했습니다.");
-  return true;
-};
 
 // ============================================================================
 // 샌드박스 API
 // ============================================================================
 
 export const createSandboxApi = async (
-  workspaceId,
-  projectName,
-  nickname,
-  taskName,
-  options = {},
-) => {
-  const response = await authFetch(`${GIT_API_BASE}/sandbox/create`, {
-    method: "POST",
-    body: JSON.stringify({
-      workspaceId,
-      projectName,
-      nickname,
-      taskName,
+    workspaceId,
+    projectName,
+    nickname,
+    taskName,
+    options = {},
+  ) => {
+    const baseBranch =
+      typeof options.baseBranch === "string" && options.baseBranch.trim()
+        ? options.baseBranch.trim()
+        : "master";
 
-      // true면 master의 미커밋 변경사항은 포함하지 않고 master HEAD 기준으로 샌드박스를 만듭니다.
-      forceCreate: Boolean(options.forceCreate),
-    }),
-  });
+    const response = await authFetch(`${GIT_API_BASE}/sandbox/create`, {
+      method: "POST",
+      body: JSON.stringify({
+        workspaceId,
+        projectName,
+        nickname,
+        taskName,
+        baseBranch,
 
-  if (!response.ok) {
-    await throwApiResponseError(response, "샌드박스 생성에 실패했습니다.");
-  }
+        // true면 기준 브랜치의 미커밋 변경사항은 포함하지 않고 기준 브랜치 HEAD 기준으로 샌드박스를 만듭니다.
+        forceCreate: Boolean(options.forceCreate),
+      }),
+    });
 
-  return await readApiBody(response);
-};
+    if (!response.ok) {
+      await throwApiResponseError(response, "샌드박스 생성에 실패했습니다.");
+    }
+
+    return await readApiBody(response);
+  };
 
 export const applySandboxApi = async (
   workspaceId,
