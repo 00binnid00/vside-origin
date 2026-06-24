@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Menu, X, LogOut, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -86,7 +86,7 @@ export default function TopNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const { user, isAuthenticated, loading, logout } = useAuth();
+  const { user, isAuthenticated, accessToken, loading, logout } = useAuth();
 
   const [openUserMenu, setOpenUserMenu] = useState(false);
   const [openMobileNav, setOpenMobileNav] = useState(false);
@@ -201,10 +201,11 @@ export default function TopNav() {
   const communityHref = "/community";
   const myPageHref = "/my";
 
-  const fetchHeaderNotifications = async () => {
-    if (!isAuthenticated) {
+  const fetchHeaderNotifications = useCallback(async () => {
+    if (loading || !isAuthenticated || !accessToken) {
       setLatestNotifications([]);
       setUnreadCount(0);
+      setNotificationLoading(false);
       return;
     }
 
@@ -228,23 +229,30 @@ export default function TopNav() {
     } finally {
       setNotificationLoading(false);
     }
-  };
+  }, [loading, isAuthenticated, accessToken]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !isAuthenticated || !accessToken) {
+      setLatestNotifications([]);
+      setUnreadCount(0);
+      setNotificationLoading(false);
+      return;
+    }
 
     fetchHeaderNotifications();
-  }, [loading, isAuthenticated, pathname]);
+  }, [loading, isAuthenticated, accessToken, pathname, fetchHeaderNotifications]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (loading || !isAuthenticated || !accessToken) {
+      return;
+    }
 
     const timer = window.setInterval(() => {
       fetchHeaderNotifications();
     }, 30000);
 
     return () => window.clearInterval(timer);
-  }, [isAuthenticated]);
+  }, [loading, isAuthenticated, accessToken, fetchHeaderNotifications]);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
