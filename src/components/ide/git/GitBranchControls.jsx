@@ -3,16 +3,22 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   VscAdd,
+  VscArrowRight,
   VscBeaker,
   VscCheck,
   VscChevronDown,
   VscClose,
+  VscFile,
   VscLock,
   VscRefresh,
   VscRocket,
   VscSourceControl,
   VscTrash,
+  VscWarning,
 } from "react-icons/vsc";
+
+import { useDispatch } from "react-redux";
+import { setActiveActivity } from "@/store/slices/uiSlice";
 
 import {
   DEFAULT_BRANCH,
@@ -115,6 +121,34 @@ function BranchTypeTag({ branch }) {
     </span>
   );
 }
+
+const isMergeConflictError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    error?.status === 409 ||
+    error?.response?.status === 409 ||
+    message.includes("merge conflict") ||
+    message.includes("conflict") ||
+    message.includes("충돌")
+  );
+};
+
+const BRANCHES_CHANGED_EVENT = "waivs:branches-changed";
+
+const notifyBranchesChanged = (detail = {}) => {
+  if (typeof window === "undefined") return;
+
+  window.dispatchEvent(
+    new CustomEvent(BRANCHES_CHANGED_EVENT, {
+      detail: {
+        reason: "branch-changed",
+        ...detail,
+        requestedAt: Date.now(),
+      },
+    }),
+  );
+};
 
 function BranchPicker({
   value,
@@ -235,6 +269,7 @@ export default function GitBranchControls({
   currentNickname = "dev",
   fileContents = {},
 }) {
+  const dispatch = useDispatch();
   const branchRef = useRef(null);
 
   const [isBranchOpen, setIsBranchOpen] = useState(false);
@@ -263,6 +298,7 @@ export default function GitBranchControls({
   const [isSandboxApplyModalOpen, setIsSandboxApplyModalOpen] = useState(false);
   const [mergeCommitMessage, setMergeCommitMessage] = useState("");
   const [sandboxTargetBranch, setSandboxTargetBranch] = useState(DEFAULT_BRANCH);
+  const [sandboxConflictModal, setSandboxConflictModal] = useState(null);
 
   const [fullScreenLoading, setFullScreenLoading] = useState({
     isOpen: false,
@@ -298,6 +334,27 @@ export default function GitBranchControls({
     currentNickname,
     mode,
   });
+
+    useEffect(() => {
+    const handleBranchesChanged = async (event) => {
+      const detail = event.detail || {};
+
+      if (detail.workspaceId && detail.workspaceId !== workspaceId) return;
+      if (detail.projectName && detail.projectName !== activeProject) return;
+
+      try {
+        await loadBranches();
+      } catch (error) {
+        console.error("브랜치 목록 동기화 실패:", error);
+      }
+    };
+
+    window.addEventListener(BRANCHES_CHANGED_EVENT, handleBranchesChanged);
+
+    return () => {
+      window.removeEventListener(BRANCHES_CHANGED_EVENT, handleBranchesChanged);
+    };
+  }, [workspaceId, activeProject, loadBranches]);
 
   const normalBranches = useMemo(() => {
   const uniqueBranches = Array.from(
@@ -403,6 +460,7 @@ export default function GitBranchControls({
       setIsMergeBranchModalOpen(false);
       setIsSandboxCreateModalOpen(false);
       setIsSandboxApplyModalOpen(false);
+      setSandboxConflictModal(null);
     };
 
     window.addEventListener("keydown", handleEsc);
@@ -451,11 +509,20 @@ export default function GitBranchControls({
   const handleCreateBranch = async () => {
     if (isCreateDisabled) return;
 
+    const createdBranchName = branchDraft.branchName.trim();
+
     try {
       await createBranch({
-        branchName: branchDraft.branchName,
+        branchName: createdBranchName,
         baseBranch: branchDraft.baseBranch,
         checkoutAfterCreate: branchDraft.checkoutAfterCreate,
+      });
+
+      notifyBranchesChanged({
+        workspaceId,
+        projectName: activeProject,
+        reason: "branch-created",
+        branchName: createdBranchName,
       });
 
       setBranchDraft({
@@ -512,6 +579,14 @@ export default function GitBranchControls({
         checkoutTargetAfterMerge: mergeDraft.checkoutTargetAfterMerge,
       });
 
+      notifyBranchesChanged({
+        workspaceId,
+        projectName: activeProject,
+        reason: "branch-merged",
+        sourceBranch: mergeDraft.sourceBranch,
+        targetBranch: mergeDraft.targetBranch,
+      });
+
       setIsMergeBranchModalOpen(false);
       alert(resultMessage || "브랜치 병합이 완료되었습니다.");
     } catch (error) {
@@ -532,6 +607,13 @@ export default function GitBranchControls({
 
     try {
       await deleteBranch(branchName);
+
+      notifyBranchesChanged({
+        workspaceId,
+        projectName: activeProject,
+        reason: "branch-deleted",
+        branchName,
+      });
     } catch (error) {
       alert(error.message);
     }
@@ -583,8 +665,16 @@ export default function GitBranchControls({
     });
 
     try {
-      await createSandbox({
+      const sandboxBranchName = await createSandbox({
         taskName: sandboxTaskName,
+        baseBranch: sandboxBaseBranch,
+      });
+
+      notifyBranchesChanged({
+        workspaceId,
+        projectName: activeProject,
+        reason: "sandbox-created",
+        branchName: sandboxBranchName,
         baseBranch: sandboxBaseBranch,
       });
 
@@ -605,6 +695,7 @@ export default function GitBranchControls({
     }
 
     const targetBranch = sandboxTargetBranch || defaultMergeTarget || DEFAULT_BRANCH;
+    let handledConflict = false;
 
     setIsSandboxApplyModalOpen(false);
     setFullScreenLoading({
@@ -619,16 +710,88 @@ export default function GitBranchControls({
         targetBranch,
       });
 
+      notifyBranchesChanged({
+        workspaceId,
+        projectName: activeProject,
+        reason: "sandbox-applied",
+        sourceBranch: currentBranch,
+        targetBranch,
+      });
+
       setMergeCommitMessage("");
       alert(resultMessage || `성공적으로 ${targetBranch} 브랜치에 반영되었습니다.`);
     } catch (error) {
+      if (isMergeConflictError(error)) {
+        handledConflict = true;
+
+        setFullScreenLoading({ isOpen: false, text: "" });
+
+        setSandboxConflictModal({
+          sandboxBranch: currentBranch,
+          targetBranch,
+          message:
+            error.message ||
+            "샌드박스 병합 중 충돌이 발생했습니다. 샌드박스는 삭제되지 않고 보존되었습니다.",
+        });
+
+        return;
+      }
+
       alert(`병합 실패:\n${error.message}`);
     } finally {
-      setTimeout(() => {
-        setFullScreenLoading({ isOpen: false, text: "" });
-      }, 500);
+      if (!handledConflict) {
+        setTimeout(() => {
+          setFullScreenLoading({ isOpen: false, text: "" });
+        }, 500);
+      }
     }
   };
+
+  const handleOpenSandboxConflictStatus = async () => {
+    if (!sandboxConflictModal) return;
+
+    const sandboxBranch = sandboxConflictModal.sandboxBranch;
+    const targetBranch =
+      sandboxConflictModal.targetBranch || defaultMergeTarget || DEFAULT_BRANCH;
+
+    if (typeof window !== "undefined" && sandboxBranch) {
+      window.sessionStorage.setItem(
+        "wevaisPendingSandboxCleanup",
+        JSON.stringify({
+          workspaceId,
+          projectName: activeProject,
+          sandboxBranch,
+          targetBranch,
+          createdAt: Date.now(),
+        }),
+      );
+    }
+
+    setSandboxConflictModal(null);
+    setFullScreenLoading({ isOpen: false, text: "" });
+
+    try {
+      await switchBranch(targetBranch);
+    } catch (error) {
+      console.error("충돌 대상 브랜치 이동 실패:", error);
+    }
+
+    dispatch(setActiveActivity("git"));
+
+    window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent("waivs:open-git-status", {
+          detail: {
+            branchName: targetBranch,
+            sandboxBranch,
+            reason: "sandbox-conflict",
+          },
+        }),
+      );
+    }, 120);
+  };
+
+
 
   return (
     <>
@@ -1206,7 +1369,7 @@ export default function GitBranchControls({
           onClick={() => setIsSandboxApplyModalOpen(false)}
         >
           <div
-            className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.4)] w-[460px] overflow-hidden flex flex-col animate-slide-up"
+            className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.4)] w-[460px] overflow-visible flex flex-col animate-slide-up"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="p-8 pb-6 text-center flex flex-col items-center border-b border-gray-100">
@@ -1218,6 +1381,7 @@ export default function GitBranchControls({
               <h2 className="text-xl font-black text-gray-900 mb-2 tracking-tight">
                 샌드박스 병합
               </h2>
+
               <p className="text-[13px] text-gray-500 font-medium leading-relaxed">
                 작업 내용을 저장하고 선택한 대상 브랜치에 병합합니다.
               </p>
@@ -1254,6 +1418,7 @@ export default function GitBranchControls({
 
             <div className="flex border-t border-gray-100 p-4 gap-3 bg-white">
               <button
+                type="button"
                 onClick={() => setIsSandboxApplyModalOpen(false)}
                 className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 active:scale-95 rounded-xl text-[13px] font-bold transition-all shadow-sm"
               >
@@ -1261,6 +1426,7 @@ export default function GitBranchControls({
               </button>
 
               <button
+                type="button"
                 onClick={executeApplySandbox}
                 disabled={!mergeCommitMessage.trim() || isApplyingSandbox}
                 className="flex-[2] py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-xl text-[13px] font-bold shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100"
@@ -1271,9 +1437,112 @@ export default function GitBranchControls({
                   </>
                 ) : (
                   <>
-                    <VscCheck size={16} strokeWidth={1} /> 커밋 및 병합하기
+                    <VscCheck size={16} /> 커밋 및 병합하기
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sandboxConflictModal && (
+        <div className="fixed left-0 top-0 z-[2147483647] flex h-screen w-screen items-center justify-center bg-slate-950/50 px-4 backdrop-blur-[3px]">
+          <div className="w-full max-w-[560px] overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.32)] animate-slide-up">
+            <div className="relative border-b border-rose-100 bg-gradient-to-br from-white via-rose-50 to-amber-50 px-7 py-6">
+              <button
+                type="button"
+                onClick={() => setSandboxConflictModal(null)}
+                className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-rose-100 bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-white hover:text-slate-700"
+                title="닫기"
+              >
+                <VscClose size={16} />
+              </button>
+
+              <div className="flex items-start gap-4 pr-10">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-600 shadow-sm">
+                  <VscWarning size={28} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-rose-100 bg-rose-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-rose-700">
+                      Merge Conflict
+                    </span>
+                    <span className="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-black text-indigo-700">
+                      Sandbox Preserved
+                    </span>
+                  </div>
+
+                  <h2 className="text-[20px] font-black tracking-tight text-slate-950">
+                    샌드박스 병합 충돌 발생
+                  </h2>
+
+                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
+                    샌드박스 브랜치는 삭제되지 않았습니다. 대상 브랜치의 File Status에서 충돌 파일을 해결해야 병합을 완료할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 bg-white px-7 py-6">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">
+                  Merge Direction
+                </div>
+
+                <div className="flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-black">
+                  <span className="max-w-[200px] truncate rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs text-violet-700">
+                    {sandboxConflictModal.sandboxBranch}
+                  </span>
+
+                  <VscArrowRight className="text-slate-400" size={17} />
+
+                  <span className="max-w-[200px] truncate rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs text-blue-700">
+                    {sandboxConflictModal.targetBranch}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-bold leading-relaxed text-amber-800">
+                <div className="mb-2 flex items-center gap-2 text-amber-900">
+                  <VscFile size={15} />
+                  해결 순서
+                </div>
+                1. 충돌 해결 화면으로 이동합니다.
+                <br />
+                2. 충돌 파일을 열고 <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code>,{" "}
+                <code>=======</code>, <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code>{" "}
+                표시를 정리합니다.
+                <br />
+                3. 저장 후 해결 완료 처리합니다.
+                <br />
+                4. Merge 완료 커밋을 눌러 병합을 마무리합니다.
+              </div>
+
+              {sandboxConflictModal.message && (
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium leading-relaxed text-slate-500">
+                  {sandboxConflictModal.message}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-7 py-5">
+              <button
+                type="button"
+                onClick={() => setSandboxConflictModal(null)}
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+              >
+                나중에 보기
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenSandboxConflictStatus}
+                className="flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-5 text-xs font-black text-white shadow-lg shadow-rose-100 transition-colors hover:bg-rose-700"
+              >
+                충돌 해결 화면으로 이동
+                <VscArrowRight size={14} />
               </button>
             </div>
           </div>
