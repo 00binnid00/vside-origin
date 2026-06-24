@@ -6,11 +6,20 @@ import { Terminal as XTerminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 
+const WS_BASE_URL =
+  process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
+
+const buildTerminalSocketUrl = () => {
+  const baseUrl = WS_BASE_URL.replace(/\/$/, "");
+  return `${baseUrl}/ws/terminal`;
+};
+
 export default function Terminal() {
   const containerRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const wsRef = useRef(null);
+  const dataDisposableRef = useRef(null);
 
   const { workspaceId, activeProject, activeBranch } = useSelector(
     (state) => state.fileSystem,
@@ -77,7 +86,15 @@ export default function Terminal() {
   };
 
   const connectWebSocket = (term, wid) => {
-    if (wsRef.current) wsRef.current.close();
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    if (dataDisposableRef.current) {
+      dataDisposableRef.current.dispose();
+      dataDisposableRef.current = null;
+    }
 
     if (!activeProject) {
       term.writeln(
@@ -86,23 +103,45 @@ export default function Terminal() {
       return;
     }
 
-    const ws = new WebSocket("ws://localhost:8080/ws/terminal");
+    const socketUrl = buildTerminalSocketUrl();
+
+    term.writeln(
+      `\r\n\x1b[36m[System] Connecting terminal socket: ${socketUrl}\x1b[0m`,
+    );
+
+    const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      term.writeln(
+        "\r\n\x1b[32m[System] Terminal socket connected.\x1b[0m\r\n",
+      );
+
       ws.send(
         JSON.stringify({
           type: "START",
           workspaceId: wid,
           projectName: activeProject,
-          branchName: activeBranch,
+          branchName: activeBranch || "master",
         }),
       );
     };
 
-    ws.onmessage = (e) => term.write(e.data);
+    ws.onmessage = (e) => {
+      term.write(e.data);
+    };
 
-    term.onData((data) => {
+    ws.onerror = () => {
+      term.writeln(
+        "\r\n\x1b[31m[Error] Terminal WebSocket connection failed.\x1b[0m",
+      );
+    };
+
+    ws.onclose = () => {
+      term.writeln("\r\n\x1b[33m[System] Terminal socket closed.\x1b[0m");
+    };
+
+    dataDisposableRef.current = term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "INPUT", command: data }));
       }
@@ -127,11 +166,23 @@ export default function Terminal() {
       }
     });
 
-    if (containerRef.current) observer.observe(containerRef.current);
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
 
     return () => {
       observer.disconnect();
-      if (wsRef.current) wsRef.current.close();
+
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+
+      if (dataDisposableRef.current) {
+        dataDisposableRef.current.dispose();
+        dataDisposableRef.current = null;
+      }
+
       if (xtermRef.current) {
         xtermRef.current.dispose();
         xtermRef.current = null;
@@ -142,8 +193,9 @@ export default function Terminal() {
   useEffect(() => {
     if (xtermRef.current && workspaceId && activeProject) {
       xtermRef.current.writeln(
-        `\r\n\x1b[32m[System] Switching terminal to ${activeProject} (${activeBranch})...\x1b[0m\r\n`,
+        `\r\n\x1b[32m[System] Switching terminal to ${activeProject} (${activeBranch || "master"})...\x1b[0m\r\n`,
       );
+
       connectWebSocket(xtermRef.current, workspaceId);
     }
   }, [workspaceId, activeProject, activeBranch]);

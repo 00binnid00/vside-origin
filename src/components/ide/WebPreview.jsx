@@ -13,8 +13,49 @@ import {
   VscChromeMaximize,
 } from "react-icons/vsc";
 
+const PREVIEW_HOST = process.env.NEXT_PUBLIC_PREVIEW_HOST || "";
+const PREVIEW_PROTOCOL = process.env.NEXT_PUBLIC_PREVIEW_PROTOCOL || "http";
+
+const hasProtocol = (url) => /^https?:\/\//i.test(String(url || ""));
+
+const getCurrentBrowserHost = () => {
+  if (typeof window === "undefined") return "";
+  return window.location.hostname;
+};
+
+const normalizePreviewUrl = (rawUrl) => {
+  if (!rawUrl) return "";
+
+  const trimmedUrl = String(rawUrl).trim();
+
+  const withProtocol = hasProtocol(trimmedUrl)
+    ? trimmedUrl
+    : `${PREVIEW_PROTOCOL}://${trimmedUrl}`;
+
+  try {
+    const url = new URL(withProtocol);
+
+    const isLocalPreviewHost =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1";
+
+    if (isLocalPreviewHost) {
+      const replacementHost = PREVIEW_HOST || getCurrentBrowserHost();
+
+      if (replacementHost) {
+        url.protocol = `${PREVIEW_PROTOCOL}:`;
+        url.hostname = replacementHost;
+      }
+    }
+
+    return url.toString();
+  } catch {
+    return withProtocol;
+  }
+};
+
 export default function WebPreview() {
   const dispatch = useDispatch();
+
   const { isPreviewVisible, previewUrl: reduxPreviewUrl } = useSelector(
     (state) => state.ui,
   );
@@ -45,23 +86,23 @@ export default function WebPreview() {
     }));
   }, []);
 
-useEffect(() => {
-  if (reduxPreviewUrl) {
-    setInputUrl(reduxPreviewUrl);
-    setActiveUrl(reduxPreviewUrl);
+  useEffect(() => {
+    if (!reduxPreviewUrl) return;
+
+    const normalizedUrl = normalizePreviewUrl(reduxPreviewUrl);
+
+    setInputUrl(normalizedUrl);
+    setActiveUrl(normalizedUrl);
     setRefreshKey((prev) => prev + 1);
-  }
-}, [reduxPreviewUrl]);
+  }, [reduxPreviewUrl]);
 
   const handleUrlSubmit = (e) => {
     if (e.key !== "Enter") return;
 
-    const finalUrl = inputUrl.startsWith("http")
-      ? inputUrl
-      : `http://${inputUrl}`;
+    const normalizedUrl = normalizePreviewUrl(inputUrl);
 
-    setInputUrl(finalUrl);
-    setActiveUrl(finalUrl);
+    setInputUrl(normalizedUrl);
+    setActiveUrl(normalizedUrl);
     setRefreshKey((prev) => prev + 1);
   };
 
@@ -115,10 +156,6 @@ useEffect(() => {
       size={currentSize}
       position={currentPosition}
       onDragStop={(e, d) => {
-        /*
-         * 최소화 상태에서도 위치를 저장해야 함.
-         * 기존 코드는 !isMinimized 조건 때문에 최소화 창을 끌어도 위치가 저장되지 않았음.
-         */
         if (!isMaximized) {
           setRndState((prev) => ({
             ...prev,
@@ -186,7 +223,7 @@ useEffect(() => {
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={handleMaximize}
-              className="p-1 hover:bg-gray-300 rounded-md transition-colors text-gray-500"
+              className="p-1 hover:bg-gray-300 rounded-md transition-colors text-gray-500 disabled:opacity-40"
               title={isMaximized ? "복원" : "최대화"}
               disabled={isMinimized}
             >
@@ -224,7 +261,7 @@ useEffect(() => {
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
                 onKeyDown={handleUrlSubmit}
-                placeholder="http://localhost:3000 입력 후 엔터"
+                placeholder="http://IP:포트 입력 후 엔터"
                 className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-1.5 text-[12px] text-gray-700 font-mono shadow-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
               />
             </div>
@@ -239,9 +276,15 @@ useEffect(() => {
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                  <VscGlobe size={48} className="mb-3 opacity-30 text-blue-500" />
+                  <VscGlobe
+                    size={48}
+                    className="mb-3 opacity-30 text-blue-500"
+                  />
                   <p className="text-[13px] font-bold">
                     서버 실행 로그를 기다리는 중입니다...
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    localhost 미리보기 주소를 현재 시연 IP로 자동 변환합니다.
                   </p>
                 </div>
               )}
