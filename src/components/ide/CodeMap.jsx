@@ -172,9 +172,12 @@ export default function CodeMap() {
   const [aiSummary, setAiSummary] = useState("");
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
 
-  const lastRequestKeyRef = useRef("");
-  
+ const lastRequestKeyRef = useRef("");
+  const lastContextKeyRef = useRef("");
+  const requestSeqRef = useRef(0);
   const dragStartNodeRef = useRef(null);
+  
+
 
   const [contextMenuPos, setContextMenuPos] = useState(null);
   const [nodeContextMenu, setNodeContextMenu] = useState(null);
@@ -199,73 +202,185 @@ export default function CodeMap() {
   const [genParameters, setGenParameters] = useState("");
   const [genBody, setGenBody] = useState("");
 
-  const relationOptions = useMemo(() => [
-      { value: "COMPOSITION", label: "참조", desc: "Composition / Import", color: "bg-[#6366f1]" },
-      { value: "EXTENDS", label: "상속", desc: "Extends", color: "bg-blue-500" },
-      { value: "IMPLEMENTS", label: "구현", desc: "Implements", color: "bg-green-500" },
-      { value: "INJECTS", label: "DI 주입", desc: "Injects", color: "bg-amber-500" },
-  ], []);
+  const relationOptions = useMemo(
+    () => [
+      {
+        value: "COMPOSITION",
+        label: "참조",
+        desc: "Composition / Import",
+        color: "bg-[#6366f1]",
+      },
+      {
+        value: "EXTENDS",
+        label: "상속",
+        desc: "Extends",
+        color: "bg-blue-500",
+      },
+      {
+        value: "IMPLEMENTS",
+        label: "구현",
+        desc: "Implements",
+        color: "bg-green-500",
+      },
+      {
+        value: "INJECTS",
+        label: "DI 주입",
+        desc: "Injects",
+        color: "bg-amber-500",
+      },
+    ],
+    [],
+  );
 
-  const selectedRelationOption = useMemo(() => 
-    relationOptions.find(opt => opt.value === relationType) || relationOptions[0]
-  , [relationOptions, relationType]);
+  const selectedRelationOption = useMemo(
+    () =>
+      relationOptions.find((option) => option.value === relationType) ||
+      relationOptions[0],
+    [relationOptions, relationType],
+  );
 
-  const isMapTab = activeFileId === "Architecture Map" || activeFileId === "CodeMap" || activeFileId?.includes("codemap");
+  const resetCodeMapState = useCallback(() => {
+    requestSeqRef.current += 1;
+    lastRequestKeyRef.current = "";
 
-  const currentProjectData = projectList?.find((p) => p.name === activeProject) || {};
-  let currentLang = currentProjectData.templateType || currentProjectData.language || "JAVA";
+    setRfNodes([]);
+    setRfEdges([]);
+    setSelectedNode(null);
+    setAiSummary("");
+
+    setContextMenuPos(null);
+    setNodeContextMenu(null);
+    setEdgeContextMenu(null);
+    setPendingRelation(null);
+  }, []);
+
+  const isMapTab =
+    activeFileId === "Architecture Map" ||
+    activeFileId === "CodeMap" ||
+    activeFileId?.includes("codemap");
+
+  const currentProjectData =
+    projectList?.find((project) => project.name === activeProject) || {};
+
+  let currentLang =
+    currentProjectData.templateType || currentProjectData.language || "JAVA";
+
   const projLower = (activeProject || "").toLowerCase();
   const activeFilePath = activeFileId || "";
 
-  const hasSpringIndicator = 
-      projLower.includes("spring") || 
-      projLower.includes("스프링") ||
-      activeFilePath.includes("src/main/java") ||
-      activeFilePath.includes("build.gradle") ||
-      activeFilePath.includes("pom.xml") ||
-      (currentProjectData.files && currentProjectData.files.some(f => {
-          const p = (f.path || f.name || f.id || "").toLowerCase();
-          return p.includes("build.gradle") || p.includes("pom.xml") || p.includes("src/main/java");
+  const hasSpringIndicator =
+    projLower.includes("spring") ||
+    projLower.includes("스프링") ||
+    activeFilePath.includes("src/main/java") ||
+    activeFilePath.includes("build.gradle") ||
+    activeFilePath.includes("pom.xml") ||
+    (currentProjectData.files &&
+      currentProjectData.files.some((file) => {
+        const path = (file.path || file.name || file.id || "").toLowerCase();
+        return (
+          path.includes("build.gradle") ||
+          path.includes("pom.xml") ||
+          path.includes("src/main/java")
+        );
       }));
 
   if (hasSpringIndicator) {
     currentLang = "SPRING_BOOT";
-  } else if (projLower.includes("react") || projLower.includes("리액트") || activeFilePath.includes("src/components") || activeFilePath.endsWith(".jsx")) {
+  } else if (
+    projLower.includes("react") ||
+    projLower.includes("리액트") ||
+    activeFilePath.includes("src/components") ||
+    activeFilePath.endsWith(".jsx")
+  ) {
     currentLang = "REACT";
-  } else if (projLower.includes("python") || projLower.includes("파이썬") || activeFilePath.endsWith(".py")) {
+  } else if (
+    projLower.includes("python") ||
+    projLower.includes("파이썬") ||
+    activeFilePath.endsWith(".py")
+  ) {
     currentLang = "PYTHON";
   }
 
   useEffect(() => {
+    const branch = activeBranch || "master";
+    const nextContextKey = `${workspaceId || ""}::${activeProject || ""}::${branch}::${currentLang}`;
+
+    if (lastContextKeyRef.current === nextContextKey) return;
+
+    lastContextKeyRef.current = nextContextKey;
+    resetCodeMapState();
+  }, [workspaceId, activeProject, activeBranch, currentLang, resetCodeMapState]);
+
+  useEffect(() => {
+    const handleBranchContextChanged = (event) => {
+      const detail = event.detail || {};
+
+      if (detail.workspaceId && detail.workspaceId !== workspaceId) return;
+      if (detail.projectName && detail.projectName !== activeProject) return;
+
+      resetCodeMapState();
+    };
+
+    window.addEventListener(
+      "waivs:branch-context-changed",
+      handleBranchContextChanged,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "waivs:branch-context-changed",
+        handleBranchContextChanged,
+      );
+    };
+  }, [workspaceId, activeProject, resetCodeMapState]);
+
+  useEffect(() => {
     if (currentLang === "SPRING_BOOT") {
-      const mainNode = rfNodes.find(n => (n.data?.role || "").toLowerCase() === "main");
+      const mainNode = rfNodes.find(
+        (node) => (node.data?.role || "").toLowerCase() === "main",
+      );
+
       if (mainNode && mainNode.id) {
-        const parts = mainNode.id.split('/');
-        parts.pop(); 
-        setBasePath(parts.join('/') + '/'); 
-      } else {
-        const javaNode = rfNodes.find(n => n.id && n.id.includes("src/main/java/"));
-        if (javaNode) {
-          const match = javaNode.id.match(/(.*src\/main\/java\/[^\/]+\/[^\/]+\/[^\/]+\/)/);
-          if (match) {
-              setBasePath(match[1]);
-          } else {
-              const parts = javaNode.id.split('/');
-              parts.pop();
-              setBasePath(parts.join('/') + '/');
-          }
-        } else {
-          setBasePath("src/main/java/com/example/demo/");
-        }
+        const parts = mainNode.id.split("/");
+        parts.pop();
+        setBasePath(`${parts.join("/")}/`);
+        return;
       }
-    } else if (currentLang === "REACT") {
-      setBasePath("src/components/");
-    } else {
-      setBasePath("src/");
+
+      const javaNode = rfNodes.find(
+        (node) => node.id && node.id.includes("src/main/java/"),
+      );
+
+      if (javaNode) {
+        const match = javaNode.id.match(
+          /(.*src\/main\/java\/[^/]+\/[^/]+\/[^/]+\/)/,
+        );
+
+        if (match) {
+          setBasePath(match[1]);
+          return;
+        }
+
+        const parts = javaNode.id.split("/");
+        parts.pop();
+        setBasePath(`${parts.join("/")}/`);
+        return;
+      }
+
+      setBasePath("src/main/java/com/example/demo/");
+      return;
     }
+
+    if (currentLang === "REACT") {
+      setBasePath("src/components/");
+      return;
+    }
+
+    setBasePath("src/");
   }, [rfNodes, currentLang]);
 
-  const handleOpenNewComponentModal = (x, y) => {
+const handleOpenNewComponentModal = (x, y) => {
+
     setContextMenuPos(x && y ? { x, y } : null);
     setNewCompType(currentLang === "REACT" ? "REACT_COMPONENT" : currentLang === "PYTHON" ? "PYTHON_CLASS" : "CLASS");
     setIsModalOpen(true);
@@ -344,11 +459,15 @@ export default function CodeMap() {
     }
 
     const branch = activeBranch || "master";
-    const currentRequestKey = `${workspaceId}-${activeProject}-${branch}`;
-    
+    const currentRequestKey = `${workspaceId}-${activeProject}-${branch}-${currentLang}`;
+
     if (!isRefresh && lastRequestKeyRef.current === currentRequestKey && rfNodes.length > 0) return;
 
     lastRequestKeyRef.current = currentRequestKey;
+
+    const requestId = requestSeqRef.current + 1;
+    requestSeqRef.current = requestId;
+
     setIsLoading(true);
     setSelectedNode(null);
 
@@ -362,11 +481,15 @@ export default function CodeMap() {
       });
 
       const data = await apiJson(`/api/codemap/analyze?${query}`, {
-        cache: "no-store",
-      });
+      cache: "no-store",
+    });
 
-const backendNodes = Array.isArray(data?.nodes) ? data.nodes : [];
-const backendEdges = Array.isArray(data?.edges) ? data.edges : [];
+    if (requestSeqRef.current !== requestId) {
+      return;
+    }
+
+    const backendNodes = Array.isArray(data?.nodes) ? data.nodes : [];
+    const backendEdges = Array.isArray(data?.edges) ? data.edges : [];
 
       const grouped = {
         main: [],
@@ -493,12 +616,20 @@ const backendEdges = Array.isArray(data?.edges) ? data.edges : [];
         };
       });
 
+      if (requestSeqRef.current !== requestId) {
+        return;
+      }
+
       setRfNodes(generatedNodes);
       setRfEdges(generatedEdges);
     } catch (error) {
-      console.error(error);
+      if (requestSeqRef.current === requestId) {
+        console.error(error);
+      }
     } finally {
-      setIsLoading(false);
+      if (requestSeqRef.current === requestId) {
+        setIsLoading(false);
+      }
     }
   }, [workspaceId, activeProject, activeBranch, rfNodes.length, currentLang]);
 

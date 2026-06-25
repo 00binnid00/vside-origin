@@ -483,17 +483,30 @@ export default function GitBranchControls({
     setIsBranchOpen((prev) => !prev);
   };
 
-  const resetEditorForBranchChange = () => {
+  const resetEditorForBranchChange = (nextBranch = "") => {
     dispatch(closeAllFiles());
     dispatch(clearVirtualTree());
+
+    if (typeof window === "undefined") return;
+    if (!nextBranch) return;
+
+    window.dispatchEvent(
+      new CustomEvent("waivs:branch-context-changed", {
+        detail: {
+          workspaceId,
+          projectName: activeProject,
+          branchName: nextBranch,
+          requestedAt: Date.now(),
+        },
+      }),
+    );
   };
 
   const handleSelectBranch = async (branchName) => {
     if (!branchName || branchName === currentBranch || isBranchBusy) return;
 
     try {
-      resetEditorForBranchChange();
-
+      resetEditorForBranchChange(branchName);
       await switchBranch(branchName);
 
       setIsBranchOpen(false);
@@ -529,6 +542,10 @@ export default function GitBranchControls({
         baseBranch: branchDraft.baseBranch,
         checkoutAfterCreate: branchDraft.checkoutAfterCreate,
       });
+
+      if (branchDraft.checkoutAfterCreate) {
+        resetEditorForBranchChange(createdBranchName);
+      }
 
       notifyBranchesChanged({
         workspaceId,
@@ -683,14 +700,15 @@ export default function GitBranchControls({
       * 그렇지 않으면 develop에서 수정 중이던 파일 내용이 샌드박스 화면에 그대로 남고,
       * applySandbox 시 샌드박스 변경분으로 저장될 수 있다.
       */
-      resetEditorForBranchChange();
+      dispatch(closeAllFiles());
+      dispatch(clearVirtualTree());
 
       const sandboxBranchName = await createSandbox({
         taskName: sandboxTaskName,
         baseBranch: sandboxBaseBranch,
       });
 
-      resetEditorForBranchChange();
+      resetEditorForBranchChange(sandboxBranchName);
 
       notifyBranchesChanged({
         workspaceId,
@@ -793,11 +811,12 @@ export default function GitBranchControls({
     setFullScreenLoading({ isOpen: false, text: "" });
 
     try {
-      resetEditorForBranchChange();
+      dispatch(closeAllFiles());
+      dispatch(clearVirtualTree());
 
       await switchBranch(targetBranch);
 
-      resetEditorForBranchChange();
+      resetEditorForBranchChange(targetBranch);
     } catch (error) {
       console.error("충돌 대상 브랜치 이동 실패:", error);
     }

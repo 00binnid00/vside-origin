@@ -35,6 +35,7 @@ import {
   setWorkspaceId,
   setProjectList,
   closeAllFiles,
+  clearVirtualTree,
 } from "@/store/slices/fileSystemSlice";
 import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
@@ -87,7 +88,7 @@ function CollaborationPanel({ workspaceId }) {
         if (storedUser?.nickname) return storedUser.nickname;
         if (storedUser?.email) return storedUser.email.split("@")[0];
       }
-    } catch (e) {}
+    } catch {}
 
     return "팀원";
   };
@@ -101,7 +102,7 @@ function CollaborationPanel({ workspaceId }) {
 
         if (storedUser?.id) return storedUser.id;
       }
-    } catch (e) {}
+    } catch {}
 
     return 0;
   };
@@ -314,9 +315,9 @@ export default function TeamIdeMain() {
     isRightPanelVisible,
   } = useSelector((state) => state.ui);
 
-  const { workspaceId, activeBranch } = useSelector(
-    (state) => state.fileSystem,
-  );
+ const { workspaceId, activeProject, activeBranch } = useSelector(
+  (state) => state.fileSystem,
+);
 
   const [rightTab, setRightTab] = useState("chat");
 
@@ -330,11 +331,41 @@ export default function TeamIdeMain() {
     TERMINAL_DEFAULT_HEIGHT,
   );
 
+  useEffect(() => {
+    const previousBranch = previousBranchRef.current;
+    const nextBranch = activeBranch || "master";
+
+    if (!activeProject || previousBranch === nextBranch) {
+      previousBranchRef.current = nextBranch;
+      return;
+    }
+
+    previousBranchRef.current = nextBranch;
+
+    dispatch(closeAllFiles());
+    dispatch(clearVirtualTree());
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("waivs:branch-context-changed", {
+          detail: {
+            workspaceId,
+            projectName: activeProject,
+            branchName: nextBranch,
+            requestedAt: Date.now(),
+          },
+        }),
+      );
+    }
+  }, [workspaceId, activeProject, activeBranch, dispatch]);
+
   const [resizingPanel, setResizingPanel] = useState(null);
 
   const editorLayoutRef = useRef(null);
+  const previousBranchRef = useRef(activeBranch || "master");
 
-  const isSandboxMode = activeBranch?.startsWith("focus-") || activeBranch?.startsWith("focus/");
+  const isSandboxMode =
+    activeBranch?.startsWith("focus-") || activeBranch?.startsWith("focus/");
 
   const startLeftSidebarResize = (event) => {
     event.preventDefault();
