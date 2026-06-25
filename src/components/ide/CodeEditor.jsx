@@ -392,6 +392,7 @@ export default function CodeEditor() {
   const bindingRef = useRef(null);
   const collabSessionRef = useRef(0);
   const providerStatusListenerRef = useRef(null);
+  const providerSyncListenerRef = useRef(null);
   const bindTimeoutsRef = useRef([]);
   const awarenessChangeListenerRef = useRef(null);
 
@@ -523,6 +524,7 @@ export default function CodeEditor() {
 
   const provider = providerRef.current;
   const statusListener = providerStatusListenerRef.current;
+  const syncListener = providerSyncListenerRef.current;
   const awarenessListener = awarenessChangeListenerRef.current;
 
   try {
@@ -531,6 +533,14 @@ export default function CodeEditor() {
     }
   } catch {
     // provider status listener cleanup failure ignored
+  }
+
+  try {
+    if (provider && syncListener && typeof provider.off === "function") {
+      provider.off("sync", syncListener);
+    }
+  } catch {
+    // provider sync listener cleanup failure ignored
   }
 
   try {
@@ -546,6 +556,7 @@ export default function CodeEditor() {
   }
 
   providerStatusListenerRef.current = null;
+  providerSyncListenerRef.current = null;
   awarenessChangeListenerRef.current = null;
 
   try {
@@ -852,36 +863,90 @@ export default function CodeEditor() {
 
       if (!isLiveSession()) return;
 
-      bindingRef.current = new MonacoBinding(
-        yText,
-        currentModel,
-        new Set([editor]),
-        awareness,
-      );
+      try {
+        bindingRef.current = new MonacoBinding(
+          yText,
+          currentModel,
+          new Set([editor]),
+          awareness,
+        );
+
+        console.log("[YJS MonacoBinding created]", {
+          roomName,
+          hasBinding: Boolean(bindingRef.current),
+          yTextLength: yText.length,
+          modelLength: currentModel.getValue().length,
+        });
+      } catch (error) {
+        console.error("[YJS MonacoBinding failed]", error);
+      }
     };
 
-    if (provider.synced) {
-      doBind();
-    } else {
-      const statusHandler = ({ status }) => {
-        if (status !== "connected") return;
+    const safeDoBind = (reason) => {
+  if (!isLiveSession()) return;
+  if (bindingRef.current) return;
 
-        const timerId = window.setTimeout(() => {
-          if (isLiveSession()) doBind();
-        }, 300);
+  console.log("[YJS bind start]", {
+    reason,
+    roomName,
+    wsBase: WS_BASE,
+    providerSynced: provider.synced,
+    yTextLength: yText.length,
+    modelLength: editor.getModel()?.getValue()?.length,
+    awarenessClients: Array.from(awareness.getStates().keys()),
+    myClientId: awareness.clientID,
+  });
 
-        bindTimeoutsRef.current.push(timerId);
-      };
+  doBind();
 
-      providerStatusListenerRef.current = statusHandler;
-      provider.on("status", statusHandler);
+  console.log("[YJS bind done]", {
+    reason,
+    hasBinding: Boolean(bindingRef.current),
+    yTextLength: yText.length,
+    modelLength: editor.getModel()?.getValue()?.length,
+  });
+};
 
-      const fallbackTimerId = window.setTimeout(() => {
-        if (isLiveSession()) doBind();
-      }, 1500);
+const statusHandler = ({ status }) => {
+  console.log("[YJS status]", status, roomName, WS_BASE);
 
-      bindTimeoutsRef.current.push(fallbackTimerId);
+  if (status !== "connected") return;
+
+  const timerId = window.setTimeout(() => {
+    safeDoBind("connected-fallback");
+  }, 800);
+
+  bindTimeoutsRef.current.push(timerId);
+};
+
+providerStatusListenerRef.current = statusHandler;
+provider.on("status", statusHandler);
+
+const syncHandler = (isSynced) => {
+    console.log("[YJS sync]", isSynced, roomName, yText.toString().length);
+
+    if (!isSynced) return;
+
+    if (typeof provider.off === "function") {
+      provider.off("sync", syncHandler);
     }
+
+    providerSyncListenerRef.current = null;
+    safeDoBind("sync");
+  };
+
+  providerSyncListenerRef.current = syncHandler;
+  provider.on("sync", syncHandler);
+
+  if (provider.synced) {
+    safeDoBind("already-synced");
+  }
+
+  const finalFallbackTimerId = window.setTimeout(() => {
+    safeDoBind("final-fallback");
+  }, 2000);
+
+  bindTimeoutsRef.current.push(finalFallbackTimerId);
   },
   [
     activeBranch,
