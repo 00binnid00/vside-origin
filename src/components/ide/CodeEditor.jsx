@@ -200,6 +200,14 @@ class CustomWebSocket extends WebSocket {
   }
 }
 
+const normalizeCollabKeyPart = (value, fallback = "") => {
+  return String(value ?? fallback)
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "")
+    .trim();
+};
+
 
 const parseMergeConflicts = (value = "") => {
   const lines = String(value || "").split("\n");
@@ -326,6 +334,7 @@ export default function CodeEditor() {
   const [aiQuery, setAiQuery] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isEditorReady, setIsEditorReady] = useState(false);
+  const [editorMountVersion, setEditorMountVersion] = useState(0);
   const [fetchedNickname, setFetchedNickname] = useState("");
 
   const [lockWarning, setLockWarning] = useState({ show: false, msg: "" });
@@ -367,18 +376,24 @@ export default function CodeEditor() {
   const activeContent = activeFileId ? fileContents[activeFileId] || "" : "";
   const hasMergeConflicts = mergeConflicts.length > 0;
 
-  const monacoModelPath = useMemo(() => {
+  const collabFileKey = useMemo(() => {
   if (!activeFileId) return "";
 
-  return [
-    workspaceId || "workspace",
-    activeProject || "project",
-    activeBranch || "master",
-    activeFileId,
-  ]
-    .map((part) => encodeURIComponent(String(part)))
-    .join("/");
-}, [workspaceId, activeProject, activeBranch, activeFileId]);
+  return normalizeCollabKeyPart(activeFileId);
+}, [activeFileId]);
+
+  const monacoModelPath = useMemo(() => {
+    if (!collabFileKey) return "";
+
+    return [
+      normalizeCollabKeyPart(workspaceId, "workspace"),
+      normalizeCollabKeyPart(activeProject, "project"),
+      normalizeCollabKeyPart(activeBranch, "master"),
+      collabFileKey,
+    ]
+      .map((part) => encodeURIComponent(String(part)))
+      .join("/");
+  }, [workspaceId, activeProject, activeBranch, collabFileKey]);
 
   const stateRef = useRef({
     activeFileId,
@@ -673,9 +688,21 @@ export default function CodeEditor() {
       initialModel.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
     }
 
-    const roomName = `${workspaceId}:${activeProject}:${
-      activeBranch || "master"
-    }:${activeFileId}`;
+    const roomName = [
+      normalizeCollabKeyPart(workspaceId, "workspace"),
+      normalizeCollabKeyPart(activeProject, "project"),
+      normalizeCollabKeyPart(activeBranch, "master"),
+      normalizeCollabKeyPart(activeFileId),
+    ].join(":");
+
+    console.log("[COLLAB ROOM ENTER]", {
+      activeFileId,
+      collabFileKey: normalizeCollabKeyPart(activeFileId),
+      roomName,
+      workspaceId,
+      activeProject,
+      activeBranch,
+    });
 
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
@@ -834,8 +861,13 @@ export default function CodeEditor() {
     awareness.on("change", awarenessChangeHandler);
 
     const yText = ydoc.getText("monaco");
-    const rawContent = fileContentsRef.current[activeFileId] || "";
-    const localContent = rawContent.replace(/\r\n/g, "\n");
+
+    const rawContent =
+      latestContentRef.current[activeFileId] ??
+      fileContentsRef.current[activeFileId] ??
+      "";
+
+    const localContent = String(rawContent).replace(/\r\n/g, "\n");
 
     const doBind = () => {
       if (!isLiveSession()) return;
@@ -952,6 +984,7 @@ const syncHandler = (isSynced) => {
     activeBranch,
     activeFileId,
     activeProject,
+    collabFileKey,
     cleanupCollaboration,
     workspaceId,
   ],
@@ -989,25 +1022,36 @@ useEffect(() => {
   const isContentLoaded = fileContents[activeFileId] !== undefined;
 
   useEffect(() => {
-  if (!isEditorReady || !editorRef.current || !isContentLoaded) {
-    return undefined;
-  }
+    const currentEditor = editorRef.current;
+    const currentModel = currentEditor?.getModel?.();
 
-  if (isTeamMode) {
-    setupCollaboration(editorRef.current);
-  } else {
-    cleanupCollaboration();
-  }
+    if (
+      !isEditorReady ||
+      !currentEditor ||
+      !currentModel ||
+      currentModel.isDisposed() ||
+      !isContentLoaded
+    ) {
+      return undefined;
+    }
 
-  return () => {
-    cleanupCollaboration();
-  };
-}, [
+    if (isTeamMode) {
+      setupCollaboration(currentEditor);
+    } else {
+      cleanupCollaboration();
+    }
+
+    return () => {
+      cleanupCollaboration();
+    };
+  }, [
     isEditorReady,
+    editorMountVersion,
     activeFileId,
     workspaceId,
     activeProject,
     activeBranch,
+    collabFileKey,
     isContentLoaded,
     isTeamMode,
     setupCollaboration,
@@ -1048,18 +1092,47 @@ useEffect(() => {
     }
   };
 
-  const handleEditorChange = (value) => {
-    setMergeConflicts(parseMergeConflicts(value || ""));
+  const handleEditorChange = (value = "") => {
+    if (!activeFileId) return;
 
-    if (!isTeamModeRef.current && activeFileId) {
-      // 1차적으로 맵에 최신화된 로컬 값 등록
-      latestContentRef.current[activeFileId] = value;
+    // 이건 반드시 유지.
+    // 팀 모드에서 파일 이동/재접속 시 최신 내용을 잃지 않기 위한 로컬 최신값 캐시.
+    latestContentRef.current[activeFileId] = value;
 
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        dispatch(updateFileContent({ filePath: activeFileId, content: value }));
-      }, 400); 
+    // 충돌 마커가 없는 일반 편집에서는 무거운 전체 파싱을 피한다.
+    if (
+      value.includes("<<<<<<<") ||
+      value.includes("=======") ||
+      value.includes(">>>>>>>")
+    ) {
+      setMergeConflicts(parseMergeConflicts(value || ""));
+    } else if (mergeConflicts.length > 0) {
+      setMergeConflicts([]);
     }
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    // 팀 모드에서는 타이핑 중 Redux 동기화를 하지 않는다.
+    // Yjs가 실시간 동기화를 담당하고, Redux는 파일 전환/저장/언마운트 때만 따라가면 된다.
+    if (isTeamModeRef.current) {
+      return;
+    }
+
+    // 일반 모드에서만 기존처럼 Redux 반영.
+    saveTimerRef.current = setTimeout(() => {
+      const currentReduxContent = fileContentsRef.current[activeFileId] || "";
+
+      if (currentReduxContent === value) return;
+
+      dispatch(
+        updateFileContent({
+          filePath: activeFileId,
+          content: value,
+        }),
+      );
+    }, 400);
   };
 
   const executeAiAction = async (queryText, currentCode) => {
@@ -1373,6 +1446,7 @@ useEffect(() => {
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
     setIsEditorReady(true);
+    setEditorMountVersion((prev) => prev + 1);
 
     editor.onKeyDown((e) => {
       if (!isTeamModeRef.current) return;
@@ -1450,6 +1524,11 @@ useEffect(() => {
 
     editor.onDidDispose(() => {
       codeLensProvider.dispose();
+
+      if (editorRef.current === editor) {
+        editorRef.current = null;
+        setIsEditorReady(false);
+      }
     });
 
     editor.onDidChangeCursorSelection((e) => {
