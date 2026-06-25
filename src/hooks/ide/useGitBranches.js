@@ -785,22 +785,55 @@ export function useGitBranches({
 
       try {
         const entries = Object.entries(fileContents || {}).filter(
-          ([path]) => path && !String(path).startsWith("virtual:"),
-        );
+  ([path]) => path && !String(path).startsWith("virtual:"),
+);
 
-        if (entries.length > 0) {
-          await Promise.all(
-            entries.map(([path, content]) =>
-              saveFileApi(
-                workspaceId,
-                activeProject,
-                sandboxBranch,
-                path,
-                content || "",
-              ),
-            ),
-          );
-        }
+const isTransientCodeMapError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    message.includes("codemapcache") ||
+    message.includes("row was updated or deleted") ||
+    message.includes("optimistic") ||
+    message.includes("another transaction")
+  );
+};
+
+const wait = (ms) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+for (const [path, content] of entries) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await saveFileApi(
+        workspaceId,
+        activeProject,
+        sandboxBranch,
+        path,
+        content || "",
+      );
+
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+
+      if (!isTransientCodeMapError(error) || attempt === 3) {
+        throw error;
+      }
+
+      await wait(150 * attempt);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+}
 
         const resultPayload = await applySandboxApi(
           workspaceId,

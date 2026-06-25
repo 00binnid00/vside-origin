@@ -19,6 +19,10 @@ import {
 
 import { useDispatch } from "react-redux";
 import { setActiveActivity } from "@/store/slices/uiSlice";
+import {
+  clearVirtualTree,
+  closeAllFiles,
+} from "@/store/slices/fileSystemSlice";
 
 import {
   DEFAULT_BRANCH,
@@ -479,11 +483,19 @@ export default function GitBranchControls({
     setIsBranchOpen((prev) => !prev);
   };
 
+  const resetEditorForBranchChange = () => {
+    dispatch(closeAllFiles());
+    dispatch(clearVirtualTree());
+  };
+
   const handleSelectBranch = async (branchName) => {
     if (!branchName || branchName === currentBranch || isBranchBusy) return;
 
     try {
+      resetEditorForBranchChange();
+
       await switchBranch(branchName);
+
       setIsBranchOpen(false);
     } catch (error) {
       alert(error.message);
@@ -665,10 +677,20 @@ export default function GitBranchControls({
     });
 
     try {
+      /*
+      * 중요:
+      * 샌드박스 생성 전에 기존 브랜치에서 열려 있던 에디터 버퍼를 제거한다.
+      * 그렇지 않으면 develop에서 수정 중이던 파일 내용이 샌드박스 화면에 그대로 남고,
+      * applySandbox 시 샌드박스 변경분으로 저장될 수 있다.
+      */
+      resetEditorForBranchChange();
+
       const sandboxBranchName = await createSandbox({
         taskName: sandboxTaskName,
         baseBranch: sandboxBaseBranch,
       });
+
+      resetEditorForBranchChange();
 
       notifyBranchesChanged({
         workspaceId,
@@ -771,7 +793,11 @@ export default function GitBranchControls({
     setFullScreenLoading({ isOpen: false, text: "" });
 
     try {
+      resetEditorForBranchChange();
+
       await switchBranch(targetBranch);
+
+      resetEditorForBranchChange();
     } catch (error) {
       console.error("충돌 대상 브랜치 이동 실패:", error);
     }
