@@ -472,20 +472,23 @@ export default function CodeEditor() {
   // 백엔드가 코드를 조작하여 Redux가 갱신되면, Yjs 팀 모드라 할지라도
   // 변경사항을 에디터에 밀어넣어 y-monaco가 이를 감지하고 B 사용자에게 전파하도록 합니다.
   useEffect(() => {
+    if (isTeamModeRef.current && bindingRef.current) {
+      return;
+    }
+
     if (editorRef.current && activeFileId) {
       const model = editorRef.current.getModel();
       const reduxContent = fileContents[activeFileId] || "";
       const lastTypedContent = latestContentRef.current[activeFileId];
 
       if (model && !model.isDisposed()) {
-        // 조건: 현재 에디터 내용과 다르고 && 사용자가 마지막으로 타이핑한 내용과도 다를 때만 덮어씀
         if (reduxContent !== model.getValue() && reduxContent !== lastTypedContent) {
           model.pushEditOperations(
             [],
             [{ range: model.getFullModelRange(), text: reduxContent }],
             () => null
           );
-          latestContentRef.current[activeFileId] = reduxContent; // 추적 맵 최신화
+          latestContentRef.current[activeFileId] = reduxContent;
         }
       }
     }
@@ -594,6 +597,17 @@ export default function CodeEditor() {
 
     lockDecosRef.current = [];
     lockedLinesRef.current = {};
+
+    try {
+      const editor = editorRef.current;
+      const model = editor?.getModel?.();
+
+      if (editor && model && !model.isDisposed()) {
+        editor.updateOptions({ readOnly: false });
+      }
+    } catch {
+      // readOnly reset failure ignored
+    }
 
     const binding = bindingRef.current;
     bindingRef.current = null;
@@ -745,9 +759,7 @@ export default function CodeEditor() {
         line,
       });
 
-      editor.updateOptions({
-        readOnly: Boolean(lockedLinesRef.current[line]),
-      });
+      
     });
 
     const updateLockDecorations = () => {
@@ -852,9 +864,6 @@ export default function CodeEditor() {
 
       if (!currentEditor || !currentPos) return;
 
-      currentEditor.updateOptions({
-        readOnly: Boolean(lockedLinesRef.current[currentPos.lineNumber]),
-      });
     };
 
     awarenessChangeListenerRef.current = awarenessChangeHandler;
@@ -1095,11 +1104,8 @@ useEffect(() => {
   const handleEditorChange = (value = "") => {
     if (!activeFileId) return;
 
-    // 이건 반드시 유지.
-    // 팀 모드에서 파일 이동/재접속 시 최신 내용을 잃지 않기 위한 로컬 최신값 캐시.
     latestContentRef.current[activeFileId] = value;
 
-    // 충돌 마커가 없는 일반 편집에서는 무거운 전체 파싱을 피한다.
     if (
       value.includes("<<<<<<<") ||
       value.includes("=======") ||
@@ -1114,16 +1120,12 @@ useEffect(() => {
       clearTimeout(saveTimerRef.current);
     }
 
-    // 팀 모드에서는 타이핑 중 Redux 동기화를 하지 않는다.
-    // Yjs가 실시간 동기화를 담당하고, Redux는 파일 전환/저장/언마운트 때만 따라가면 된다.
     if (isTeamModeRef.current) {
       return;
     }
 
-    // 일반 모드에서만 기존처럼 Redux 반영.
     saveTimerRef.current = setTimeout(() => {
       const currentReduxContent = fileContentsRef.current[activeFileId] || "";
-
       if (currentReduxContent === value) return;
 
       dispatch(
