@@ -225,7 +225,7 @@ export default function Page() {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input 
                       className="h-11 flex-1 rounded-2xl border border-blue-100 bg-blue-50/50 px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                       value={path}
                       onChange={(e) => setPath(e.target.value)}
