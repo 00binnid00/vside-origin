@@ -10,10 +10,12 @@ import {
   Pencil,
   Trash2,
   ArrowLeft,
-  Loader2
+  Loader2,
+  Flag
 } from "lucide-react";
 import Link from "next/link";
 import { getCurrentUser } from "@/components/community/CommunityUtil";
+import ReportModal from "@/components/community/ReportModal";
 
 export default function CommunityDetailPage() {
   const params = useParams();
@@ -22,6 +24,7 @@ export default function CommunityDetailPage() {
 
   const [post, setPost] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const currentUser = getCurrentUser(); // 로그인 유저 정보
 
@@ -220,6 +223,14 @@ setPost((prev: any) =>
               >
                 <Bookmark size={17} className={post.scrapped ? "fill-current" : ""} /> 스크랩
               </button>
+
+              <button
+                onClick={() => setReportOpen(true)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-red-100 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-red-50 hover:text-red-600"
+              >
+                <Flag size={17} />
+                신고하기
+              </button>
             </div>
           </div>
         </div>
@@ -228,6 +239,11 @@ setPost((prev: any) =>
           <CommentSection />
         </div>
       </div>
+      <ReportModal
+        open={reportOpen}
+        postId={post.id}
+        onClose={() => setReportOpen(false)}
+      />
     </main>
   );
 }
