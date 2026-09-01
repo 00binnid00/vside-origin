@@ -11,7 +11,8 @@ import {
   FolderOpen,
   ListTodo,
   Loader2,
-  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   RefreshCw,
@@ -212,6 +213,7 @@ function isScheduleVisibleInWeek(
 
 function getProjectName(schedule: ProjectScheduleItem | null) {
   if (!schedule) return "프로젝트 없음";
+
   return schedule.customProjectName || schedule.projectName || "프로젝트 없음";
 }
 
@@ -265,11 +267,15 @@ export default function ScheduleManagementPage() {
   const [detailSidebarWidth, setDetailSidebarWidth] = useState(
     DETAIL_SIDEBAR_DEFAULT_WIDTH,
   );
+
   const [isDetailSidebarResizing, setIsDetailSidebarResizing] = useState(false);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<ProjectScheduleItem | null>(null);
+
+  const [editingSchedule, setEditingSchedule] =
+    useState<ProjectScheduleItem | null>(null);
+
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -304,12 +310,15 @@ export default function ScheduleManagementPage() {
 
       const results = await Promise.allSettled(
         workspaceList.map((workspace) =>
-          fetchWorkspaceSchedulesApi({ workspaceId: workspace.id }),
+          fetchWorkspaceSchedulesApi({
+            workspaceId: workspace.id,
+          }),
         ),
       );
 
       const merged = results.flatMap((result) => {
         if (result.status !== "fulfilled") return [];
+
         return result.value.map(mapScheduleFromApi);
       });
 
@@ -324,14 +333,19 @@ export default function ScheduleManagementPage() {
           };
 
           const statusCompare = statusOrder[a.status] - statusOrder[b.status];
-          if (statusCompare !== 0) return statusCompare;
+
+          if (statusCompare !== 0) {
+            return statusCompare;
+          }
 
           return getScheduleStartDate(a).localeCompare(getScheduleStartDate(b));
         });
 
       setAllProjectTodaySchedules(todayItems);
     } catch {
-      setAllTodayErrorMessage("전체 프로젝트의 오늘 일정을 불러오지 못했습니다.");
+      setAllTodayErrorMessage(
+        "전체 프로젝트의 오늘 일정을 불러오지 못했습니다.",
+      );
     } finally {
       setAllTodayLoading(false);
     }
@@ -343,11 +357,13 @@ export default function ScheduleManagementPage() {
       setWorkspaceErrorMessage("");
 
       const response = await getMyWorkspacesByTokenApi();
+
       const mapped = extractWorkspaceList(response)
         .map(mapWorkspaceFromApi)
         .filter((item): item is WorkspaceSidebarItem => Boolean(item));
 
       setWorkspaces(mapped);
+
       void loadAllProjectTodaySchedules(mapped);
 
       const matchedWorkspace = mapped.find(
@@ -366,6 +382,7 @@ export default function ScheduleManagementPage() {
         params.set("mode", mapped[0].mode);
 
         setWorkspaceName(mapped[0].name);
+
         router.replace(`${pathname}?${params.toString()}`);
       }
     } catch {
@@ -379,9 +396,11 @@ export default function ScheduleManagementPage() {
   const loadSchedules = async () => {
     if (!workspaceId) {
       setLoading(false);
+
       setErrorMessage(
         "workspaceId가 없습니다. 왼쪽 프로젝트 목록에서 프로젝트를 선택해주세요.",
       );
+
       return;
     }
 
@@ -389,7 +408,10 @@ export default function ScheduleManagementPage() {
       setLoading(true);
       setErrorMessage("");
 
-      const data = await fetchWorkspaceSchedulesApi({ workspaceId });
+      const data = await fetchWorkspaceSchedulesApi({
+        workspaceId,
+      });
+
       const mapped = data.map(mapScheduleFromApi);
 
       setSchedules(mapped);
@@ -402,7 +424,10 @@ export default function ScheduleManagementPage() {
       }
 
       setSelectedScheduleId((prev) => {
-        if (prev && mapped.some((item) => item.id === prev)) return prev;
+        if (prev && mapped.some((item) => item.id === prev)) {
+          return prev;
+        }
+
         return mapped[0]?.id ?? null;
       });
     } catch (error) {
@@ -431,6 +456,7 @@ export default function ScheduleManagementPage() {
     }
 
     void loadSchedules();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
@@ -459,12 +485,15 @@ export default function ScheduleManagementPage() {
     "프로젝트";
 
   const totalCount = filteredSchedules.length;
+
   const progressCount = filteredSchedules.filter(
     (item) => item.status === "progress",
   ).length;
+
   const doneCount = filteredSchedules.filter(
     (item) => item.status === "done",
   ).length;
+
   const delayedCount = filteredSchedules.filter(
     (item) => item.status === "delayed",
   ).length;
@@ -475,7 +504,8 @@ export default function ScheduleManagementPage() {
   const todayTodos = filteredSchedules.filter(
     (item) => isDateInScheduleRange(item, todayDate) && item.status !== "done",
   );
-    const selectedProjectTodaySchedules = schedules
+
+  const selectedProjectTodaySchedules = schedules
     .filter((item) => isDateInScheduleRange(item, todayDate))
     .sort((a, b) => {
       const statusOrder: Record<ScheduleStatus, number> = {
@@ -486,7 +516,10 @@ export default function ScheduleManagementPage() {
       };
 
       const statusCompare = statusOrder[a.status] - statusOrder[b.status];
-      if (statusCompare !== 0) return statusCompare;
+
+      if (statusCompare !== 0) {
+        return statusCompare;
+      }
 
       return getScheduleStartDate(a).localeCompare(getScheduleStartDate(b));
     });
@@ -496,7 +529,9 @@ export default function ScheduleManagementPage() {
   const recentDoneSchedule =
     filteredSchedules.find((item) => item.status === "done") ?? null;
 
-  const shouldShowDetailSidebar = Boolean(isDetailSidebarOpen && selectedSchedule);
+  const shouldShowDetailSidebar = Boolean(
+    isDetailSidebarOpen && selectedSchedule,
+  );
 
   const layoutGridTemplateColumns = useMemo(() => {
     const leftColumn = isProjectSidebarOpen ? "300px" : "84px";
@@ -520,6 +555,7 @@ export default function ScheduleManagementPage() {
 
     const handlePointerMove = (event: PointerEvent) => {
       const nextWidth = window.innerWidth - event.clientX;
+
       const limitedWidth = Math.min(
         DETAIL_SIDEBAR_MAX_WIDTH,
         Math.max(DETAIL_SIDEBAR_MIN_WIDTH, nextWidth),
@@ -548,6 +584,7 @@ export default function ScheduleManagementPage() {
   }, [isDetailSidebarResizing]);
 
   const weekDays = getWeekDays(baseWeekDate);
+
   const weekStart = weekDays[0];
   const weekEnd = weekDays[6];
 
@@ -567,6 +604,7 @@ export default function ScheduleManagementPage() {
 
     setAllProjectTodaySchedules((prev) => {
       const isTodaySchedule = isDateInScheduleRange(updated, todayDate);
+
       const exists = prev.some((item) => item.id === updated.id);
 
       if (!isTodaySchedule) {
@@ -587,6 +625,7 @@ export default function ScheduleManagementPage() {
 
       setSelectedScheduleId((currentId) => {
         if (currentId !== scheduleId) return currentId;
+
         return next[0]?.id ?? null;
       });
 
@@ -626,6 +665,7 @@ export default function ScheduleManagementPage() {
 
   const moveScheduleDate = async (id: string, nextStartDate: string) => {
     const target = schedules.find((item) => item.id === id);
+
     if (!target) return;
 
     const currentStartDate = getScheduleStartDate(target);
@@ -641,6 +681,7 @@ export default function ScheduleManagementPage() {
 
     const nextStart = new Date(nextStartDate);
     const nextEnd = new Date(nextStart);
+
     nextEnd.setDate(nextStart.getDate() + durationDays);
 
     const nextEndDate = formatDateKey(
@@ -733,6 +774,7 @@ export default function ScheduleManagementPage() {
       }
 
       setWorkspaceName(mapped.projectName || workspaceName);
+
       setSelectedScheduleId(mapped.id);
       setIsDetailSidebarOpen(true);
       setIsCreateModalOpen(false);
@@ -747,6 +789,7 @@ export default function ScheduleManagementPage() {
 
   const openEditModal = (schedule: ProjectScheduleItem) => {
     setEditingSchedule(schedule);
+
     setEditForm({
       title: schedule.title,
       startDate: getScheduleStartDate(schedule),
@@ -754,6 +797,7 @@ export default function ScheduleManagementPage() {
       status: schedule.status,
       description: schedule.description || "",
     });
+
     setIsEditModalOpen(true);
   };
 
@@ -794,13 +838,18 @@ export default function ScheduleManagementPage() {
       });
 
       const mapped = mapScheduleFromApi(updated);
+
       updateScheduleInState(mapped);
+
       setSelectedScheduleId(mapped.id);
       setIsDetailSidebarOpen(true);
+
       setIsEditModalOpen(false);
       setEditingSchedule(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "일정 수정에 실패했습니다.");
+      alert(
+        error instanceof Error ? error.message : "일정 수정에 실패했습니다.",
+      );
     } finally {
       setSaving(false);
     }
@@ -808,23 +857,35 @@ export default function ScheduleManagementPage() {
 
   const deleteSchedule = async (scheduleId: string) => {
     const target = schedules.find((item) => item.id === scheduleId);
+
     const title = target?.title ?? "선택한 일정";
 
-    if (!window.confirm(`'${title}' 일정을 삭제할까요? 삭제 후 복구할 수 없습니다.`)) {
+    if (
+      !window.confirm(
+        `'${title}' 일정을 삭제할까요? 삭제 후 복구할 수 없습니다.`,
+      )
+    ) {
       return;
     }
 
     try {
       setDeleting(true);
-      await deleteScheduleApi({ scheduleId });
+
+      await deleteScheduleApi({
+        scheduleId,
+      });
+
       removeScheduleFromState(scheduleId);
+
       setIsEditModalOpen(false);
 
       if (editingSchedule?.id === scheduleId) {
         setEditingSchedule(null);
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : "일정 삭제에 실패했습니다.");
+      alert(
+        error instanceof Error ? error.message : "일정 삭제에 실패했습니다.",
+      );
     } finally {
       setDeleting(false);
     }
@@ -836,12 +897,15 @@ export default function ScheduleManagementPage() {
 
   const moveWeek = (amount: number) => {
     const nextDate = new Date(baseWeekDate);
+
     nextDate.setDate(baseWeekDate.getDate() + amount * 7);
+
     setBaseWeekDate(nextDate);
   };
 
   const moveMonth = (amount: number) => {
     const nextDate = new Date(currentYear, currentMonth + amount, 1);
+
     setCurrentYear(nextDate.getFullYear());
     setCurrentMonth(nextDate.getMonth());
   };
@@ -858,10 +922,10 @@ export default function ScheduleManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f6fa] text-slate-900">
+    <div className="waivs-page text-slate-900">
       <div
         className={[
-          "grid min-h-[calc(100vh-72px)]",
+          "grid min-h-[calc(100dvh-72px)]",
           isDetailSidebarResizing
             ? "transition-none"
             : "transition-[grid-template-columns] duration-300",
@@ -907,7 +971,7 @@ export default function ScheduleManagementPage() {
             onMoveScheduleDate={moveScheduleDate}
           />
         ) : (
-                   <WeeklySchedulePageView
+          <WeeklySchedulePageView
             viewMode={viewMode}
             setViewMode={setViewMode}
             query={query}
@@ -977,6 +1041,7 @@ export default function ScheduleManagementPage() {
           onChange={setEditForm}
           onClose={() => {
             if (saving) return;
+
             setIsEditModalOpen(false);
             setEditingSchedule(null);
           }}
@@ -1018,29 +1083,30 @@ function ScheduleProjectSidebar({
 }) {
   if (!isOpen) {
     return (
-      <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-4 pr-0">
-        <div className="flex h-full w-[60px] flex-col items-center gap-3 rounded-[24px] border border-slate-200 bg-white py-4 shadow-sm">
+      <aside className="sticky top-5 h-[calc(100dvh-112px)] self-start pt-5 pl-5">
+        <div className="waivs-sidebar flex h-full w-[60px] flex-col items-center gap-3 overflow-hidden py-4">
           <button
             type="button"
             onClick={onToggleOpen}
-            className="grid h-10 w-10 place-items-center rounded-2xl text-slate-600 hover:bg-slate-100"
+            className="grid h-9 w-9 place-items-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
             title="프로젝트 사이드바 펼치기"
+            aria-label="프로젝트 사이드바 펼치기"
           >
-            <Menu size={19} />
+            <PanelLeftOpen size={17} strokeWidth={2.4} />
           </button>
 
-          <div className="h-px w-8 bg-slate-200" />
+          <div className="h-px w-7 bg-[var(--waivs-border)]" />
 
           <CollapsedSidebarButton
             active={panelMode === "projects"}
-            icon={<FolderOpen size={18} />}
+            icon={<FolderOpen size={17} />}
             title="프로젝트 목록"
             onClick={() => onChangePanelMode("projects")}
           />
 
           <CollapsedSidebarButton
             active={panelMode === "today"}
-            icon={<ListTodo size={18} />}
+            icon={<ListTodo size={17} />}
             title="오늘 할 일"
             count={todayTodos.length}
             onClick={() => onChangePanelMode("today")}
@@ -1048,7 +1114,7 @@ function ScheduleProjectSidebar({
 
           <CollapsedSidebarButton
             active={panelMode === "devlog"}
-            icon={<FilePenLine size={18} />}
+            icon={<FilePenLine size={17} />}
             title="일지 미작성 일정"
             count={noDevlogSchedules.length}
             onClick={() => onChangePanelMode("devlog")}
@@ -1059,19 +1125,14 @@ function ScheduleProjectSidebar({
   }
 
   return (
-    <aside className="sticky top-[72px] h-[calc(100vh-72px)] bg-[#f5f6fa] px-6 pb-6 pt-2 pr-0">
-      <div className="flex h-full overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-        <div className="flex w-[52px] shrink-0 flex-col items-center gap-3 border-r border-slate-100 bg-white py-4">
-          <button
-            type="button"
-            onClick={onToggleOpen}
-            className="grid h-9 w-9 place-items-center rounded-xl text-slate-600 hover:bg-slate-100"
-            title="프로젝트 사이드바 접기"
-          >
-            <Menu size={18} />
-          </button>
+    <aside className="sticky top-5 h-[calc(100dvh-112px)] self-start pt-5 pl-5">
+      <div className="waivs-sidebar flex h-full w-full overflow-hidden">
+        {/* 왼쪽 기능 아이콘 영역 */}
+        <div className="flex w-[52px] shrink-0 flex-col items-center gap-3 border-r border-[var(--waivs-border-soft)] bg-white py-4">
+          {/* 프로젝트 패널 헤더 높이와 맞추기 위한 공간 */}
+          <div className="h-9 w-9 shrink-0" />
 
-          <div className="h-px w-7 bg-slate-200" />
+          <div className="h-px w-7 bg-[var(--waivs-border)]" />
 
           <CollapsedSidebarButton
             active={panelMode === "projects"}
@@ -1097,7 +1158,8 @@ function ScheduleProjectSidebar({
           />
         </div>
 
-        <div className="min-w-0 flex-1">
+        {/* 오른쪽 사이드바 내용 영역 */}
+        <div className="min-w-0 flex-1 bg-white">
           {panelMode === "projects" && (
             <MainStyleProjectListPanel
               workspaces={workspaces}
@@ -1136,7 +1198,6 @@ function ScheduleProjectSidebar({
     </aside>
   );
 }
-
 function CollapsedSidebarButton({
   active,
   icon,
@@ -1157,14 +1218,14 @@ function CollapsedSidebarButton({
       title={title}
       className={`relative grid h-9 w-9 place-items-center rounded-xl transition ${
         active
-          ? "bg-blue-50 text-blue-700"
+          ? "bg-[#EEF3FF] text-[#5873F9]"
           : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
       }`}
     >
       {icon}
 
       {typeof count === "number" && count > 0 && (
-        <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white">
+        <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#5873F9] px-1 text-[10px] font-black text-white">
           {count > 9 ? "9+" : count}
         </span>
       )}
@@ -1191,9 +1252,11 @@ function MainStyleProjectListPanel({
   const [filter, setFilter] = useState<ProjectFilter>("all");
 
   const totalCount = workspaces.length;
+
   const personalCount = workspaces.filter(
     (workspace) => workspace.mode === "personal",
   ).length;
+
   const teamCount = workspaces.filter(
     (workspace) => workspace.mode === "team",
   ).length;
@@ -1203,6 +1266,7 @@ function MainStyleProjectListPanel({
 
     return workspaces.filter((workspace) => {
       const matchFilter = filter === "all" || workspace.mode === filter;
+
       const matchKeyword =
         !keyword ||
         workspace.name.toLowerCase().includes(keyword) ||
@@ -1215,10 +1279,11 @@ function MainStyleProjectListPanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-slate-100 p-4">
+      <div className="shrink-0 border-b border-[var(--waivs-border-soft)] p-4">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-black text-slate-950">프로젝트</h2>
+
             <p className="mt-1 text-xs font-medium text-slate-500">
               전체 {totalCount}개 · 개인 {personalCount}개 · 팀 {teamCount}개
             </p>
@@ -1227,10 +1292,11 @@ function MainStyleProjectListPanel({
           <button
             type="button"
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="grid h-8 w-8 place-items-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
             title="프로젝트 사이드바 접기"
+            aria-label="프로젝트 사이드바 접기"
           >
-            <ChevronLeft size={16} />
+            <PanelLeftClose size={17} strokeWidth={2.4} />
           </button>
         </div>
 
@@ -1239,25 +1305,28 @@ function MainStyleProjectListPanel({
             size={17}
             className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
           />
+
           <input
             value={projectQuery}
             onChange={(event) => setProjectQuery(event.target.value)}
             placeholder="프로젝트 검색"
-            className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-blue-400"
+            className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm outline-none transition placeholder:text-gray-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-3 rounded-2xl bg-slate-100 p-1">
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
           <ProjectFilterButton
             active={filter === "all"}
             label="전체"
             onClick={() => setFilter("all")}
           />
+
           <ProjectFilterButton
             active={filter === "personal"}
             label="개인"
             onClick={() => setFilter("personal")}
           />
+
           <ProjectFilterButton
             active={filter === "team"}
             label="팀"
@@ -1290,17 +1359,19 @@ function MainStyleProjectListPanel({
                   key={workspace.id}
                   type="button"
                   onClick={() => onSelectWorkspace(workspace)}
-                  className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                  className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
                     selected
-                      ? "bg-blue-50 text-blue-700"
+                      ? "bg-[#5873F9] text-white shadow-sm"
                       : "text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   <span
-                    className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
+                    className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ${
                       selected
-                        ? "bg-white text-blue-700"
-                        : "bg-slate-100 text-blue-600"
+                        ? "bg-white/15 text-white"
+                        : workspace.mode === "team"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-blue-50 text-blue-700"
                     }`}
                   >
                     {workspace.mode === "team" ? (
@@ -1314,7 +1385,12 @@ function MainStyleProjectListPanel({
                     <span className="block truncate text-sm font-black">
                       {workspace.name}
                     </span>
-                    <span className="mt-1 block truncate text-xs font-medium text-slate-400">
+
+                    <span
+                      className={`mt-1 block truncate text-xs font-medium ${
+                        selected ? "text-white/70" : "text-slate-400"
+                      }`}
+                    >
                       {workspace.mode === "team" ? "팀" : "개인"} · 작업 폴더{" "}
                       {workspace.childCount}개
                     </span>
@@ -1342,7 +1418,7 @@ function ProjectFilterButton({
     <button
       type="button"
       onClick={onClick}
-      className={`h-8 rounded-xl text-xs font-black transition ${
+      className={`h-8 rounded-lg text-xs font-black transition ${
         active
           ? "bg-white text-slate-950 shadow-sm"
           : "text-slate-500 hover:text-slate-900"
@@ -1372,11 +1448,13 @@ function ScheduleSideTaskPanel({
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-slate-100 p-4">
-        <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">
+      <div className="shrink-0 border-b border-[var(--waivs-border-soft)] p-4">
+        <p className="text-[11px] font-black uppercase tracking-wide text-[#5873F9]">
           {label}
         </p>
+
         <h2 className="mt-1 text-sm font-black text-slate-950">{title}</h2>
+
         <p className="mt-2 text-xs leading-5 text-slate-500">{description}</p>
       </div>
 
@@ -1469,11 +1547,12 @@ function MonthlySchedulePageView({
   onMoveScheduleDate: (id: string, nextDate: string) => void;
 }) {
   return (
-    <main className="min-w-0 bg-[#f5f6fa] p-3 xl:p-5">
-      <section className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+    <main className="min-w-0 bg-transparent p-5">
+      <section className="waivs-panel min-w-0 p-5">
         <div className="mb-5 flex min-w-0 flex-col justify-between gap-4 2xl:flex-row 2xl:items-center">
           <div className="min-w-0 shrink-0">
-            <p className="text-sm font-bold text-blue-600">Schedule</p>
+            <p className="text-sm font-bold text-[#5873F9]">Schedule</p>
+
             <h1 className="mt-2 whitespace-nowrap text-2xl font-black text-slate-950 xl:text-3xl">
               {currentYear}년 {currentMonth + 1}월
             </h1>
@@ -1483,7 +1562,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onBackToWeek}
-              className="h-10 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
             >
               주간으로 돌아가기
             </button>
@@ -1491,15 +1570,16 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onCreateSchedule}
-              className="flex h-10 items-center gap-2 rounded-2xl bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-700"
+              className="flex h-10 items-center gap-2 rounded-xl bg-[#5873F9] px-4 text-xs font-bold text-white hover:bg-[#4863E8]"
             >
-              <Plus size={17} />새 일정 추가
+              <Plus size={17} />
+              새 일정 추가
             </button>
 
             <button
               type="button"
               onClick={onReload}
-              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 hover:bg-slate-50"
               title="새로고침"
             >
               <RefreshCw size={17} />
@@ -1508,7 +1588,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={onGoToday}
-              className="h-10 rounded-2xl border border-slate-200 px-4 text-xs font-bold hover:bg-slate-50"
+              className="h-10 rounded-xl border border-slate-200 px-4 text-xs font-bold hover:bg-slate-50"
             >
               오늘
             </button>
@@ -1516,7 +1596,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={() => onMoveMonth(-1)}
-              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 hover:bg-slate-50"
             >
               <ChevronLeft size={18} />
             </button>
@@ -1524,7 +1604,7 @@ function MonthlySchedulePageView({
             <button
               type="button"
               onClick={() => onMoveMonth(1)}
-              className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 hover:bg-slate-50"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 hover:bg-slate-50"
             >
               <ChevronRight size={18} />
             </button>
@@ -1637,26 +1717,29 @@ function WeeklySchedulePageView({
       : "모든 프로젝트에 등록된 오늘 날짜의 일정을 한눈에 확인합니다.";
 
   return (
-    <main className="min-w-0 bg-[#f5f6fa] p-3 xl:p-5">
-      <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+    <main className="min-w-0 bg-transparent p-5">
+      <section className="waivs-panel p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-blue-600">Today Schedule</p>
+            <p className="text-sm font-bold text-[#5873F9]">Today Schedule</p>
+
             <h1 className="line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
               {todayTitle}
             </h1>
+
             <p className="truncate text-sm text-slate-500">
               {todayDescription}
             </p>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <div className="flex rounded-2xl bg-slate-100 p-1">
+            <div className="flex rounded-xl bg-slate-100 p-1">
               <TodayScopeButton
                 active={todayScope === "selected"}
                 label="선택 프로젝트"
                 onClick={() => setTodayScope("selected")}
               />
+
               <TodayScopeButton
                 active={todayScope === "all"}
                 label="전체"
@@ -1669,7 +1752,9 @@ function WeeklySchedulePageView({
         <TodayAllProjectSchedulePager
           schedules={visibleTodaySchedules}
           loading={todayScope === "all" ? allTodayLoading : loading}
-          errorMessage={todayScope === "all" ? allTodayErrorMessage : errorMessage}
+          errorMessage={
+            todayScope === "all" ? allTodayErrorMessage : errorMessage
+          }
           todayDate={todayDate}
           scope={todayScope}
           selectedProjectName={selectedProjectName}
@@ -1677,7 +1762,7 @@ function WeeklySchedulePageView({
         />
       </section>
 
-      <section className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+      <section className="waivs-panel mt-5 p-5">
         <ProjectScheduleSummary
           selectedProjectName={selectedProjectName}
           totalCount={totalCount}
@@ -1691,22 +1776,25 @@ function WeeklySchedulePageView({
 
         <div className="mb-5 mt-5 flex flex-col gap-4 border-t border-slate-100 pt-5 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex rounded-2xl bg-slate-100 p-1">
+            <div className="flex rounded-xl bg-slate-100 p-1">
               <ViewButton
                 active={viewMode === "calendar"}
                 onClick={() => setViewMode("calendar")}
                 label="주간"
               />
+
               <ViewButton
                 active={viewMode === "month"}
                 onClick={onOpenMonth}
                 label="월간"
               />
+
               <ViewButton
                 active={viewMode === "board"}
                 onClick={() => setViewMode("board")}
                 label="보드"
               />
+
               <ViewButton
                 active={viewMode === "list"}
                 onClick={() => setViewMode("list")}
@@ -1748,11 +1836,12 @@ function WeeklySchedulePageView({
               size={18}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
             />
+
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="일정 검색"
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm outline-none focus:border-blue-400"
+              className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm outline-none focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
             />
           </div>
         </div>
@@ -1820,9 +1909,11 @@ function TodayAllProjectSchedulePager({
   onSelectSchedule: (id: string) => void;
 }) {
   const PAGE_SIZE = 3;
+
   const [page, setPage] = useState(0);
 
   const totalPages = Math.max(1, Math.ceil(schedules.length / PAGE_SIZE));
+
   const safePage = Math.min(page, totalPages - 1);
 
   const pageItems = schedules.slice(
@@ -1835,14 +1926,17 @@ function TodayAllProjectSchedulePager({
   }, [schedules.length]);
 
   return (
-    <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-blue-600">
+          <p className="text-xs font-black uppercase tracking-wide text-[#5873F9]">
             {todayDate}
           </p>
-                    <h2 className="mt-1 text-base font-black text-slate-950">
-            {scope === "selected" ? "오늘 진행할 선택 프로젝트 일정" : "오늘 진행할 전체 일정"}
+
+          <h2 className="mt-1 text-base font-black text-slate-950">
+            {scope === "selected"
+              ? "오늘 진행할 선택 프로젝트 일정"
+              : "오늘 진행할 전체 일정"}
           </h2>
         </div>
 
@@ -1852,17 +1946,17 @@ function TodayAllProjectSchedulePager({
       </div>
 
       {loading ? (
-                <div className="grid h-[132px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
+        <div className="grid h-[132px] place-items-center rounded-xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
           {scope === "selected"
             ? `${selectedProjectName}에 오늘 등록된 일정이 없습니다.`
             : "오늘 등록된 전체 일정이 없습니다."}
         </div>
       ) : errorMessage ? (
-        <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+        <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">
           {errorMessage}
         </div>
       ) : schedules.length === 0 ? (
-        <div className="grid h-[132px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
+        <div className="grid h-[132px] place-items-center rounded-xl border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400">
           오늘 등록된 일정이 없습니다.
         </div>
       ) : (
@@ -1876,13 +1970,14 @@ function TodayAllProjectSchedulePager({
                   key={item.id}
                   type="button"
                   onClick={() => onSelectSchedule(item.id)}
-                  className="min-h-[132px] rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md"
+                  className="min-h-[132px] rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="line-clamp-1 text-xs font-black text-blue-600">
+                      <p className="line-clamp-1 text-xs font-black text-[#5873F9]">
                         {projectName}
                       </p>
+
                       <h3 className="mt-1 line-clamp-2 text-sm font-black leading-5 text-slate-950">
                         {item.title}
                       </h3>
@@ -1911,14 +2006,16 @@ function TodayAllProjectSchedulePager({
 
           {totalPages > 1 && (
             <div className="mt-4 flex items-center justify-center gap-1.5">
-              {Array.from({ length: totalPages }).map((_, index) => (
+              {Array.from({
+                length: totalPages,
+              }).map((_, index) => (
                 <button
                   key={index}
                   type="button"
                   onClick={() => setPage(index)}
                   className={`h-8 min-w-8 rounded-xl px-2 text-xs font-black transition ${
                     safePage === index
-                      ? "bg-blue-600 text-white"
+                      ? "bg-[#5873F9] text-white"
                       : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                   }`}
                 >
@@ -1956,10 +2053,12 @@ function ProjectScheduleSummary({
     <div>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-blue-600">Schedule</p>
+          <p className="text-sm font-bold text-[#5873F9]">Schedule</p>
+
           <h1 className="mt-1 line-clamp-2 break-keep text-xl font-black leading-snug text-slate-950 xl:text-2xl">
             {selectedProjectName}
           </h1>
+
           <p className="mt-1 truncate text-sm text-slate-500">
             현재 선택된 프로젝트의 일정 현황입니다.
           </p>
@@ -1969,7 +2068,7 @@ function ProjectScheduleSummary({
           <button
             type="button"
             onClick={onOpenMonth}
-            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             <CalendarDays size={17} />
             월간 캘린더
@@ -1978,7 +2077,7 @@ function ProjectScheduleSummary({
           <button
             type="button"
             onClick={onCreateSchedule}
-            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700"
+            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#5873F9] px-5 text-sm font-semibold text-white hover:bg-[#4863E8]"
           >
             <Plus size={17} />
             새 일정 추가
@@ -1992,36 +2091,48 @@ function ProjectScheduleSummary({
             <span>
               전체 <strong className="text-slate-950">{totalCount}개</strong>
             </span>
+
             <span className="text-slate-300">·</span>
+
             <span>
               진행 중{" "}
               <strong className="text-slate-950">{progressCount}개</strong>
             </span>
+
             <span className="text-slate-300">·</span>
+
             <span>
               완료 <strong className="text-slate-950">{doneCount}개</strong>
             </span>
+
             <span className="text-slate-300">·</span>
+
             <span>
               지연 <strong className="text-slate-950">{delayedCount}개</strong>
             </span>
+
             <span className="text-slate-300">·</span>
+
             <span>
-              진행률 <strong className="text-blue-600">{progressRate}%</strong>
+              진행률{" "}
+              <strong className="text-[#5873F9]">{progressRate}%</strong>
             </span>
           </div>
         </div>
 
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-blue-600 transition-all"
-            style={{ width: `${progressRate}%` }}
+            className="h-full rounded-full bg-[#5873F9] transition-all"
+            style={{
+              width: `${progressRate}%`,
+            }}
           />
         </div>
       </div>
     </div>
   );
 }
+
 function DataState({
   loading,
   errorMessage,
@@ -2033,7 +2144,7 @@ function DataState({
 }) {
   if (loading) {
     return (
-      <div className="grid min-h-[360px] place-items-center rounded-3xl border border-dashed border-slate-200 bg-slate-50">
+      <div className="grid min-h-[360px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
         <div className="flex items-center gap-3 text-sm font-bold text-slate-500">
           <Loader2 className="animate-spin" size={18} />
           일정 데이터를 불러오는 중입니다.
@@ -2044,7 +2155,7 @@ function DataState({
 
   if (errorMessage) {
     return (
-      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm font-bold text-rose-700">
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm font-bold text-rose-700">
         {errorMessage}
       </div>
     );
@@ -2084,12 +2195,15 @@ function WeeklyCalendarBarView({
     const endDate = getScheduleEndDate(item);
 
     const startIndex = weekDays.findIndex((day) => day.key >= startDate);
+
     const endIndexFromRight = [...weekDays]
       .reverse()
       .findIndex((day) => day.key <= endDate);
 
     const safeStartIndex = startIndex === -1 ? 0 : startIndex;
-    const safeEndIndex = endIndexFromRight === -1 ? 6 : 6 - endIndexFromRight;
+
+    const safeEndIndex =
+      endIndexFromRight === -1 ? 6 : 6 - endIndexFromRight;
 
     return {
       gridColumnStart: safeStartIndex + 1,
@@ -2104,6 +2218,7 @@ function WeeklyCalendarBarView({
     event.preventDefault();
 
     const scheduleId = event.dataTransfer.getData("scheduleId");
+
     if (!scheduleId) return;
 
     onMoveScheduleDate(scheduleId, nextDate);
@@ -2113,12 +2228,13 @@ function WeeklyCalendarBarView({
     <div>
       <div className="mb-6 flex items-center gap-2">
         <CalendarDays size={20} className="text-slate-600" />
+
         <h2 className="text-lg font-bold">
           {weekStartLabel} - {weekEndLabel}
         </h2>
       </div>
 
-      <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
           {weekDays.map((day) => {
             const isToday = day.key === todayDate;
@@ -2131,16 +2247,17 @@ function WeeklyCalendarBarView({
                 }`}
               >
                 <p className="text-xs font-bold text-slate-500">{day.label}</p>
+
                 <p
                   className={`mt-1 text-lg font-black ${
-                    isToday ? "text-blue-600" : "text-slate-900"
+                    isToday ? "text-[#5873F9]" : "text-slate-900"
                   }`}
                 >
                   {day.date}일
                 </p>
 
                 {isToday && (
-                  <p className="mt-1 w-fit rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                  <p className="mt-1 w-fit rounded-full bg-[#5873F9] px-2 py-0.5 text-[10px] font-bold text-white">
                     오늘
                   </p>
                 )}
@@ -2179,6 +2296,7 @@ function WeeklyCalendarBarView({
             ) : (
               visibleSchedules.map((item) => {
                 const { gridColumnStart, gridColumnEnd } = getColumnRange(item);
+
                 const projectName = getProjectName(item);
 
                 return (
@@ -2189,7 +2307,7 @@ function WeeklyCalendarBarView({
                       event.dataTransfer.setData("scheduleId", item.id);
                     }}
                     onClick={() => onSelect(item.id)}
-                    className={`min-w-0 cursor-grab rounded-2xl border px-4 py-3 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${
+                    className={`min-w-0 cursor-grab rounded-xl border px-4 py-3 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${
                       calendarEventStyle[item.status]
                     } ${
                       selectedScheduleId === item.id
@@ -2206,6 +2324,7 @@ function WeeklyCalendarBarView({
                         <p className="truncate text-sm font-black">
                           {item.title}
                         </p>
+
                         <p className="mt-1 truncate text-[11px] font-semibold opacity-70">
                           {projectName} · {getSchedulePeriodText(item)}
                         </p>
@@ -2253,6 +2372,7 @@ function HorizontalBoardView({
     event.preventDefault();
 
     const scheduleId = event.dataTransfer.getData("scheduleId");
+
     if (!scheduleId) return;
 
     onChangeStatus(scheduleId, nextStatus);
@@ -2273,6 +2393,7 @@ function HorizontalBoardView({
             >
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="font-bold">{scheduleStatusLabel[status]}</h3>
+
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500">
                   {items.length}
                 </span>
@@ -2290,9 +2411,10 @@ function HorizontalBoardView({
                         event.dataTransfer.setData("scheduleId", item.id);
                       }}
                       onClick={() => onSelect(item.id)}
-                      className="cursor-grab rounded-2xl border border-slate-200 bg-white p-4 hover:border-blue-300 active:cursor-grabbing"
+                      className="cursor-grab rounded-xl border border-slate-200 bg-white p-4 hover:border-blue-300 active:cursor-grabbing"
                     >
                       <p className="text-sm font-bold">{item.title}</p>
+
                       <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
                         {item.description}
                       </p>
@@ -2362,12 +2484,14 @@ function ListView({
               >
                 <td className="px-4 py-4">
                   <p className="font-bold">{item.title}</p>
+
                   <p className="mt-1 text-xs text-slate-500">
                     {item.description}
                   </p>
                 </td>
 
                 <td className="px-4 py-4 text-slate-500">{projectName}</td>
+
                 <td className="px-4 py-4 text-slate-500">
                   {getSchedulePeriodText(item)}
                 </td>
@@ -2398,6 +2522,7 @@ function ListView({
                     >
                       진행
                     </button>
+
                     <button
                       type="button"
                       onClick={(event) => {
@@ -2423,6 +2548,7 @@ function ListView({
                     >
                       수정
                     </button>
+
                     <button
                       type="button"
                       onClick={(event) => {
@@ -2491,9 +2617,10 @@ function ScheduleDetailAside({
       <div className="sticky top-[72px] flex h-[calc(100vh-72px)] flex-col overflow-hidden">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">
+            <p className="text-[11px] font-black uppercase tracking-wide text-[#5873F9]">
               Selected Schedule
             </p>
+
             <h2 className="truncate text-sm font-black text-slate-900">
               일정 상세
             </h2>
@@ -2510,8 +2637,8 @@ function ScheduleDetailAside({
 
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
           <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className=" flex gap-2">
-              <h3 className="min-w-0 text-lg items-center justify-center font-black leading-snug text-slate-900">
+            <div className="flex gap-2">
+              <h3 className="min-w-0 text-lg font-black leading-snug text-slate-900">
                 {selectedSchedule.title}
               </h3>
 
@@ -2525,18 +2652,21 @@ function ScheduleDetailAside({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="mb-2 text-xs font-black text-slate-800">
               일정 정보
             </h3>
 
             <div className="space-y-2 text-xs">
               <InfoRow label="프로젝트" value={projectName} />
+
               <InfoRow label="기간" value={periodText} />
+
               <InfoRow
                 label="상태"
                 value={scheduleStatusLabel[selectedSchedule.status]}
               />
+
               <InfoRow
                 label="개발일지"
                 value={selectedSchedule.hasDevlog ? "작성됨" : "미작성"}
@@ -2544,7 +2674,7 @@ function ScheduleDetailAside({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-xs font-black text-slate-800">일정 상세</h3>
 
             <p className="mt-3 whitespace-pre-wrap break-keep text-sm leading-5 text-slate-600">
@@ -2552,10 +2682,12 @@ function ScheduleDetailAside({
             </p>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-xs font-black text-slate-800">일정 관리</h3>
+
             <p className="mt-1 text-[11px] leading-5 text-slate-500">
-              제목, 기간, 상태, 상세 내용을 수정하거나 일정을 삭제할 수 있습니다.
+              제목, 기간, 상태, 상세 내용을 수정하거나 일정을 삭제할 수
+              있습니다.
             </p>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -2579,13 +2711,15 @@ function ScheduleDetailAside({
                 ) : (
                   <Trash2 size={14} />
                 )}
+
                 삭제
               </button>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-xs font-black text-slate-800">상태 변경</h3>
+
             <p className="mt-1 text-[11px] leading-5 text-slate-500">
               완료 상태로 변경하면 프로젝트 진행률에 반영됩니다.
             </p>
@@ -2625,8 +2759,10 @@ function ScheduleDetailAside({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-xs font-black text-slate-800">개발일지 연결</h3>
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h3 className="text-xs font-black text-slate-800">
+              개발일지 연결
+            </h3>
 
             {selectedSchedule.hasDevlog ? (
               <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold leading-5 text-emerald-700">
@@ -2710,12 +2846,13 @@ function ScheduleFormModal({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/35 p-4">
-      <div className="flex max-h-[calc(100vh-32px)] w-full max-w-[620px] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+      <div className="flex max-h-[calc(100vh-32px)] w-full max-w-[620px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-5">
           <div>
-            <p className="text-xs font-black uppercase tracking-wide text-blue-600">
+            <p className="text-xs font-black uppercase tracking-wide text-[#5873F9]">
               {mode === "create" ? "New Schedule" : "Edit Schedule"}
             </p>
+
             <h2 className="mt-1 text-xl font-black text-slate-950">
               {mode === "create" ? "새 일정 추가" : "일정 수정"}
             </h2>
@@ -2726,7 +2863,11 @@ function ScheduleFormModal({
             onClick={onClose}
             disabled={saving}
             className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-            aria-label={mode === "create" ? "일정 추가 모달 닫기" : "일정 수정 모달 닫기"}
+            aria-label={
+              mode === "create"
+                ? "일정 추가 모달 닫기"
+                : "일정 수정 모달 닫기"
+            }
           >
             <X size={18} />
           </button>
@@ -2738,7 +2879,8 @@ function ScheduleFormModal({
               <label className="mb-2 block text-sm font-bold text-slate-700">
                 프로젝트
               </label>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
                 {projectName}
               </div>
             </div>
@@ -2747,11 +2889,14 @@ function ScheduleFormModal({
               <label className="mb-2 block text-sm font-bold text-slate-700">
                 일정 제목
               </label>
+
               <input
                 value={form.title}
-                onChange={(event) => updateField("title", event.target.value)}
+                onChange={(event) =>
+                  updateField("title", event.target.value)
+                }
                 placeholder="예: 로그인 API 구현"
-                className="h-11 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none focus:border-blue-400"
+                className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-[#5873F9]"
               />
             </div>
 
@@ -2760,13 +2905,14 @@ function ScheduleFormModal({
                 <label className="mb-2 block text-sm font-bold text-slate-700">
                   시작일
                 </label>
+
                 <input
                   type="date"
                   value={form.startDate}
                   onChange={(event) =>
                     updateField("startDate", event.target.value)
                   }
-                  className="h-11 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none focus:border-blue-400"
+                  className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-[#5873F9]"
                 />
               </div>
 
@@ -2774,13 +2920,14 @@ function ScheduleFormModal({
                 <label className="mb-2 block text-sm font-bold text-slate-700">
                   종료일
                 </label>
+
                 <input
                   type="date"
                   value={form.endDate}
                   onChange={(event) =>
                     updateField("endDate", event.target.value)
                   }
-                  className="h-11 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none focus:border-blue-400"
+                  className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-[#5873F9]"
                 />
               </div>
             </div>
@@ -2796,16 +2943,19 @@ function ScheduleFormModal({
                   label="할 일"
                   onClick={() => updateField("status", "todo")}
                 />
+
                 <StatusSelectButton
                   active={form.status === "progress"}
                   label="진행 중"
                   onClick={() => updateField("status", "progress")}
                 />
+
                 <StatusSelectButton
                   active={form.status === "done"}
                   label="완료"
                   onClick={() => updateField("status", "done")}
                 />
+
                 <StatusSelectButton
                   active={form.status === "delayed"}
                   label="지연"
@@ -2818,6 +2968,7 @@ function ScheduleFormModal({
               <label className="mb-2 block text-sm font-bold text-slate-700">
                 일정 상세
               </label>
+
               <textarea
                 value={form.description}
                 onChange={(event) =>
@@ -2825,7 +2976,7 @@ function ScheduleFormModal({
                 }
                 placeholder="일정에 대한 상세 내용을 입력하세요."
                 rows={4}
-                className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400"
+                className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm leading-6 outline-none focus:border-[#5873F9]"
               />
             </div>
           </div>
@@ -2836,7 +2987,7 @@ function ScheduleFormModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-10 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="h-10 rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
           >
             취소
           </button>
@@ -2845,9 +2996,10 @@ function ScheduleFormModal({
             type="button"
             onClick={onSubmit}
             disabled={saving}
-            className="flex h-10 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="flex h-10 items-center gap-2 rounded-xl bg-[#5873F9] px-5 text-sm font-bold text-white hover:bg-[#4863E8] disabled:opacity-60"
           >
             {saving && <Loader2 size={16} className="animate-spin" />}
+
             {mode === "create" ? "일정 추가" : "수정 완료"}
           </button>
         </div>
@@ -2871,7 +3023,7 @@ function StatusSelectButton({
       onClick={onClick}
       className={`h-10 rounded-xl text-xs font-bold transition ${
         active
-          ? "bg-blue-600 text-white"
+          ? "bg-[#5873F9] text-white"
           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
       }`}
     >
@@ -2894,10 +3046,11 @@ function ProgressRulePanel({
   selectedProjectName: string;
 }) {
   return (
-    <section className="mt-5 rounded-[24px] border border-slate-200 bg-white p-5">
+    <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h2 className="text-lg font-bold">진행률 계산 기준</h2>
+
           <p className="mt-2 text-sm text-slate-500">
             현재 선택된 범위는{" "}
             <span className="font-bold text-slate-700">
@@ -2908,33 +3061,37 @@ function ProgressRulePanel({
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-50 px-5 py-4 text-right">
+        <div className="rounded-xl bg-slate-50 px-5 py-4 text-right">
           <p className="text-sm font-semibold text-slate-500">
             완료 {doneCount} / 전체 {totalCount}
           </p>
-          <p className="mt-1 text-2xl font-black text-blue-600">
+
+          <p className="mt-1 text-2xl font-black text-[#5873F9]">
             {progressRate}%
           </p>
         </div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-50 p-4">
+        <div className="rounded-xl bg-slate-50 p-4">
           <p className="text-xs font-bold text-slate-400">계산식</p>
+
           <p className="mt-2 text-sm font-bold text-slate-700">
             완료된 일정 수 / 전체 일정 수 × 100
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-50 p-4">
+        <div className="rounded-xl bg-slate-50 p-4">
           <p className="text-xs font-bold text-slate-400">최근 완료</p>
+
           <p className="mt-2 text-sm font-bold text-slate-700">
             {recentDoneSchedule ? recentDoneSchedule.title : "완료된 일정 없음"}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-50 p-4">
+        <div className="rounded-xl bg-slate-50 p-4">
           <p className="text-xs font-bold text-slate-400">일반 개발일지</p>
+
           <p className="mt-2 text-sm font-bold text-slate-700">
             진행률에는 미포함
           </p>
@@ -2957,7 +3114,7 @@ function ViewButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-5 py-2.5 text-sm font-bold ${
+      className={`rounded-lg px-5 py-2.5 text-sm font-bold ${
         active
           ? "bg-white text-slate-900 shadow-sm"
           : "text-slate-500 hover:text-slate-900"
@@ -2967,6 +3124,7 @@ function ViewButton({
     </button>
   );
 }
+
 function TodayScopeButton({
   active,
   label,
@@ -2980,7 +3138,7 @@ function TodayScopeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`h-9 rounded-xl px-4 text-xs font-black transition ${
+      className={`h-9 rounded-lg px-4 text-xs font-black transition ${
         active
           ? "bg-white text-slate-950 shadow-sm"
           : "text-slate-500 hover:text-slate-900"
@@ -2991,10 +3149,17 @@ function TodayScopeButton({
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="shrink-0 text-slate-400">{label}</span>
+
       <span className="truncate text-right font-bold text-slate-700">
         {value}
       </span>
@@ -3011,7 +3176,7 @@ function EmptyBox({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-400 ${
+      className={`rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-400 ${
         compact ? "p-3" : "p-5"
       }`}
     >
