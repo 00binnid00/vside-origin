@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import WizardShell from "@/components/new/WizardShell";
+import FolderPickerDialog from "@/components/new/FolderPickerDialog";
 import { useWorkspaceWizard } from "@/store/workspaceWizardStore";
 
 import {
@@ -36,6 +37,7 @@ export default function Page() {
 
   const [memberInput, setMemberInput] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   const mode = useWorkspaceWizard((s) => s.mode);
   const setMode = useWorkspaceWizard((s) => s.setMode);
@@ -225,18 +227,20 @@ export default function Page() {
                   </div>
 
                   <div className="flex gap-2">
-                    <input 
+                    <input
                       className="h-11 flex-1 rounded-2xl border border-blue-100 bg-blue-50/50 px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                       value={path}
                       onChange={(e) => setPath(e.target.value)}
-                      placeholder="C:\\WebIDE\\workspaces"
+                      placeholder="C:\"
                       disabled={isCreating}
                     />
 
                     <button
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-white text-slate-500 transition hover:bg-blue-50 disabled:opacity-50"
                       type="button"
+                      onClick={() => setIsPickerOpen(true)}
                       disabled={isCreating}
+                      title="폴더에서 찾기"
                     >
                       <Folder size={18} />
                     </button>
@@ -412,6 +416,13 @@ export default function Page() {
           </div>
         </section>
       </div>
+
+      <FolderPickerDialog
+        open={isPickerOpen}
+        onOpenChange={setIsPickerOpen}
+        initialPath={path}
+        onSelect={setPath}
+      />
     </WizardShell>
   );
 }

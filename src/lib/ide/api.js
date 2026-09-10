@@ -1327,9 +1327,17 @@ export const deleteBranchApi = async (workspaceId, projectName, branchName) => {
 // 시스템 API
 // ============================================================================
 
+// 여기서 주고받는 path 는 전부 화면에 보이는 가상 경로("C:\...")다.
+// 서버가 자기 개인 폴더 안으로 번역해 주므로, 프론트는 진짜 경로를 알지도
+// 만들지도 않는다. 번역을 프론트가 하면 요청을 고쳐 남의 폴더를 볼 수 있게 된다.
+
 export const fetchSystemRootsApi = async () => {
   const response = await authFetch(`${SYSTEM_API_BASE}/roots`);
-  if (!response.ok) throw new Error("드라이브 목록 로드 실패");
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "위치 목록을 불러오지 못했습니다.");
+  }
+
   return await response.json();
 };
 
@@ -1337,7 +1345,36 @@ export const fetchSubFoldersApi = async (path) => {
   const response = await authFetch(
     `${SYSTEM_API_BASE}/folders?path=${encodeURIComponent(path)}`,
   );
-  if (!response.ok) throw new Error("폴더 목록 로드 실패");
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "폴더 목록을 불러오지 못했습니다.");
+  }
+
+  return await response.json();
+};
+
+// 되돌릴 수 없는 삭제다. 안에 프로젝트가 들어 있으면 서버가 409 로 막는다.
+export const deleteSystemFolderApi = async (path) => {
+  const response = await authFetch(
+    `${SYSTEM_API_BASE}/folders?path=${encodeURIComponent(path)}`,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "폴더를 지우지 못했습니다.");
+  }
+};
+
+export const createSystemFolderApi = async ({ path, name }) => {
+  const response = await authFetch(`${SYSTEM_API_BASE}/folders`, {
+    method: "POST",
+    body: JSON.stringify({ path, name }),
+  });
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "폴더를 만들지 못했습니다.");
+  }
+
   return await response.json();
 };
 

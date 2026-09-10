@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import WizardShell from "@/components/new/WizardShell";
+import FolderPickerDialog from "@/components/new/FolderPickerDialog";
 import { useWorkspaceWizard } from "@/store/workspaceWizardStore";
 import {
   setWorkspaceId,
@@ -165,6 +166,7 @@ export default function Page() {
   const dispatch = useDispatch();
 
   const [isCreating, setIsCreating] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
   const [githubStatus, setGithubStatus] = useState(null);
   const [githubLoading, setGithubLoading] = useState(true);
@@ -498,11 +500,17 @@ export default function Page() {
                       className="h-11 flex-1 rounded-2xl border border-blue-100 bg-blue-50/50 px-4 text-sm font-bold text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                       value={path}
                       onChange={(e) => setPath(e.target.value)}
-                      placeholder="C:\\WebIDE\\workspaces"
+                      placeholder="C:\"
                     />
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-white text-slate-500">
+                    <button
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-white text-slate-500 transition hover:bg-blue-50 disabled:opacity-50"
+                      type="button"
+                      onClick={() => setIsPickerOpen(true)}
+                      disabled={isCreating}
+                      title="폴더에서 찾기"
+                    >
                       <Folder size={18} />
-                    </div>
+                    </button>
                   </div>
                 </label>
               </div>
@@ -698,6 +706,13 @@ export default function Page() {
           </div>
         </section>
       </div>
+
+      <FolderPickerDialog
+        open={isPickerOpen}
+        onOpenChange={setIsPickerOpen}
+        initialPath={path}
+        onSelect={setPath}
+      />
     </WizardShell>
   );
 }

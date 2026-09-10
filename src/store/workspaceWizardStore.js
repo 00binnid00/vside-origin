@@ -12,7 +12,10 @@ const initialState = {
   templateDescription: "",
   
   language: "",
-  path: "C:\\WebIDE\\workspaces", 
+
+  // 저장 위치. 서버가 사용자마다 개인 폴더를 하나씩 주고 그것을 "C:\" 로 보여 주므로,
+  // 여기 들어가는 값은 진짜 서버 경로가 아니라 그 가상 경로다.
+  path: "C:\\",
   teamMembers: [],
   projectKey: null,
 };
