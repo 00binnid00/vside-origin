@@ -1778,7 +1778,7 @@ export function ProjectManagerList({
   return (
     <>
       <main className="waivs-page flex min-h-0 flex-1 p-4 font-sans md:p-5">
-        <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 gap-5">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 gap-4">
           {/* =================================================
               SIDEBAR
           ================================================= */}

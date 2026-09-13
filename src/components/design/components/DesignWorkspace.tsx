@@ -191,7 +191,7 @@ export function DesignWorkspace() {
         문서라 늘어나도 되지만, 여기 화면 흐름도와 ERD 는 주어진 높이를
         채워야 하는 캔버스라 min-h 로 두면 찌그러진다.
       */}
-      <div className="waivs-page flex min-h-0 flex-1 gap-5 p-5 text-[var(--waivs-text)]">
+      <div className="waivs-page flex min-h-0 flex-1 gap-4 p-5 text-[var(--waivs-text)]">
         <ProjectSidebar
           workspaces={workspaces}
           selectedWorkspaceId={workspaceId ?? ""}

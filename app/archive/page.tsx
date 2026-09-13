@@ -9,6 +9,12 @@ import {
 } from "react";
 
 import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+
+import {
   BookOpen,
   CheckCircle2,
   Code2,
@@ -135,17 +141,11 @@ type NormalizedDiagramNode = {
   y: number;
   columns: Record<string, unknown>[];
   subText: string;
-  /** 화면 흐름 상자 아랫줄에 쓰는 라우트 경로. */
   route: string;
-  /** 시작 화면이면 설계단계처럼 초록 테두리를 두른다. */
   isEntry: boolean;
-  /** 로그인이 필요한 화면인지. */
   requiresAuth: boolean;
-  /** 화면 / 팝업 / 외부. */
   roleLabel: string;
-  /** 이 화면이 만족시키는 요구사항 개수. */
   requirementCount: number;
-  /** 이 화면이 부르는 API 이름들. */
   apiLabels: string[];
 };
 
@@ -1101,27 +1101,40 @@ function buildSvgPath(
   return `M ${sourceX} ${sourceY} C ${midX} ${sourceY}, ${midX} ${targetY}, ${targetX} ${targetY}`;
 }
 
-/** 설계단계 화면 상자에 찍히는 종류 이름. */
 const SCREEN_ROLE_LABEL: Record<string, string> = {
   page: "화면",
   modal: "팝업",
   external: "외부",
 };
 
-/** 화면 흐름 노드가 실어 온 부가 정보를 상자에 쓸 모양으로 꺼낸다. */
 function getScreenExtras(node: Record<string, unknown>) {
   const data = getNodeData(node);
-  const role = typeof data.role === "string" ? data.role : "page";
+  const role =
+    typeof data.role === "string"
+      ? data.role
+      : "page";
 
   return {
     isEntry: Boolean(data.isEntry),
-    requiresAuth: Boolean(data.requiresAuth),
-    roleLabel: SCREEN_ROLE_LABEL[role] ?? role,
+    requiresAuth: Boolean(
+      data.requiresAuth,
+    ),
+    roleLabel:
+      SCREEN_ROLE_LABEL[role] ??
+      role,
     requirementCount:
-      typeof data.requirementCount === "number" ? data.requirementCount : 0,
-    apiLabels: Array.isArray(data.apiLabels)
+      typeof data.requirementCount ===
+      "number"
+        ? data.requirementCount
+        : 0,
+    apiLabels: Array.isArray(
+      data.apiLabels,
+    )
       ? data.apiLabels.filter(
-          (label): label is string => typeof label === "string",
+          (
+            label,
+          ): label is string =>
+            typeof label === "string",
         )
       : [],
   };
@@ -1261,37 +1274,37 @@ function getDiagramLayout(
    PRINT DIAGRAM
    ========================================================= */
 
-/**
- * 인쇄용 화면 흐름 상자.
- *
- * 화면용 ScreenFlowNodeShape 와 같은 그림을 문자열 SVG 로 만든다.
- * 둘이 어긋나면 화면에서 본 것과 뽑은 PDF 가 달라진다.
- */
 function buildPrintScreenNodeSvg(
   node: NormalizedDiagramNode,
   width: number,
   height: number,
 ) {
-  const shownApis = node.apiLabels.slice(0, 3);
-  const restApis = node.apiLabels.length - shownApis.length;
+  const shownApis =
+    node.apiLabels.slice(0, 3);
+
+  const restApis =
+    node.apiLabels.length -
+    shownApis.length;
 
   const entrySvg = node.isEntry
     ? `<rect x="${node.x + 12}" y="${node.y + 12}" width="34" height="17" rx="6" fill="#ecfdf5" />
        <text x="${node.x + 29}" y="${node.y + 24}" text-anchor="middle" class="diagram-entry">시작</text>`
     : "";
 
-  const authSvg = node.requiresAuth
-    ? `<text x="${node.x + width - 14}" y="${node.y + 25}" text-anchor="end" class="diagram-chip-muted">로그인</text>`
-    : "";
+  const authSvg =
+    node.requiresAuth
+      ? `<text x="${node.x + width - 14}" y="${node.y + 25}" text-anchor="end" class="diagram-chip-muted">로그인</text>`
+      : "";
 
-  const apiSvg = shownApis.length
-    ? shownApis
-        .map(
-          (label, index) =>
-            `<text x="${node.x + 14}" y="${node.y + 100 + index * 14}" class="diagram-api">${escapeHtml(label)}</text>`,
-        )
-        .join("")
-    : `<text x="${node.x + 14}" y="${node.y + 100}" class="diagram-chip-muted">호출하는 API 없음</text>`;
+  const apiSvg =
+    shownApis.length
+      ? shownApis
+          .map(
+            (label, index) =>
+              `<text x="${node.x + 14}" y="${node.y + 100 + index * 14}" class="diagram-api">${escapeHtml(label)}</text>`,
+          )
+          .join("")
+      : `<text x="${node.x + 14}" y="${node.y + 100}" class="diagram-chip-muted">호출하는 API 없음</text>`;
 
   const restSvg =
     restApis > 0
@@ -1341,20 +1354,24 @@ function buildPrintDiagramSvg({
     `;
   }
 
-  const layout = getDiagramLayout(
-    normalizeDiagramNodes(
-      nodes,
+  const layout =
+    getDiagramLayout(
+      normalizeDiagramNodes(
+        nodes,
+        type,
+      ),
       type,
-    ),
-    type,
-  );
+    );
 
-  const nodeMap = new Map(
-    layout.nodes.map((node) => [
-      node.id,
-      node,
-    ]),
-  );
+  const nodeMap =
+    new Map(
+      layout.nodes.map(
+        (node) => [
+          node.id,
+          node,
+        ],
+      ),
+    );
 
   const strokeColor =
     type === "erd"
@@ -1364,7 +1381,9 @@ function buildPrintDiagramSvg({
   const edgeSvg = edges
     .map((edge) => {
       const { source, target } =
-        getEdgeSourceTarget(edge);
+        getEdgeSourceTarget(
+          edge,
+        );
 
       const sourceNode =
         nodeMap.get(source);
@@ -1394,10 +1413,9 @@ function buildPrintDiagramSvg({
         targetNode.y +
         layout.nodeHeight / 2;
 
-      // 화면 흐름에서는 "무엇을 했을 때 넘어가는가" 가 핵심 정보다.
-      // 선만 그리면 그 정보가 그림에서 통째로 빠진다.
       const label =
-        typeof edge.label === "string"
+        typeof edge.label ===
+        "string"
           ? edge.label.trim()
           : "";
 
@@ -1428,39 +1446,39 @@ function buildPrintDiagramSvg({
     })
     .join("");
 
-  const nodeSvg = layout.nodes
-    .map((node) => {
-      if (type === "erd") {
-        const columnRows =
-          node.columns.length
-            ? node.columns
-                .slice(0, 4)
-                .map(
-                  (
-                    column,
-                    columnIndex,
-                  ) => {
-                    const columnName =
-                      typeof column.name ===
-                      "string"
-                        ? column.name
-                        : "column";
+  const nodeSvg =
+    layout.nodes
+      .map((node) => {
+        if (type === "erd") {
+          const columnRows =
+            node.columns.length
+              ? node.columns
+                  .slice(0, 4)
+                  .map(
+                    (
+                      column,
+                      columnIndex,
+                    ) => {
+                      const columnName =
+                        typeof column.name ===
+                        "string"
+                          ? column.name
+                          : "column";
 
-                    const columnType =
-                      typeof column.type ===
-                      "string"
-                        ? column.type
-                        : "TYPE";
+                      const columnType =
+                        typeof column.type ===
+                        "string"
+                          ? column.type
+                          : "TYPE";
 
-                    // 설계단계 표는 기본키에 열쇠, 외래키에 고리 표시를
-                    // 붙인다. 인쇄물은 아이콘을 쓸 수 없어 글자로 대신한다.
-                    const marker = column.isPk
-                      ? "PK "
-                      : column.isFk
-                        ? "FK "
-                        : "";
+                      const marker =
+                        column.isPk
+                          ? "PK "
+                          : column.isFk
+                            ? "FK "
+                            : "";
 
-                    return `
+                      return `
                       <text
                         x="${node.x + 16}"
                         y="${
@@ -1479,10 +1497,10 @@ function buildPrintDiagramSvg({
                         )}
                       </text>
                     `;
-                  },
-                )
-                .join("")
-            : `
+                    },
+                  )
+                  .join("")
+              : `
               <text
                 x="${node.x + 16}"
                 y="${node.y + 78}"
@@ -1492,7 +1510,7 @@ function buildPrintDiagramSvg({
               </text>
             `;
 
-        return `
+          return `
           <g>
             <rect
               x="${node.x}"
@@ -1526,15 +1544,15 @@ function buildPrintDiagramSvg({
             ${columnRows}
           </g>
         `;
-      }
+        }
 
-      return buildPrintScreenNodeSvg(
-        node,
-        layout.nodeWidth,
-        layout.nodeHeight,
-      );
-    })
-    .join("");
+        return buildPrintScreenNodeSvg(
+          node,
+          layout.nodeWidth,
+          layout.nodeHeight,
+        );
+      })
+      .join("");
 
   return `
     <div class="diagram-wrap">
@@ -1744,6 +1762,24 @@ function buildFlowNodesForDraft(
    ========================================================= */
 
 export default function ArchivePage() {
+  const router =
+    useRouter();
+
+  const pathname =
+    usePathname();
+
+  const searchParams =
+    useSearchParams();
+
+  const workspaceIdFromUrl =
+    searchParams.get(
+      "workspaceId",
+    ) ??
+    searchParams.get("id") ??
+    searchParams.get(
+      "workspace",
+    );
+
   const [projects, setProjects] =
     useState<Project[]>([]);
 
@@ -2116,14 +2152,82 @@ export default function ArchivePage() {
 
         setDevlogs(nextDevlogs);
 
+        /*
+         * 현재 사용자가 보고 있던 Workspace 유지
+         *
+         * 우선순위
+         * 1. URL workspaceId
+         * 2. localStorage currentWorkspaceId
+         * 3. 첫 번째 Workspace
+         */
         if (
           projectsWithDevlogCount.length >
           0
         ) {
+          const storedWorkspaceId =
+            typeof window !==
+            "undefined"
+              ? localStorage.getItem(
+                  "currentWorkspaceId",
+                )
+              : null;
+
+          const preferredWorkspaceId =
+            workspaceIdFromUrl ??
+            storedWorkspaceId;
+
+          const preferredExists =
+            preferredWorkspaceId
+              ? projectsWithDevlogCount.some(
+                  (project) =>
+                    String(
+                      project.id,
+                    ) ===
+                    String(
+                      preferredWorkspaceId,
+                    ),
+                )
+              : false;
+
+          const nextSelectedProjectId =
+            preferredExists &&
+            preferredWorkspaceId
+              ? preferredWorkspaceId
+              : projectsWithDevlogCount[0]
+                  .id;
+
           setSelectedProjectId(
-            projectsWithDevlogCount[0]
-              .id,
+            nextSelectedProjectId,
           );
+
+          if (
+            typeof window !==
+            "undefined"
+          ) {
+            localStorage.setItem(
+              "currentWorkspaceId",
+              nextSelectedProjectId,
+            );
+
+            const selectedWorkspace =
+              projectsWithDevlogCount.find(
+                (project) =>
+                  project.id ===
+                  nextSelectedProjectId,
+              );
+
+            if (
+              selectedWorkspace
+            ) {
+              localStorage.setItem(
+                "currentWorkspaceMode",
+                selectedWorkspace.type ===
+                  "팀"
+                  ? "team"
+                  : "personal",
+              );
+            }
+          }
         }
       } catch (error) {
         if (!mounted) {
@@ -2175,13 +2279,42 @@ export default function ArchivePage() {
       !selectedProjectId ||
       !exists
     ) {
+      const storedWorkspaceId =
+        typeof window !==
+        "undefined"
+          ? localStorage.getItem(
+              "currentWorkspaceId",
+            )
+          : null;
+
+      const preferredWorkspaceId =
+        workspaceIdFromUrl ??
+        storedWorkspaceId;
+
+      const preferredExists =
+        preferredWorkspaceId
+          ? projectOptions.some(
+              (project) =>
+                String(
+                  project.id,
+                ) ===
+                String(
+                  preferredWorkspaceId,
+                ),
+            )
+          : false;
+
       setSelectedProjectId(
-        projectOptions[0].id,
+        preferredExists &&
+          preferredWorkspaceId
+          ? preferredWorkspaceId
+          : projectOptions[0].id,
       );
     }
   }, [
     projectOptions,
     selectedProjectId,
+    workspaceIdFromUrl,
   ]);
 
   /* =========================
@@ -3282,7 +3415,6 @@ export default function ArchivePage() {
               font-weight: 700;
             }
 
-            /* 화면 흐름 상자에 쓰는 작은 글씨들. 화면용과 같은 값이어야 한다. */
             .diagram-route {
               fill: #6b7280;
               font-size: 10px;
@@ -3321,7 +3453,6 @@ export default function ArchivePage() {
               font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
             }
 
-            /* 화살표 위에 얹는 이동 조건. 선과 겹쳐도 읽히도록 흰 테를 두른다. */
             .diagram-edge-label {
               fill: #475569;
               font-size: 10px;
@@ -3412,6 +3543,62 @@ export default function ArchivePage() {
   };
 
   /* =========================================================
+     SIDEBAR PROJECT CHANGE
+     ========================================================= */
+
+  function handleSelectWorkspace(
+    workspace: WorkspaceSidebarItem,
+  ) {
+    setSelectedProjectId(
+      workspace.id,
+    );
+
+    setKeyword("");
+
+    setIsPdfMenuOpen(false);
+
+    if (
+      typeof window !==
+      "undefined"
+    ) {
+      localStorage.setItem(
+        "currentWorkspaceId",
+        workspace.id,
+      );
+
+      localStorage.setItem(
+        "currentWorkspaceMode",
+        workspace.mode,
+      );
+    }
+
+    const params =
+      new URLSearchParams(
+        searchParams.toString(),
+      );
+
+    params.set(
+      "workspaceId",
+      workspace.id,
+    );
+
+    params.set(
+      "mode",
+      workspace.mode,
+    );
+
+    params.delete("id");
+
+    params.delete(
+      "workspace",
+    );
+
+    router.replace(
+      `${pathname}?${params.toString()}`,
+    );
+  }
+
+  /* =========================================================
      LOADING / ERROR
      ========================================================= */
 
@@ -3451,26 +3638,22 @@ export default function ArchivePage() {
     <main className="waivs-page min-h-[calc(100dvh-72px)] bg-[#F7F8FA] p-4 text-slate-950 md:p-5">
       <div className="mx-auto flex max-w-[1880px] gap-4">
         <ProjectSidebar
-          workspaces={sidebarWorkspaces}
-          selectedWorkspaceId={selectedProjectId}
+          workspaces={
+            sidebarWorkspaces
+          }
+          selectedWorkspaceId={
+            selectedProjectId
+          }
           loading={false}
           errorMessage=""
-          onSelectWorkspace={(workspace) =>
-            setSelectedProjectId(workspace.id)
+          onSelectWorkspace={
+            handleSelectWorkspace
           }
         />
 
-        {/* =================================================
-            MAIN
-           ================================================= */}
-
         <section className="min-w-0 flex-1">
-          {/* ===============================================
-              ARCHIVE HEADER
-             =============================================== */}
-
           <section className="waivs-panel overflow-visible">
-            <div className=" border-b border-slate-100 px-5 pt-4 pb-3">
+            <div className="border-b border-slate-100 px-5 pt-4 pb-3">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -3513,8 +3696,6 @@ export default function ArchivePage() {
                     개발 과정에서 생성된 프로젝트 문서를 한곳에서 확인합니다.
                   </p>
                 </div>
-
-                {/* PDF */}
 
                 <div className="relative shrink-0">
                   <button
@@ -3710,8 +3891,6 @@ export default function ArchivePage() {
                 </div>
               </div>
 
-              {/* SUMMARY */}
-
               <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px]">
                 <ArchiveSummaryItem
                   label="개발일지"
@@ -3730,12 +3909,6 @@ export default function ArchivePage() {
                 />
               </div>
             </div>
-          {/* ===============================================
-              ARCHIVE CONTENT
-              상단 프로젝트 요약 + 자료실 메인을 하나의 카드로 연결
-             =============================================== */}
-
-            {/* MAIN ARCHIVE TABS */}
 
             <div className="flex flex-col gap-3 px-5 pb-4 pt-1 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex w-fit max-w-full items-center gap-1 rounded-xl bg-slate-100 p-1">
@@ -3776,8 +3949,6 @@ export default function ArchivePage() {
                   },
                 )}
               </div>
-
-              {/* DEVLOG ONLY TOOLS */}
 
               {activeArchiveTab ===
                 "devlog" && (
@@ -3828,8 +3999,6 @@ export default function ArchivePage() {
                 </div>
               )}
             </div>
-
-            {/* CONTENT */}
 
             <div className="px-5 pb-5 pt-1">
               {activeArchiveTab ===
@@ -3956,12 +4125,6 @@ function ArchiveDevlogContent({
 }) {
   return (
     <section>
-      {/* <div className="mb-3 flex justify-end">
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
-          기록 {devlogs.length}개
-        </span>
-      </div> */}
-
       {devlogs.length === 0 ? (
         <EmptyState
           icon={
@@ -4550,12 +4713,6 @@ function DesignFlowPage({
    DIAGRAM PREVIEW
    ========================================================= */
 
-/**
- * 화면 흐름 상자.
- *
- * 설계단계의 화면 카드(src/components/design/tabs/screens/ScreenNode.tsx)와
- * 같은 것을 보여 준다. 같은 데이터인데 그림이 다르면 다른 자료로 오해한다.
- */
 function ScreenFlowNodeShape({
   node,
   width,
@@ -4565,8 +4722,12 @@ function ScreenFlowNodeShape({
   width: number;
   height: number;
 }) {
-  const shownApis = node.apiLabels.slice(0, 3);
-  const restApis = node.apiLabels.length - shownApis.length;
+  const shownApis =
+    node.apiLabels.slice(0, 3);
+
+  const restApis =
+    node.apiLabels.length -
+    shownApis.length;
 
   return (
     <g>
@@ -4577,8 +4738,14 @@ function ScreenFlowNodeShape({
         height={height}
         rx={16}
         fill="#ffffff"
-        stroke={node.isEntry ? "#34d399" : "#e5e7eb"}
-        strokeWidth={node.isEntry ? 2 : 1}
+        stroke={
+          node.isEntry
+            ? "#34d399"
+            : "#e5e7eb"
+        }
+        strokeWidth={
+          node.isEntry ? 2 : 1
+        }
       />
 
       {node.isEntry ? (
@@ -4605,7 +4772,12 @@ function ScreenFlowNodeShape({
       ) : null}
 
       <text
-        x={node.x + (node.isEntry ? 54 : 14)}
+        x={
+          node.x +
+          (node.isEntry
+            ? 54
+            : 14)
+        }
         y={node.y + 25}
         fill="#0f172a"
         fontSize={13}
@@ -4616,7 +4788,11 @@ function ScreenFlowNodeShape({
 
       {node.requiresAuth ? (
         <text
-          x={node.x + width - 14}
+          x={
+            node.x +
+            width -
+            14
+          }
           y={node.y + 25}
           textAnchor="end"
           fill="#9ca3af"
@@ -4652,16 +4828,28 @@ function ScreenFlowNodeShape({
         width={62}
         height={17}
         rx={5}
-        fill={node.requirementCount === 0 ? "#fef2f2" : "#f1f5f9"}
+        fill={
+          node.requirementCount ===
+          0
+            ? "#fef2f2"
+            : "#f1f5f9"
+        }
       />
+
       <text
         x={node.x + 20}
         y={node.y + 76}
-        fill={node.requirementCount === 0 ? "#dc2626" : "#475569"}
+        fill={
+          node.requirementCount ===
+          0
+            ? "#dc2626"
+            : "#475569"
+        }
         fontSize={9}
         fontWeight={900}
       >
-        요구사항 {node.requirementCount}
+        요구사항{" "}
+        {node.requirementCount}
       </text>
 
       <rect
@@ -4672,6 +4860,7 @@ function ScreenFlowNodeShape({
         rx={5}
         fill="#f1f5f9"
       />
+
       <text
         x={node.x + 99}
         y={node.y + 76}
@@ -4694,25 +4883,36 @@ function ScreenFlowNodeShape({
           호출하는 API 없음
         </text>
       ) : (
-        shownApis.map((label, index) => (
-          <text
-            key={label}
-            x={node.x + 14}
-            y={node.y + 100 + index * 14}
-            fill="#6b7280"
-            fontSize={9}
-            fontWeight={700}
-            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-          >
-            {label}
-          </text>
-        ))
+        shownApis.map(
+          (label, index) => (
+            <text
+              key={label}
+              x={node.x + 14}
+              y={
+                node.y +
+                100 +
+                index * 14
+              }
+              fill="#6b7280"
+              fontSize={9}
+              fontWeight={700}
+              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+            >
+              {label}
+            </text>
+          ),
+        )
       )}
 
       {restApis > 0 ? (
         <text
           x={node.x + 14}
-          y={node.y + 100 + shownApis.length * 14}
+          y={
+            node.y +
+            100 +
+            shownApis.length *
+              14
+          }
           fill="#9ca3af"
           fontSize={9}
           fontWeight={700}
@@ -4753,27 +4953,32 @@ function DesignDiagramPreview({
       [nodes, type],
     );
 
-  const layout = useMemo(
-    () =>
-      getDiagramLayout(
+  const layout =
+    useMemo(
+      () =>
+        getDiagramLayout(
+          normalizedNodes,
+          type,
+        ),
+      [
         normalizedNodes,
         type,
-      ),
-    [normalizedNodes, type],
-  );
+      ],
+    );
 
-  const nodeMap = useMemo(
-    () =>
-      new Map(
-        layout.nodes.map(
-          (node) => [
-            node.id,
-            node,
-          ],
+  const nodeMap =
+    useMemo(
+      () =>
+        new Map(
+          layout.nodes.map(
+            (node) => [
+              node.id,
+              node,
+            ],
+          ),
         ),
-      ),
-    [layout.nodes],
-  );
+      [layout.nodes],
+    );
 
   const strokeColor =
     type === "erd"
@@ -4817,7 +5022,9 @@ function DesignDiagramPreview({
             >
               <path
                 d="M0,0 L0,6 L9,3 z"
-                fill={strokeColor}
+                fill={
+                  strokeColor
+                }
               />
             </marker>
 
@@ -4888,8 +5095,6 @@ function DesignDiagramPreview({
                 layout.nodeHeight /
                   2;
 
-              // 화면 흐름에서는 "무엇을 했을 때 넘어가는가" 가
-              // 핵심 정보다. 선만 그리면 그림에서 통째로 빠진다.
               const edgeLabel =
                 typeof edge.label ===
                 "string"
@@ -5159,8 +5364,14 @@ function ArchiveFinalReportContent({
   }, [draft]);
 
   const diagramCount =
-    (designDocument.erdNodes.length > 0 ? 1 : 0) +
-    (designDocument.flowNodes.length > 0 ? 1 : 0);
+    (designDocument.erdNodes.length >
+    0
+      ? 1
+      : 0) +
+    (designDocument.flowNodes
+      .length > 0
+      ? 1
+      : 0);
 
   return (
     <section>
@@ -5171,7 +5382,8 @@ function ArchiveFinalReportContent({
           </span>
 
           <span className="rounded-full bg-slate-100 px-2.5 py-1">
-            설계 다이어그램 {diagramCount}개
+            설계 다이어그램{" "}
+            {diagramCount}개
           </span>
         </div>
 
