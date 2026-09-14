@@ -80,6 +80,21 @@ export type ActivityHeatmapResponse = {
   commitCount: number;
 };
 
+export type RecentActivityType =
+  | "DEVLOG_CREATED"
+  | "SCHEDULE_COMPLETED"
+  | "GITHUB_COMMIT";
+
+export type RecentActivityResponse = {
+  id: string;
+  type: RecentActivityType;
+  title: string;
+  description: string;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
+  occurredAt: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -156,6 +171,45 @@ export async function fetchMyActivityHeatmapApi(
   );
 
   return normalizeActivityHeatmapResponse(data);
+}
+
+/**
+ * 마이페이지 최근 활동 조회
+ *
+ * GET /api/users/me/activity/recent?limit=6
+ */
+export async function fetchMyRecentActivitiesApi(
+  limit = 6,
+): Promise<RecentActivityResponse[]> {
+  const data = await apiJson(
+    `/api/users/me/activity/recent?limit=${encodeURIComponent(limit)}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data
+    .filter(isRecord)
+    .map((item) => ({
+      id: getStringValue(item.id),
+      type: getStringValue(item.type) as RecentActivityType,
+      title: getStringValue(item.title),
+      description: getStringValue(item.description),
+      workspaceId: getStringValue(item.workspaceId) || null,
+      workspaceName: getStringValue(item.workspaceName) || null,
+      occurredAt: getStringValue(item.occurredAt),
+    }))
+    .filter(
+      (item) =>
+        item.id &&
+        item.type &&
+        item.title &&
+        item.occurredAt,
+    );
 }
 
 async function readErrorMessage(response: Response, fallback: string) {
@@ -437,6 +491,22 @@ export async function changeMyEmailApi(email: string) {
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "이메일 변경 실패"));
+  }
+
+  return await readOptionalJson(response);
+}
+
+/**
+ * 사용자명 변경
+ */
+export async function changeMyNicknameApi(nickname: string) {
+  const response = await apiFetch("/api/users/me/nickname", {
+    method: "PATCH",
+    body: JSON.stringify({ nickname }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "사용자명 변경 실패"));
   }
 
   return await readOptionalJson(response);

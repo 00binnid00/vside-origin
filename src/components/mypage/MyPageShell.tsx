@@ -2,27 +2,34 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUpRight,
   BookOpen,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
-  Clock3,
   Code2,
   Database,
   Download,
+  ExternalLink,
   FileText,
+  FolderKanban,
   GitBranch,
   Github,
+  Info,
   LayoutDashboard,
   LogOut,
-  Plus,
+  MoreHorizontal,
   Search,
   Sparkles,
   Settings,
   UserRound,
+  Users,
+  X,
 } from "lucide-react";
 
 import {
   changeMyEmailApi,
+  changeMyNicknameApi,
   changeMyPasswordApi,
   deleteMyAccountApi,
   fetchGithubAccountStatusApi,
@@ -32,6 +39,7 @@ import {
   fetchScheduleProgress,
   fetchWorkspaceDevlogs,
   fetchMyActivityHeatmapApi,
+  fetchMyRecentActivitiesApi,
   generateFinalReportDraftApi,
   type GithubAccountStatus,
   type MyPageDevlogResponse,
@@ -42,7 +50,14 @@ import {
   type WorkspaceListResponse,
   type WorkspaceProjectResponse,
   type ActivityHeatmapResponse,
+  type RecentActivityResponse,
 } from "@/components/mypage/api";
+
+import {
+  getAivsHref,
+  getDevlogHref,
+  getScheduleHref,
+} from "@/components/main-dashboard/dashboard.utils";
 
 import {
   fetchWorkspaceApiSpecsApi,
@@ -62,6 +77,7 @@ import type {
 
 type DevlogSortType = "latest" | "oldest";
 type ProjectTypeFilter = "all" | "personal" | "team";
+type ProjectStatusFilter = "all" | "active" | "completed";
 type ArchiveTabKey = "devlog" | "design" | "final";
 type DesignArchiveSectionKey = "requirements" | "api" | "erd" | "flow";
 
@@ -184,25 +200,19 @@ const tabs: {
   {
     key: "overview",
     label: "Overview",
-    description: "전체 활동 요약",
+    description: "내 활동 요약",
     icon: LayoutDashboard,
   },
   {
     key: "progress",
-    label: "진행 중 프로젝트",
-    description: "현재 작업 중",
-    icon: Clock3,
-  },
-  {
-    key: "completed",
-    label: "완료 프로젝트",
-    description: "끝낸 작업",
-    icon: CheckCircle2,
+    label: "내 프로젝트",
+    description: "참여 프로젝트 관리",
+    icon: FolderKanban,
   },
   {
     key: "devlogs",
     label: "자료실",
-    description: "문서화 자료",
+    description: "개발 문서 모음",
     icon: BookOpen,
     children: [
       {
@@ -228,7 +238,7 @@ const tabs: {
   {
     key: "github",
     label: "GitHub 설정",
-    description: "커밋 연동",
+    description: "계정 연동",
     icon: Github,
   },
   {
@@ -1201,6 +1211,49 @@ function buildFlowNodesForDraft(flowNodes: Record<string, unknown>[]) {
   }));
 }
 
+type ProjectDestination = "open" | "dashboard" | "schedule" | "devlog";
+
+function getProjectMode(project: Project): "personal" | "team" {
+  return project.type === "팀" ? "team" : "personal";
+}
+
+function rememberCurrentWorkspace(project: Project) {
+  if (typeof window === "undefined") return;
+
+  localStorage.setItem("currentWorkspaceId", project.workspaceId || project.id);
+  localStorage.setItem("currentWorkspaceMode", getProjectMode(project));
+}
+
+function getProjectDestinationHref(
+  project: Project,
+  destination: ProjectDestination,
+) {
+  const workspaceId = encodeURIComponent(project.workspaceId || project.id);
+  const mode = getProjectMode(project);
+
+  if (destination === "dashboard") {
+    return `/main/${workspaceId}?mode=${mode}`;
+  }
+
+  if (destination === "schedule") {
+    return getScheduleHref(project.workspaceId || project.id, mode);
+  }
+
+  if (destination === "devlog") {
+    return getDevlogHref(project.workspaceId || project.id);
+  }
+
+  return getAivsHref(project.workspaceId || project.id, mode);
+}
+
+function openProjectDestination(
+  project: Project,
+  destination: ProjectDestination,
+) {
+  rememberCurrentWorkspace(project);
+  window.location.href = getProjectDestinationHref(project, destination);
+}
+
 export default function MyPageDemo() {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [activeArchiveTab, setActiveArchiveTab] =
@@ -1216,19 +1269,11 @@ const [heatmapValues, setHeatmapValues] = useState<HeatmapLevel[]>(
 );
 const [activityHeatmap, setActivityHeatmap] =
   useState<ActivityHeatmapResponse>(createEmptyActivityHeatmap());
+const [recentActivities, setRecentActivities] =
+  useState<RecentActivityResponse[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  const progressProjects = useMemo(
-    () => projects.filter((project) => project.status === "active"),
-    [projects],
-  );
-
-  const completedProjects = useMemo(
-    () => projects.filter((project) => project.status === "completed"),
-    [projects],
-  );
 
 const summary = useMemo(
   () =>
@@ -1248,12 +1293,21 @@ const summary = useMemo(
       setLoading(true);
       setError("");
 
-      const [profileDto, workspaceDtos, heatmapResult] = await Promise.all([
+      const [
+        profileDto,
+        workspaceDtos,
+        heatmapResult,
+        recentActivityResult,
+      ] = await Promise.all([
         fetchMyProfile(),
         fetchMyWorkspaces(),
         fetchMyActivityHeatmapApi(DEFAULT_HEATMAP_DAYS).catch((error) => {
           console.warn("[mypage activity heatmap] 활동 히트맵 요청 실패:", error);
           return createEmptyActivityHeatmap();
+        }),
+        fetchMyRecentActivitiesApi(6).catch((error) => {
+          console.warn("[mypage recent activity] 최근 활동 요청 실패:", error);
+          return [] as RecentActivityResponse[];
         }),
       ]);
 
@@ -1341,6 +1395,7 @@ const summary = useMemo(
       setDevlogs(nextDevlogs);
       setActivityHeatmap(heatmapResult);
       setHeatmapValues(mapHeatmapValuesFromResponse(heatmapResult));
+      setRecentActivities(recentActivityResult);
     } catch (error) {
       if (!mounted) return;
 
@@ -1386,77 +1441,21 @@ if (error || !user) {
 
 return (
   <main className="waivs-page min-h-[calc(100dvh-72px)] text-slate-950">
-    <div className="w-full p-5">
-      {/* =====================================================
-          상단 사용자 영역
-         ===================================================== */}
-      <section className="waivs-panel mb-5 flex min-h-[86px] flex-col justify-between gap-4 px-5 py-4 md:flex-row md:items-center">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--waivs-border)] bg-[#EEF3FF] text-base font-black text-[#5873F9]">
-            {user.profileImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={user.profileImageUrl}
-                alt="profile"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              user.nickname.slice(0, 1)
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
-                My Page
-              </p>
-
-              <span className="rounded-full bg-[#EEF3FF] px-2 py-0.5 text-[10px] font-black text-[#5873F9]">
-                Dev Activity
-              </span>
-            </div>
-
-            <h1 className="mt-0.5 truncate text-xl font-black tracking-tight text-slate-950">
-              {user.nickname}
-            </h1>
-
-            <p className="mt-0.5 text-xs font-semibold text-slate-500">
-              프로젝트와 개발 활동, 계정 정보를 관리합니다.
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={logout}
-          className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-[var(--waivs-border)] bg-white px-4 text-xs font-black text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-        >
-          <LogOut size={15} />
-          로그아웃
-        </button>
-      </section>
-
-      {/* =====================================================
-          사이드바 + 메인
-         ===================================================== */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-        {/* ===================================================
-            왼쪽 사이드바
-           =================================================== */}
-        <aside className="self-start xl:sticky xl:top-5 xl:h-[calc(100dvh-112px)]">
-          <section className="waivs-sidebar flex h-full flex-col overflow-hidden">
+    <div className="w-full p-4 md:p-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[252px_minmax(0,1fr)]">
+        <aside className="self-start xl:sticky xl:top-5 xl:h-[calc(100dvh-112px)] xl:min-h-[620px]">
+          <section className="waivs-sidebar flex min-h-[620px] flex-col overflow-hidden xl:h-full xl:min-h-0">
             <div className="shrink-0 border-b border-[var(--waivs-border-soft)] px-4 py-4">
-              <p className="text-[11px] font-black uppercase tracking-[0.13em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#5873F9]">
                 My Page
               </p>
-
               <p className="mt-1 text-sm font-black text-slate-900">
-                마이페이지 메뉴
+                나의 작업 공간
               </p>
             </div>
 
-            <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="space-y-1">
+            <nav className="flex-1 p-3">
+              <div className="space-y-1.5">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.key;
@@ -1469,7 +1468,7 @@ return (
                         type="button"
                         onClick={() => setActiveTab(tab.key)}
                         className={[
-                          "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
+                          "flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left transition",
                           isActive
                             ? "bg-[#EEF3FF] text-[#5873F9]"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
@@ -1483,31 +1482,16 @@ return (
                               : "bg-slate-50 text-slate-500",
                           ].join(" ")}
                         >
-                          <Icon size={16} />
+                          <Icon size={15} />
                         </span>
 
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className={[
-                              "block text-sm font-black",
-                              isActive
-                                ? "text-[#5873F9]"
-                                : "text-slate-800",
-                            ].join(" ")}
-                          >
-                            {tab.label}
-                          </span>
-
-                          <span
-                            className={[
-                              "mt-0.5 block text-[10px] font-semibold",
-                              isActive
-                                ? "text-[#5873F9]/70"
-                                : "text-slate-400",
-                            ].join(" ")}
-                          >
-                            {tab.description}
-                          </span>
+                        <span
+                          className={[
+                            "min-w-0 flex-1 truncate text-sm font-black",
+                            isActive ? "text-[#5873F9]" : "text-slate-800",
+                          ].join(" ")}
+                        >
+                          {tab.label}
                         </span>
 
                         {hasChildren && (
@@ -1516,20 +1500,17 @@ return (
                             className={[
                               "shrink-0 transition-transform",
                               isArchiveOpen ? "rotate-0" : "-rotate-90",
-                              isActive
-                                ? "text-[#5873F9]"
-                                : "text-slate-400",
+                              isActive ? "text-[#5873F9]" : "text-slate-400",
                             ].join(" ")}
                           />
                         )}
                       </button>
 
                       {hasChildren && isArchiveOpen && (
-                        <div className="ml-[31px] mt-1 space-y-1 border-l border-[var(--waivs-border-soft)] pl-3">
+                        <div className="ml-[28px] mt-1.5 space-y-1 border-l border-[var(--waivs-border-soft)] pl-3">
                           {tab.children?.map((child) => {
                             const ChildIcon = child.icon;
-                            const isChildActive =
-                              activeArchiveTab === child.key;
+                            const isChildActive = activeArchiveTab === child.key;
 
                             return (
                               <button
@@ -1540,22 +1521,15 @@ return (
                                   setActiveArchiveTab(child.key);
                                 }}
                                 className={[
-                                  "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition",
+                                  "flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left transition",
                                   isChildActive
                                     ? "bg-[#EEF3FF] text-[#5873F9]"
                                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                                 ].join(" ")}
                               >
-                                <ChildIcon size={13} />
-
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-xs font-black">
-                                    {child.label}
-                                  </span>
-
-                                  <span className="mt-0.5 block truncate text-[9px] font-semibold text-slate-400">
-                                    {child.description}
-                                  </span>
+                                <ChildIcon size={12} />
+                                <span className="truncate text-xs font-black">
+                                  {child.label}
                                 </span>
                               </button>
                             );
@@ -1568,82 +1542,67 @@ return (
               </div>
             </nav>
 
-            {/* 기존 요약 정보는 삭제하지 않고 하단에 압축 */}
-            <div className="shrink-0 border-t border-[var(--waivs-border-soft)] p-4">
-              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.1em] text-slate-400">
-                Summary
-              </p>
+            <div className="mt-auto shrink-0 border-t border-[var(--waivs-border-soft)] p-3">
+              <div className="mb-2 flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5">
+                <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-[#EEF3FF] text-xs font-black text-[#5873F9]">
+                  {user.profileImageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={user.profileImageUrl}
+                      alt="profile"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    user.nickname.slice(0, 1)
+                  )}
+                </div>
 
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-                <SidebarSummaryItem
-                  label="대표 언어"
-                  value={summary.primaryLanguage}
-                />
-
-                <SidebarSummaryItem
-                  label="진행 중"
-                  value={`${summary.progressProjectCount}개`}
-                />
-
-                <SidebarSummaryItem
-                  label="완료 프로젝트"
-                  value={`${summary.completedProjectCount}개`}
-                />
-
-                <SidebarSummaryItem
-                  label="자료실"
-                  value={`${summary.devlogCount}개`}
-                />
-
-                <SidebarSummaryItem
-                  label="완료 일정"
-                  value={`${summary.doneScheduleCount}개`}
-                />
-
-                <SidebarSummaryItem
-                  label="GitHub 커밋"
-                  value={`${summary.commitCount}개`}
-                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-black text-slate-800">
+                    {user.nickname}
+                  </p>
+                  <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                    {user.email}
+                  </p>
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={logout}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+              >
+                <LogOut size={14} />
+                로그아웃
+              </button>
             </div>
           </section>
         </aside>
 
-        {/* ===================================================
-            오른쪽 메인 콘텐츠
-           =================================================== */}
         <section className="min-w-0">
           {activeTab === "overview" && (
             <OverviewSection
+              user={user}
+              projects={projects}
               summary={summary}
-              progressProjects={progressProjects}
-              devlogs={devlogs}
+              recentActivities={recentActivities}
               heatmapValues={heatmapValues}
               activityHeatmap={activityHeatmap}
-              keyword={keyword}
-              onKeywordChange={setKeyword}
+              onOpenProjects={() => setActiveTab("progress")}
+              onOpenAccount={() => setActiveTab("account")}
             />
           )}
 
           {activeTab === "progress" && (
-            <ProjectSection
-              title="진행 중 프로젝트"
-              description="현재 작업 중인 프로젝트를 확인합니다."
-              projects={progressProjects}
-              emptyText="진행 중인 프로젝트가 없습니다."
+            <MyProjectsSection
+              projects={projects}
               keyword={keyword}
               onKeywordChange={setKeyword}
-            />
-          )}
-
-          {activeTab === "completed" && (
-            <ProjectSection
-              title="완료 프로젝트"
-              description="완료한 프로젝트만 따로 확인합니다."
-              projects={completedProjects}
-              emptyText="완료한 프로젝트가 없습니다."
-              keyword={keyword}
-              onKeywordChange={setKeyword}
+              onOpenArchive={(project) => {
+                rememberCurrentWorkspace(project);
+                setActiveArchiveTab("devlog");
+                setActiveTab("devlogs");
+              }}
             />
           )}
 
@@ -1658,109 +1617,141 @@ return (
             />
           )}
 
-           {activeTab === "github" && <GithubSection />} 
+          {activeTab === "github" && <GithubSection />}
 
-          {activeTab === "account" && <AccountSection user={user} />}
+          {activeTab === "account" && (
+            <AccountSection user={user} onUserChange={setUser} />
+          )}
         </section>
       </div>
     </div>
   </main>
 );
-function SidebarSummaryItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="truncate text-[10px] font-bold text-slate-400">
-        {label}
-      </p>
-
-      <p className="mt-0.5 truncate text-xs font-black text-slate-800">
-        {value}
-      </p>
-    </div>
-  );
 }
 
 function OverviewSection({
+  user,
+  projects,
   summary,
-  progressProjects,
-  devlogs,
+  recentActivities,
   heatmapValues,
   activityHeatmap,
-  keyword,
-  onKeywordChange,
+  onOpenProjects,
+  onOpenAccount,
 }: {
+  user: User;
+  projects: Project[];
   summary: ActivitySummary;
-  progressProjects: Project[];
-  devlogs: Devlog[];
+  recentActivities: RecentActivityResponse[];
   heatmapValues: HeatmapLevel[];
   activityHeatmap: ActivityHeatmapResponse;
-  keyword: string;
-  onKeywordChange: (value: string) => void;
+  onOpenProjects: () => void;
+  onOpenAccount: () => void;
 }) {
+  const totalProjectCount =
+    summary.progressProjectCount + summary.completedProjectCount;
+
   return (
-    <div className="space-y-5">
-      {/* Overview 상단 */}
-      <section className="waivs-panel p-5">
-        <div className="mb-5">
-          <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
-            Overview
-          </p>
+    <div className="space-y-4">
+      <section className="waivs-panel overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-[var(--waivs-border-soft)] px-4 py-3.5 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#EEF3FF] text-sm font-black text-[#5873F9]">
+              {user.profileImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.profileImageUrl}
+                  alt="profile"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                user.nickname.slice(0, 1)
+              )}
+            </div>
 
-          <h2 className="mt-1 text-xl font-black tracking-tight text-slate-950">
-            개발 활동 요약
-          </h2>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-base font-black text-slate-950">
+                  {user.nickname}
+                </p>
+                <span className="rounded-full bg-[#EEF3FF] px-2 py-0.5 text-[9px] font-black text-[#5873F9]">
+                  MY WORKSPACE
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-xs font-medium text-slate-400">
+                {user.email}
+              </p>
+            </div>
+          </div>
 
-          <p className="mt-1 text-sm font-medium text-slate-500">
-            프로젝트, 일정, 자료실과 GitHub 활동을 한눈에 확인합니다.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] font-bold text-slate-500">
+              참여 프로젝트 <strong className="text-slate-800">{totalProjectCount}개</strong>
+            </span>
+            <span className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] font-bold text-slate-500">
+              가입일 <strong className="text-slate-800">{formatDateLabel(user.createdAt)}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={onOpenAccount}
+              className="h-8 rounded-lg border border-[var(--waivs-border)] bg-white px-3 text-[10px] font-black text-slate-600 transition hover:bg-slate-50"
+            >
+              계정 설정
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <ActivityCard
-            label="진행 중 프로젝트"
-            value={`${summary.progressProjectCount}개`}
-            icon={Clock3}
-            description="현재 작업 중"
-          />
+        <div className="px-4 py-3.5">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+                Overview
+              </p>
+              <h2 className="mt-0.5 text-lg font-black tracking-tight text-slate-950">
+                개발 활동 요약
+              </h2>
+            </div>
+            <p className="hidden text-[11px] font-medium text-slate-400 md:block">
+              내 프로젝트와 개발 활동을 한눈에 확인합니다.
+            </p>
+          </div>
 
-          <ActivityCard
-            label="완료 일정"
-            value={`${summary.doneScheduleCount}개`}
-            icon={CheckCircle2}
-            description="DONE 상태 기준"
-          />
-
-          <ActivityCard
-            label="자료실"
-            value={`${summary.devlogCount}개`}
-            icon={BookOpen}
-            description="전체 문서"
-          />
-
-          <ActivityCard
-            label="GitHub 커밋"
-            value={`${summary.commitCount}개`}
-            icon={Github}
-            description="연동 저장소 기준"
-          />
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+            <ActivityCard
+              label="내 프로젝트"
+              value={`${totalProjectCount}개`}
+              icon={FolderKanban}
+              description="전체 참여 프로젝트"
+            />
+            <ActivityCard
+              label="완료 일정"
+              value={`${summary.doneScheduleCount}개`}
+              icon={CheckCircle2}
+              description="DONE 상태"
+            />
+            <ActivityCard
+              label="개발일지"
+              value={`${summary.devlogCount}개`}
+              icon={BookOpen}
+              description="작성 기록"
+            />
+            <ActivityCard
+              label="GitHub 커밋"
+              value={`${summary.commitCount}개`}
+              icon={Github}
+              description="연동 활동"
+            />
+          </div>
         </div>
       </section>
 
-      <ProjectSection
-        title="현재 작업 중"
-        description="최근 활동이 있는 진행 중 프로젝트입니다."
-        projects={progressProjects}
-        emptyText="현재 작업 중인 프로젝트가 없습니다."
-        keyword={keyword}
-        onKeywordChange={onKeywordChange}
-        maxItems={4}
-      />
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1.25fr_0.75fr]">
+        <RecentProjectsPanel
+          projects={projects}
+          onOpenAll={onOpenProjects}
+        />
+        <RecentActivitySection activities={recentActivities} />
+      </div>
 
       <HeatmapSection
         heatmapValues={heatmapValues}
@@ -1770,204 +1761,415 @@ function OverviewSection({
   );
 }
 
-function ProjectSection({
-  title,
-  description,
+function RecentProjectsPanel({
   projects,
-  emptyText,
-  keyword,
-  onKeywordChange,
-  maxItems,
+  onOpenAll,
 }: {
-  title: string;
-  description: string;
   projects: Project[];
-  emptyText: string;
-  keyword: string;
-  onKeywordChange: (value: string) => void;
-  maxItems?: number;
+  onOpenAll: () => void;
 }) {
-  const [projectTypeFilter, setProjectTypeFilter] =
-    useState<ProjectTypeFilter>("all");
+  const [detailProject, setDetailProject] = useState<Project | null>(null);
 
-  const filteredProjects = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-
-    const result = projects.filter((project) => {
-      const matchesType =
-        projectTypeFilter === "all" ||
-        (projectTypeFilter === "team" && project.type === "팀") ||
-        (projectTypeFilter === "personal" && project.type === "개인");
-
-      const matchesKeyword =
-        !normalizedKeyword ||
-        project.name.toLowerCase().includes(normalizedKeyword) ||
-        (project.description || "")
-          .toLowerCase()
-          .includes(normalizedKeyword) ||
-        (project.language || "")
-          .toLowerCase()
-          .includes(normalizedKeyword);
-
-      return matchesType && matchesKeyword;
-    });
-
-    return typeof maxItems === "number"
-      ? result.slice(0, maxItems)
-      : result;
-  }, [projects, projectTypeFilter, keyword, maxItems]);
-
-  const projectTypeFilters: {
-    key: ProjectTypeFilter;
-    label: string;
-    count: number;
-  }[] = [
-    {
-      key: "all",
-      label: "전체",
-      count: projects.length,
-    },
-    {
-      key: "personal",
-      label: "개인",
-      count: projects.filter((project) => project.type === "개인").length,
-    },
-    {
-      key: "team",
-      label: "팀",
-      count: projects.filter((project) => project.type === "팀").length,
-    },
-  ];
+  const recentProjects = useMemo(() => {
+    return [...projects]
+      .sort((a, b) => {
+        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, 4);
+  }, [projects]);
 
   return (
-    <section className="waivs-panel overflow-hidden">
-      {/* 제목 */}
-      <div className="flex flex-col gap-4 p-5 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight text-slate-950">
-              {title}
-            </h2>
-
-            <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[11px] font-black text-[#5873F9]">
-              {filteredProjects.length}개
-            </span>
+    <>
+      <section className="waivs-panel overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--waivs-border-soft)] px-4 py-3.5">
+          <div>
+            <h3 className="text-sm font-black text-slate-950">최근 프로젝트</h3>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+              최근 수정한 프로젝트를 빠르게 이어서 작업합니다.
+            </p>
           </div>
-
-          <p className="mt-1 text-sm font-medium text-slate-500">
-            {description}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-
-            <input
-              value={keyword}
-              onChange={(event) => onKeywordChange(event.target.value)}
-              placeholder="프로젝트 검색"
-              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10 sm:w-[240px]"
-            />
-          </div>
-
           <button
             type="button"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8]"
+            onClick={onOpenAll}
+            className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-[10px] font-black text-[#5873F9] transition hover:bg-[#EEF3FF]"
           >
-            <Plus size={16} />
-            새 프로젝트
+            전체 보기
+            <ArrowUpRight size={12} />
           </button>
         </div>
-      </div>
 
-      {/* 필터 */}
-      <div className="flex flex-wrap gap-2 border-y border-[var(--waivs-border-soft)] bg-slate-50/50 px-5 py-3">
-        {projectTypeFilters.map((filter) => {
-          const isActive = projectTypeFilter === filter.key;
-
-          return (
-            <button
-              key={filter.key}
-              type="button"
-              onClick={() => setProjectTypeFilter(filter.key)}
-              className={[
-                "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-black transition",
-                isActive
-                  ? "bg-[#5873F9] text-white"
-                  : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-800",
-              ].join(" ")}
-            >
-              {filter.label}
-
-              <span
-                className={[
-                  "rounded-full px-1.5 py-0.5 text-[9px]",
-                  isActive
-                    ? "bg-white/20 text-white"
-                    : "bg-slate-100 text-slate-500",
-                ].join(" ")}
-              >
-                {filter.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 목록 */}
-      <div className="p-5">
-        {filteredProjects.length === 0 ? (
-          <EmptyState
-            message={
-              projects.length === 0
-                ? emptyText
-                : "검색 또는 선택한 구분에 해당하는 프로젝트가 없습니다."
-            }
-          />
+        {recentProjects.length === 0 ? (
+          <div className="p-4">
+            <EmptyState message="참여 중인 프로젝트가 없습니다." />
+          </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[var(--waivs-border)]">
-            <div className="hidden grid-cols-[1.4fr_90px_120px_120px_120px] border-b border-[var(--waivs-border-soft)] bg-slate-50 px-4 py-3 text-[11px] font-black text-slate-500 md:grid">
-              <span>프로젝트명</span>
-              <span>구분</span>
-              <span>진행률</span>
-              <span>완료 일정</span>
-              <span className="text-right">최근 수정일</span>
-            </div>
+          <div className="divide-y divide-[var(--waivs-border-soft)]">
+            {recentProjects.map((project) => (
+              <div
+                key={project.id}
+                className="flex flex-col gap-3 px-4 py-3 transition hover:bg-slate-50/60 sm:flex-row sm:items-center"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF3FF] text-[#5873F9]">
+                    <FolderKanban size={15} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-black text-slate-900">
+                        {project.name}
+                      </p>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black text-slate-500">
+                        {project.type} · {project.workspaceRole.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="h-1.5 min-w-[90px] max-w-[180px] flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-[#5873F9]"
+                          style={{ width: `${project.progress}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-black text-slate-500">
+                        {project.progress}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-            <div className="divide-y divide-[var(--waivs-border-soft)] bg-white">
-              {filteredProjects.map((project) => (
-                <ProjectListRow
-                  key={`${project.workspaceId}-${project.id}`}
-                  project={project}
-                />
-              ))}
-            </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDetailProject(project)}
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--waivs-border)] bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+                    aria-label="프로젝트 정보"
+                  >
+                    <Info size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openProjectDestination(project, "open")}
+                    className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#5873F9] px-3 text-[10px] font-black text-white transition hover:bg-[#4863E8]"
+                  >
+                    열기
+                    <ArrowUpRight size={11} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
+      </section>
+
+      {detailProject && (
+        <ProjectInfoModal
+          project={detailProject}
+          onClose={() => setDetailProject(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function formatRecentActivityDate(value?: string | null) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getRecentActivityIcon(type: RecentActivityResponse["type"]) {
+  if (type === "DEVLOG_CREATED") {
+    return FileText;
+  }
+
+  if (type === "SCHEDULE_COMPLETED") {
+    return CheckCircle2;
+  }
+
+  return Github;
+}
+
+function RecentActivitySection({
+  activities,
+}: {
+  activities: RecentActivityResponse[];
+}) {
+  return (
+    <section className="waivs-panel overflow-hidden">
+      <div className="border-b border-[var(--waivs-border-soft)] px-4 py-3.5">
+        <h3 className="text-sm font-black text-slate-950">최근 활동</h3>
+        <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+          개발일지, 일정 완료, GitHub 커밋 활동을 최신순으로 표시합니다.
+        </p>
       </div>
+
+      {activities.length === 0 ? (
+        <div className="px-4 py-8 text-center text-xs font-bold text-slate-400">
+          아직 표시할 활동이 없습니다.
+        </div>
+      ) : (
+        <div className="divide-y divide-[var(--waivs-border-soft)] px-4">
+          {activities.map((activity) => {
+            const Icon = getRecentActivityIcon(activity.type);
+
+            return (
+              <div
+                key={activity.id}
+                className="flex items-start gap-3 py-3"
+              >
+                <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#EEF3FF] text-[#5873F9]">
+                  <Icon size={12} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black text-slate-800">
+                    {activity.title}
+                  </p>
+
+                  <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">
+                    {activity.description}
+                  </p>
+                </div>
+
+                <span className="shrink-0 text-[9px] font-bold text-slate-400">
+                  {formatRecentActivityDate(activity.occurredAt)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
-function ProjectListRow({ project }: { project: Project }) {
-  const isCompleted = project.status === "completed";
-  const isTeam = project.type === "팀";
+function MyProjectsSection({
+  projects,
+  keyword,
+  onKeywordChange,
+  onOpenArchive,
+}: {
+  projects: Project[];
+  keyword: string;
+  onKeywordChange: (value: string) => void;
+  onOpenArchive: (project: Project) => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<ProjectTypeFilter>("all");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [detailProject, setDetailProject] = useState<Project | null>(null);
+
+  const filteredProjects = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+
+    return projects.filter((project) => {
+      const matchesStatus =
+        statusFilter === "all" || project.status === statusFilter;
+
+      const matchesType =
+        typeFilter === "all" ||
+        (typeFilter === "team" && project.type === "팀") ||
+        (typeFilter === "personal" && project.type === "개인");
+
+      const matchesKeyword =
+        !normalizedKeyword ||
+        project.name.toLowerCase().includes(normalizedKeyword) ||
+        (project.description || "").toLowerCase().includes(normalizedKeyword) ||
+        (project.language || "").toLowerCase().includes(normalizedKeyword);
+
+      return matchesStatus && matchesType && matchesKeyword;
+    });
+  }, [projects, keyword, statusFilter, typeFilter]);
+
+  const activeCount = projects.filter((project) => project.status === "active").length;
+  const completedCount = projects.filter(
+    (project) => project.status === "completed",
+  ).length;
 
   return (
-    <article className="grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-slate-50 md:grid-cols-[1.4fr_90px_120px_120px_120px] md:items-center">
+    <>
+      <section className="waivs-panel overflow-visible">
+        <div className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+              My Projects
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-black tracking-tight text-slate-950">
+                내 프로젝트
+              </h2>
+              <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]">
+                {projects.length}개
+              </span>
+            </div>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              참여 중인 프로젝트를 확인하고 필요한 작업 화면으로 바로 이동합니다.
+            </p>
+          </div>
+
+          <div className="relative w-full xl:w-[300px]">
+            <Search
+              size={15}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              value={keyword}
+              onChange={(event) => onKeywordChange(event.target.value)}
+              placeholder="프로젝트 검색"
+              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 border-y border-[var(--waivs-border-soft)] bg-slate-50/50 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: "all" as const, label: "전체", count: projects.length },
+              { key: "active" as const, label: "진행 중", count: activeCount },
+              { key: "completed" as const, label: "완료", count: completedCount },
+            ].map((filter) => {
+              const active = statusFilter === filter.key;
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => setStatusFilter(filter.key)}
+                  className={[
+                    "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-black transition",
+                    active
+                      ? "bg-[#5873F9] text-white"
+                      : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-800",
+                  ].join(" ")}
+                >
+                  {filter.label}
+                  <span
+                    className={[
+                      "rounded-full px-1.5 py-0.5 text-[9px]",
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500",
+                    ].join(" ")}
+                  >
+                    {filter.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { key: "all" as const, label: "전체 구분" },
+              { key: "personal" as const, label: "개인" },
+              { key: "team" as const, label: "팀" },
+            ].map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() => setTypeFilter(filter.key)}
+                className={[
+                  "h-8 rounded-lg border px-3 text-[10px] font-black transition",
+                  typeFilter === filter.key
+                    ? "border-[#BFCBFF] bg-[#EEF3FF] text-[#5873F9]"
+                    : "border-[var(--waivs-border)] bg-white text-slate-500 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-5">
+          {filteredProjects.length === 0 ? (
+            <EmptyState message="조건에 맞는 프로젝트가 없습니다." />
+          ) : (
+            <div className="overflow-visible rounded-xl border border-[var(--waivs-border)] bg-white">
+              <div className="hidden grid-cols-[minmax(0,1.5fr)_110px_130px_150px_118px] border-b border-[var(--waivs-border-soft)] bg-slate-50 px-4 py-3 text-[10px] font-black text-slate-500 md:grid">
+                <span>프로젝트</span>
+                <span>구분 / 권한</span>
+                <span>진행률</span>
+                <span>활동</span>
+                <span className="text-right">작업</span>
+              </div>
+
+              <div className="divide-y divide-[var(--waivs-border-soft)]">
+                {filteredProjects.map((project) => (
+                  <ProjectListRow
+                    key={project.id}
+                    project={project}
+                    menuOpen={openMenuId === project.id}
+                    onToggleMenu={() =>
+                      setOpenMenuId((current) =>
+                        current === project.id ? null : project.id,
+                      )
+                    }
+                    onCloseMenu={() => setOpenMenuId(null)}
+                    onOpenInfo={() => {
+                      setOpenMenuId(null);
+                      setDetailProject(project);
+                    }}
+                    onOpenArchive={() => {
+                      setOpenMenuId(null);
+                      onOpenArchive(project);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {detailProject && (
+        <ProjectInfoModal
+          project={detailProject}
+          onClose={() => setDetailProject(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function ProjectListRow({
+  project,
+  menuOpen,
+  onToggleMenu,
+  onCloseMenu,
+  onOpenInfo,
+  onOpenArchive,
+}: {
+  project: Project;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onCloseMenu: () => void;
+  onOpenInfo: () => void;
+  onOpenArchive: () => void;
+}) {
+  const isCompleted = project.status === "completed";
+  const isTeam = project.type === "팀";
+  const isTeamOwner = isTeam && project.workspaceRole === "owner";
+
+  return (
+    <article className="grid grid-cols-1 gap-3 px-4 py-3.5 transition hover:bg-slate-50/60 md:grid-cols-[minmax(0,1.5fr)_110px_130px_150px_118px] md:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <h4 className="line-clamp-1 text-sm font-black text-slate-950">
+          <h4 className="truncate text-sm font-black text-slate-950">
             {project.name}
           </h4>
-
           <span
             className={[
-              "rounded-full px-2 py-0.5 text-[10px] font-black",
+              "rounded-full px-2 py-0.5 text-[9px] font-black",
               isCompleted
                 ? "bg-emerald-50 text-emerald-600"
                 : "bg-[#EEF3FF] text-[#5873F9]",
@@ -1976,91 +2178,293 @@ function ProjectListRow({ project }: { project: Project }) {
             {isCompleted ? "완료" : "진행 중"}
           </span>
         </div>
-
-        <p className="mt-1 line-clamp-1 text-xs font-medium text-slate-500">
+        <p className="mt-1 truncate text-[11px] font-medium text-slate-500">
           {project.description || "설명이 없습니다."}
         </p>
-
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="rounded-full bg-[#EEF3FF] px-2.5 py-0.5 text-[10px] font-black text-[#5873F9]">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black text-slate-500">
             {project.language || "Unknown"}
           </span>
-
-          {project.stack.slice(0, 2).map((stack) => (
-            <span
-              key={stack}
-              className="rounded-full border border-[var(--waivs-border)] bg-white px-2.5 py-0.5 text-[10px] font-bold text-slate-500"
-            >
-              {stack}
-            </span>
-          ))}
-
-          {project.stack.length > 2 && (
-            <span className="text-[10px] font-bold text-slate-400">
-              +{project.stack.length - 2}
-            </span>
-          )}
+          <span className="text-[9px] font-bold text-slate-400">
+            최근 수정 {formatDateLabel(project.updatedAt)}
+          </span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between md:block">
-        <span className="text-xs font-black text-slate-400 md:hidden">
-          구분
-        </span>
-
-        <span
-          className={[
-            "inline-flex w-fit rounded-full px-2.5 py-1 text-[10px] font-black",
-            isTeam
-              ? "bg-violet-50 text-violet-600"
-              : "bg-[#EEF3FF] text-[#5873F9]",
-          ].join(" ")}
-        >
-          {project.type}
-        </span>
+      <div className="flex items-center justify-between gap-2 md:block">
+        <span className="text-[10px] font-black text-slate-400 md:hidden">구분 / 권한</span>
+        <div className="flex flex-wrap gap-1">
+          <span
+            className={[
+              "rounded-full px-2 py-1 text-[9px] font-black",
+              isTeam
+                ? "bg-violet-50 text-violet-600"
+                : "bg-[#EEF3FF] text-[#5873F9]",
+            ].join(" ")}
+          >
+            {project.type}
+          </span>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-500">
+            {project.workspaceRole.toUpperCase()}
+          </span>
+        </div>
       </div>
 
       <div>
-        <div className="mb-1.5 flex items-center justify-between text-xs font-black">
+        <div className="mb-1.5 flex items-center justify-between text-[10px] font-black">
           <span className="text-slate-400 md:hidden">진행률</span>
-
           <span className="text-slate-700">{project.progress}%</span>
         </div>
-
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-[#5873F9] transition-all"
+            className="h-full rounded-full bg-[#5873F9]"
             style={{ width: `${project.progress}%` }}
           />
         </div>
       </div>
 
       <div className="flex items-center justify-between md:block">
-        <span className="text-xs font-black text-slate-400 md:hidden">
-          완료 일정
-        </span>
-
-        <p className="text-sm font-black text-slate-800">
-          {project.doneScheduleCount}/{project.scheduleTotalCount}개
-        </p>
-
-        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
-          자료 {project.devlogCount}개
-        </p>
+        <span className="text-[10px] font-black text-slate-400 md:hidden">활동</span>
+        <div className="space-y-1 text-[10px] font-bold text-slate-500">
+          <p>
+            일정 <strong className="text-slate-800">{project.doneScheduleCount}/{project.scheduleTotalCount}</strong>
+          </p>
+          <p>
+            개발일지 <strong className="text-slate-800">{project.devlogCount}개</strong>
+          </p>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between md:block md:text-right">
-        <span className="text-xs font-black text-slate-400 md:hidden">
-          최근 수정일
-        </span>
+      <div className="relative flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={() => openProjectDestination(project, "open")}
+          className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#5873F9] px-3 text-[10px] font-black text-white transition hover:bg-[#4863E8]"
+        >
+          열기
+          <ArrowUpRight size={11} />
+        </button>
 
-        <span className="text-xs font-bold text-slate-400">
-          {formatDateLabel(project.updatedAt)}
-        </span>
+        <button
+          type="button"
+          onClick={onToggleMenu}
+          className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--waivs-border)] bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+          aria-label="프로젝트 메뉴"
+        >
+          <MoreHorizontal size={15} />
+        </button>
+
+        {menuOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="메뉴 닫기"
+              className="fixed inset-0 z-20 cursor-default"
+              onClick={onCloseMenu}
+            />
+            <div className="absolute right-0 top-9 z-30 w-44 overflow-hidden rounded-xl border border-[var(--waivs-border)] bg-white py-1 shadow-xl">
+              <ProjectMenuButton icon={Info} label="프로젝트 정보" onClick={onOpenInfo} />
+              <ProjectMenuButton
+                icon={LayoutDashboard}
+                label="대시보드"
+                onClick={() => openProjectDestination(project, "dashboard")}
+              />
+              <ProjectMenuButton
+                icon={CalendarDays}
+                label="일정관리"
+                onClick={() => openProjectDestination(project, "schedule")}
+              />
+              <ProjectMenuButton
+                icon={FileText}
+                label="개발일지"
+                onClick={() => openProjectDestination(project, "devlog")}
+              />
+              <ProjectMenuButton icon={BookOpen} label="자료실 보기" onClick={onOpenArchive} />
+
+              {isTeamOwner && (
+                <>
+                  <div className="my-1 h-px bg-slate-100" />
+                  <button
+                    type="button"
+                    disabled
+                    className="flex w-full cursor-not-allowed items-center gap-2 px-3 py-2 text-left text-xs font-bold text-slate-300"
+                    title="팀원 관리 화면 연결 전"
+                  >
+                    <Users size={13} />
+                    팀원 관리 · 준비 중
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </article>
   );
 }
+
+function ProjectMenuButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+    >
+      <Icon size={13} className="text-slate-400" />
+      {label}
+    </button>
+  );
+}
+
+function ProjectInfoModal({
+  project,
+  onClose,
+}: {
+  project: Project;
+  onClose: () => void;
+}) {
+  const isTeamOwner = project.type === "팀" && project.workspaceRole === "owner";
+
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[2px]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF3FF] text-[#5873F9]">
+              <FolderKanban size={16} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[#5873F9]">
+                Project Info
+              </p>
+              <h3 className="mt-0.5 truncate text-base font-black text-slate-950">
+                {project.name}
+              </h3>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5">
+          <p className="text-sm font-medium leading-6 text-slate-500">
+            {project.description || "등록된 프로젝트 설명이 없습니다."}
+          </p>
+
+          <div className="mt-4 grid overflow-hidden rounded-xl border border-[var(--waivs-border)] sm:grid-cols-2">
+            <ProjectInfoCell label="구분" value={project.type} />
+            <ProjectInfoCell label="내 권한" value={project.workspaceRole.toUpperCase()} />
+            <ProjectInfoCell label="진행 상태" value={project.status === "completed" ? "완료" : "진행 중"} />
+            <ProjectInfoCell label="진행률" value={`${project.progress}%`} />
+            <ProjectInfoCell label="완료 일정" value={`${project.doneScheduleCount}/${project.scheduleTotalCount}개`} />
+            <ProjectInfoCell label="개발일지" value={`${project.devlogCount}개`} />
+            <ProjectInfoCell label="대표 언어" value={project.language || "Unknown"} />
+            <ProjectInfoCell label="최근 수정" value={formatDateLabel(project.updatedAt)} />
+          </div>
+
+          {project.stack.length > 0 && (
+            <div className="mt-4 rounded-xl border border-[var(--waivs-border)] px-4 py-3">
+              <p className="text-[10px] font-black text-slate-400">기술 스택</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {project.stack.map((stack) => (
+                  <span
+                    key={stack}
+                    className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]"
+                  >
+                    {stack}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isTeamOwner && (
+            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="grid h-8 w-8 place-items-center rounded-lg bg-white text-violet-600">
+                  <Users size={14} />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-slate-800">팀 프로젝트 OWNER</p>
+                  <p className="mt-0.5 text-[10px] font-medium text-slate-500">
+                    추후 팀원 초대·권한 관리 기능을 이 영역에 연결할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled
+                className="h-8 shrink-0 cursor-not-allowed rounded-lg border border-violet-100 bg-white px-3 text-[10px] font-black text-violet-300"
+              >
+                팀원 관리 준비 중
+              </button>
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 rounded-xl border border-[var(--waivs-border)] bg-white px-4 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+            >
+              닫기
+            </button>
+            <button
+              type="button"
+              onClick={() => openProjectDestination(project, "dashboard")}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF]"
+            >
+              대시보드
+              <ExternalLink size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => openProjectDestination(project, "open")}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8]"
+            >
+              프로젝트 열기
+              <ArrowUpRight size={12} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectInfoCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 sm:border-r">
+      <span className="text-[10px] font-bold text-slate-400">{label}</span>
+      <span className="truncate text-xs font-black text-slate-700">{value}</span>
+    </div>
+  );
+}
+
 function DevlogPreviewSection({ devlogs }: { devlogs: Devlog[] }) {
   const previewDevlogs = devlogs.slice(0, 2);
 
@@ -2134,7 +2538,18 @@ function ProjectArchiveSection({
     );
 
     if (!selectedProjectId || !exists) {
-      setSelectedProjectId(projectOptions[0].id);
+      const storedWorkspaceId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("currentWorkspaceId")
+          : null;
+
+      const preferredProject = storedWorkspaceId
+        ? projectOptions.find(
+            (project) => String(project.id) === String(storedWorkspaceId),
+          )
+        : null;
+
+      setSelectedProjectId(preferredProject?.id ?? projectOptions[0].id);
     }
   }, [projectOptions, selectedProjectId]);
 
@@ -2979,122 +3394,169 @@ function ProjectArchiveSection({
   };
 
   return (
-  <section className="waivs-panel overflow-visible">
-    {/* 자료실 상단 */}
-    <div className="p-5">
-      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
-        <div className="min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
-            Project Archive
-          </p>
+    <section className="waivs-panel overflow-visible">
+      {/* 자료실 상단 */}
+      <div className="p-5">
+        {/* 제목 + PDF 저장 */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+              Project Archive
+            </p>
 
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight text-slate-950">
-              {selectedProject?.name ?? "프로젝트 없음"}
-            </h2>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-black tracking-tight text-slate-950">
+                {selectedProject?.name ?? "프로젝트 없음"}
+              </h2>
 
-            {selectedProject && (
-              <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]">
-                {selectedProject.type}
+              {selectedProject && (
+                <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]">
+                  {selectedProject.type}
+                </span>
+              )}
+
+              <span className="text-slate-300">/</span>
+
+              <span className="text-sm font-black text-slate-700">
+                {activeArchive?.label}
               </span>
-            )}
+            </div>
 
-            <span className="text-slate-300">/</span>
-
-            <span className="text-sm font-black text-slate-700">
-              {activeArchive?.label}
-            </span>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              선택한 프로젝트의 개발 자료를 조회하고 문서화합니다.
+            </p>
           </div>
-
-          <p className="mt-1 text-sm font-medium text-slate-500">
-            선택한 프로젝트의 개발 자료를 조회하고 문서화합니다.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-
-            <input
-              value={keyword}
-              onChange={(event) => onKeywordChange(event.target.value)}
-              placeholder="자료실 검색"
-              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10 sm:w-[240px]"
-            />
-          </div>
-
-          {activeArchiveTab === "devlog" && (
-            <select
-              value={sortType}
-              onChange={(event) =>
-                setSortType(event.target.value as DevlogSortType)
-              }
-              className="h-10 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
-            >
-              <option value="latest">최신순</option>
-              <option value="oldest">오래된순</option>
-            </select>
-          )}
 
           <button
             type="button"
             onClick={handlePrintPdf}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8]"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 self-start rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8]"
           >
             <Download size={16} />
             PDF 저장
           </button>
         </div>
+
+        <div className="mt-4 border-t border-[var(--waivs-border-soft)] pt-4">
+          {/* 프로젝트 선택 - 다른 컨트롤과 분리해서 강조 */}
+          <div className="rounded-2xl border border-[#DCE4FF] bg-[#F7F9FF] p-3.5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="flex shrink-0 items-center gap-2.5 lg:w-[170px]">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#5873F9] shadow-sm">
+                  <FolderKanban size={17} />
+                </span>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[#5873F9]">
+                    Project
+                  </p>
+                  <p className="text-xs font-black text-slate-800">
+                    프로젝트 선택
+                  </p>
+                </div>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => {
+                    const nextProjectId = event.target.value;
+                    setSelectedProjectId(nextProjectId);
+
+                    const nextProject = projects.find(
+                      (project) => project.id === nextProjectId,
+                    );
+
+                    if (nextProject) {
+                      rememberCurrentWorkspace(nextProject);
+                    }
+                  }}
+                  disabled={projectOptions.length === 0}
+                  className="h-11 w-full rounded-xl border border-[#C8D3FF] bg-white px-4 text-sm font-black text-slate-800 outline-none transition disabled:opacity-50 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                >
+                  {projectOptions.length === 0 && (
+                    <option value="">프로젝트 없음</option>
+                  )}
+
+                  {projectOptions.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedProject && (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-[#5873F9] shadow-sm">
+                    {selectedProject.type}
+                  </span>
+
+                  <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-slate-500 shadow-sm">
+                    {selectedProject.workspaceRole.toUpperCase()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 자료 종류 + 검색/정렬 */}
+          <div className="mt-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              {archiveTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeArchiveTab === tab.key;
+
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => onActiveArchiveTabChange(tab.key)}
+                    className={[
+                      "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-xs font-black transition",
+                      isActive
+                        ? "bg-[#5873F9] text-white"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800",
+                    ].join(" ")}
+                  >
+                    <Icon size={14} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row xl:justify-end">
+              <div className="relative min-w-0 sm:w-[300px] xl:w-[360px]">
+                <Search
+                  size={16}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+
+                <input
+                  value={keyword}
+                  onChange={(event) => onKeywordChange(event.target.value)}
+                  placeholder="자료실 검색"
+                  className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                />
+              </div>
+
+              {activeArchiveTab === "devlog" && (
+                <select
+                  value={sortType}
+                  onChange={(event) =>
+                    setSortType(event.target.value as DevlogSortType)
+                  }
+                  className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
+                >
+                  <option value="latest">최신순</option>
+                  <option value="oldest">오래된순</option>
+                </select>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
-
-      {/* 자료 종류 탭 */}
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--waivs-border-soft)] pt-4">
-        {archiveTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeArchiveTab === tab.key;
-
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onActiveArchiveTabChange(tab.key)}
-              className={[
-                "inline-flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-black transition",
-                isActive
-                  ? "bg-[#5873F9] text-white"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800",
-              ].join(" ")}
-            >
-              <Icon size={14} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 프로젝트 변경 */}
-      <div className="mt-3 max-w-[360px]">
-        <select
-          value={selectedProjectId}
-          onChange={(event) => setSelectedProjectId(event.target.value)}
-          disabled={projectOptions.length === 0}
-          className="h-9 w-full rounded-xl border border-[var(--waivs-border)] bg-slate-50 px-3 text-xs font-bold text-slate-700 outline-none disabled:opacity-50 focus:border-[#5873F9]"
-        >
-          {projectOptions.length === 0 && (
-            <option value="">프로젝트 없음</option>
-          )}
-
-          {projectOptions.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
 
     {/* 콘텐츠 */}
     <div className="border-t border-[var(--waivs-border-soft)] p-5">
@@ -4025,17 +4487,35 @@ function ArchiveFinalReportContent({
     if (!textarea) return;
 
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 520)}px`;
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 420)}px`;
   }, [draft]);
 
   return (
-    <div className="space-y-4 pb-28">
-      <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <h4 className="text-base font-black text-slate-950">최종 보고서</h4>
-            <p className="mt-1 text-sm font-semibold text-slate-500">
-              AI 초안과 설계 다이어그램을 하나의 보고서 문서로 구성합니다.
+    <div className="pb-20">
+      {errorMessage && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+          {errorMessage}
+        </div>
+      )}
+
+      <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+        {/* 보고서 헤더: 별도 AI 안내 박스를 없애고 액션을 한곳에 모음 */}
+        <div className="mb-4 flex flex-col justify-between gap-3 border-b border-blue-50 pb-4 md:flex-row md:items-center">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate text-base font-black text-slate-950">
+                {selectedProject?.name
+                  ? `${selectedProject.name} 최종 보고서`
+                  : "프로젝트 최종 보고서"}
+              </p>
+
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
+                개발일지 {devlogCount}개
+              </span>
+            </div>
+
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              AI 초안을 생성한 뒤 직접 수정하고, ERD와 화면 흐름을 함께 확인할 수 있습니다.
             </p>
           </div>
 
@@ -4043,46 +4523,26 @@ function ArchiveFinalReportContent({
             type="button"
             onClick={onGenerate}
             disabled={isGenerating}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 text-sm font-black text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 text-xs font-black text-white transition hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Sparkles size={16} />
-            {isGenerating ? "생성 중..." : "AI 초안 생성"}
+            <Sparkles size={15} />
+            {isGenerating ? "생성 중..." : draft.trim() ? "AI 초안 다시 생성" : "AI 초안 생성"}
           </button>
-        </div>
-      </div>
-
-      {errorMessage && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-          {errorMessage}
-        </div>
-      )}
-
-      <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col justify-between gap-2 border-b border-blue-50 pb-4 md:flex-row md:items-center">
-          <div>
-            <p className="text-sm font-black text-slate-950">
-              프로젝트 최종 보고서
-            </p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              PDF 저장 시 아래 초안, ERD, 화면 흐름이 함께 출력됩니다.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2 text-[11px] font-black">
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">
-              {selectedProject?.name ?? "프로젝트 미선택"}
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
-              개발일지 {devlogCount}개
-            </span>
-          </div>
         </div>
 
         <div className="space-y-5">
           <section>
-            <h5 className="mb-2 text-sm font-black text-slate-950">
-              1. AI 최종 보고서 초안
-            </h5>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h5 className="text-sm font-black text-slate-950">
+                1. AI 최종 보고서 초안
+              </h5>
+
+              {draft.trim() && (
+                <span className="text-[10px] font-bold text-emerald-600">
+                  직접 수정 가능
+                </span>
+              )}
+            </div>
 
             <textarea
               ref={textareaRef}
@@ -4093,7 +4553,7 @@ function ArchiveFinalReportContent({
                   ? "AI가 최종 보고서 초안을 생성하는 중입니다."
                   : "AI 초안 생성 버튼을 누르면 최종 보고서 초안이 여기에 작성됩니다. 생성 후 직접 수정할 수 있습니다."
               }
-              className="block min-h-[520px] w-full resize-none overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/30 p-4 text-sm font-semibold leading-8 text-slate-700 outline-none placeholder:text-slate-400"
+              className="block min-h-[420px] w-full resize-none overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/30 p-4 text-sm font-semibold leading-7 text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
             />
           </section>
 
@@ -5494,12 +5954,20 @@ function GithubRoleItem({
   );
 }
 
-function AccountSection({ user }: { user: User }) {
+function AccountSection({
+  user,
+  onUserChange,
+}: {
+  user: User;
+  onUserChange: React.Dispatch<React.SetStateAction<User | null>>;
+}) {
+  const [nickname, setNickname] = useState(user.nickname);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
 
+  const [nicknameLoading, setNicknameLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -5507,9 +5975,60 @@ function AccountSection({ user }: { user: User }) {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
+  useEffect(() => {
+    setNickname(user.nickname);
+    setEmail(user.email);
+  }, [user.nickname, user.email]);
+
   const resetNotice = () => {
     setMessage("");
     setErrorMessage("");
+  };
+
+  const handleChangeNickname = async () => {
+    resetNotice();
+
+    const nextNickname = nickname.trim();
+
+    if (!nextNickname) {
+      setErrorMessage("변경할 사용자명을 입력해주세요.");
+      return;
+    }
+
+    if (nextNickname === user.nickname) {
+      setErrorMessage("현재 사용자명과 동일합니다.");
+      return;
+    }
+
+    if (nextNickname.length < 2 || nextNickname.length > 20) {
+      setErrorMessage("사용자명은 2자 이상 20자 이하로 입력해주세요.");
+      return;
+    }
+
+    try {
+      setNicknameLoading(true);
+
+      await changeMyNicknameApi(nextNickname);
+
+      onUserChange((prev) =>
+        prev
+          ? {
+              ...prev,
+              nickname: nextNickname,
+            }
+          : prev,
+      );
+
+      setMessage("사용자명이 변경되었습니다.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "사용자명 변경에 실패했습니다.",
+      );
+    } finally {
+      setNicknameLoading(false);
+    }
   };
 
   const handleChangeEmail = async () => {
@@ -5529,11 +6048,24 @@ function AccountSection({ user }: { user: User }) {
 
     try {
       setEmailLoading(true);
+
       await changeMyEmailApi(nextEmail);
+
+      onUserChange((prev) =>
+        prev
+          ? {
+              ...prev,
+              email: nextEmail,
+            }
+          : prev,
+      );
+
       setMessage("이메일이 변경되었습니다. 다시 로그인해야 할 수 있습니다.");
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "이메일 변경에 실패했습니다.",
+        error instanceof Error
+          ? error.message
+          : "이메일 변경에 실패했습니다.",
       );
     } finally {
       setEmailLoading(false);
@@ -5565,6 +6097,7 @@ function AccountSection({ user }: { user: User }) {
 
     try {
       setPasswordLoading(true);
+
       await changeMyPasswordApi(currentPassword, newPassword);
 
       setCurrentPassword("");
@@ -5618,173 +6151,205 @@ function AccountSection({ user }: { user: User }) {
     }
   };
 
- return (
-  <section className="waivs-panel overflow-hidden">
-    {/* 상단 제목 */}
-    <div className="p-5">
-      <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
-        Account
-      </p>
-
-      <h2 className="mt-1 text-xl font-black tracking-tight text-slate-950">
-        계정 설정
-      </h2>
-
-      <p className="mt-1 text-sm font-medium text-slate-500">
-        사용자 정보와 로그인 계정 정보를 확인하고 변경합니다.
-      </p>
-
-      {(message || errorMessage) && (
-        <div
-          className={[
-            "mt-4 rounded-xl border px-4 py-3 text-sm font-bold",
-            message
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700",
-          ].join(" ")}
-        >
-          {message || errorMessage}
-        </div>
-      )}
-    </div>
-
-    {/* 기본 정보 */}
-    <section className="border-t border-[var(--waivs-border-soft)] p-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-black text-slate-900">
-          기본 정보
-        </h3>
-
-        <p className="mt-1 text-xs font-medium text-slate-500">
-          현재 계정에 등록된 기본 정보입니다.
+  return (
+    <section className="waivs-panel overflow-hidden">
+      <div className="p-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+          Account
         </p>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <AccountRow
-          label="사용자명"
-          value={user.nickname}
-          icon={UserRound}
-        />
+        <h2 className="mt-1 text-lg font-black tracking-tight text-slate-950">
+          계정 설정
+        </h2>
 
-        <AccountRow
-          label="가입일"
-          value={formatDateLabel(user.createdAt)}
-          icon={Settings}
-        />
-      </div>
-    </section>
-
-    {/* 이메일 */}
-    <section className="border-t border-[var(--waivs-border-soft)] p-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-black text-slate-900">
-          이메일 변경
-        </h3>
-
-        <p className="mt-1 text-xs font-medium text-slate-500">
-          로그인 계정에 사용할 이메일을 변경합니다.
+        <p className="mt-0.5 text-xs font-medium text-slate-500">
+          사용자 정보와 로그인 계정 정보를 확인하고 변경합니다.
         </p>
+
+        {(message || errorMessage) && (
+          <div
+            className={[
+              "mt-3 rounded-xl border px-4 py-3 text-sm font-bold",
+              message
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-red-200 bg-red-50 text-red-700",
+            ].join(" ")}
+          >
+            {message || errorMessage}
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="min-w-0 flex-1">
-          <label className="mb-1.5 block text-[11px] font-black text-slate-500">
-            이메일
-          </label>
-
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
-            placeholder="이메일을 입력하세요"
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleChangeEmail}
-          disabled={emailLoading}
-          className="h-10 shrink-0 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8] disabled:opacity-50"
-        >
-          {emailLoading ? "변경 중..." : "이메일 변경"}
-        </button>
-      </div>
-    </section>
-
-    {/* 비밀번호 */}
-    <section className="border-t border-[var(--waivs-border-soft)] p-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-black text-slate-900">
-          비밀번호 변경
-        </h3>
-
-        <p className="mt-1 text-xs font-medium text-slate-500">
-          현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <PasswordField
-          label="현재 비밀번호"
-          value={currentPassword}
-          onChange={setCurrentPassword}
-          placeholder="현재 비밀번호"
-        />
-
-        <PasswordField
-          label="새 비밀번호"
-          value={newPassword}
-          onChange={setNewPassword}
-          placeholder="8자 이상"
-        />
-
-        <PasswordField
-          label="새 비밀번호 확인"
-          value={newPasswordConfirm}
-          onChange={setNewPasswordConfirm}
-          placeholder="새 비밀번호 확인"
-        />
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <button
-          type="button"
-          onClick={handleChangePassword}
-          disabled={passwordLoading}
-          className="h-10 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8] disabled:opacity-50"
-        >
-          {passwordLoading ? "변경 중..." : "비밀번호 변경"}
-        </button>
-      </div>
-    </section>
-
-    {/* 회원 탈퇴 */}
-    <section className="border-t border-red-100 bg-red-50/30 p-5">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <h3 className="text-sm font-black text-red-600">
-            회원 탈퇴
+      <section className="border-t border-[var(--waivs-border-soft)] p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-black text-slate-900">
+            사용자명 변경
           </h3>
 
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            계정을 삭제하면 복구할 수 없습니다. 필요한 데이터는 먼저
-            백업해주세요.
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            서비스 화면에 표시되는 사용자명을 변경합니다.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleDeleteAccount}
-          disabled={deleteLoading}
-          className="h-9 shrink-0 rounded-xl border border-red-200 bg-white px-4 text-xs font-black text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-        >
-          {deleteLoading ? "처리 중..." : "회원 탈퇴"}
-        </button>
-      </div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1">
+            <label className="mb-1.5 block text-[11px] font-black text-slate-500">
+              사용자명
+            </label>
+
+            <input
+              value={nickname}
+              onChange={(event) => setNickname(event.target.value)}
+              maxLength={20}
+              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+              placeholder="사용자명을 입력하세요"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleChangeNickname}
+            disabled={nicknameLoading}
+            className="h-10 shrink-0 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8] disabled:opacity-50"
+          >
+            {nicknameLoading ? "변경 중..." : "사용자명 변경"}
+          </button>
+        </div>
+      </section>
+
+      <section className="border-t border-[var(--waivs-border-soft)] p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-black text-slate-900">
+            계정 정보
+          </h3>
+
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            가입일과 현재 계정 정보를 확인합니다.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <AccountRow
+            label="현재 사용자명"
+            value={user.nickname}
+            icon={UserRound}
+          />
+
+          <AccountRow
+            label="가입일"
+            value={formatDateLabel(user.createdAt)}
+            icon={Settings}
+          />
+        </div>
+      </section>
+
+      <section className="border-t border-[var(--waivs-border-soft)] p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-black text-slate-900">
+            이메일 변경
+          </h3>
+
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            로그인 계정에 사용할 이메일을 변경합니다.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1">
+            <label className="mb-1.5 block text-[11px] font-black text-slate-500">
+              이메일
+            </label>
+
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+              placeholder="이메일을 입력하세요"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleChangeEmail}
+            disabled={emailLoading}
+            className="h-10 shrink-0 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8] disabled:opacity-50"
+          >
+            {emailLoading ? "변경 중..." : "이메일 변경"}
+          </button>
+        </div>
+      </section>
+
+      <section className="border-t border-[var(--waivs-border-soft)] p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-black text-slate-900">
+            비밀번호 변경
+          </h3>
+
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+          <PasswordField
+            label="현재 비밀번호"
+            value={currentPassword}
+            onChange={setCurrentPassword}
+            placeholder="현재 비밀번호"
+          />
+
+          <PasswordField
+            label="새 비밀번호"
+            value={newPassword}
+            onChange={setNewPassword}
+            placeholder="8자 이상"
+          />
+
+          <PasswordField
+            label="새 비밀번호 확인"
+            value={newPasswordConfirm}
+            onChange={setNewPasswordConfirm}
+            placeholder="새 비밀번호 확인"
+          />
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={handleChangePassword}
+            disabled={passwordLoading}
+            className="h-10 rounded-xl bg-[#5873F9] px-4 text-sm font-black text-white transition hover:bg-[#4863E8] disabled:opacity-50"
+          >
+            {passwordLoading ? "변경 중..." : "비밀번호 변경"}
+          </button>
+        </div>
+      </section>
+
+      <section className="border-t border-red-100 bg-red-50/30 p-4">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <h3 className="text-sm font-black text-red-600">
+              회원 탈퇴
+            </h3>
+
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              계정을 삭제하면 복구할 수 없습니다. 필요한 데이터는 먼저
+              백업해주세요.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDeleteAccount}
+            disabled={deleteLoading}
+            className="h-9 shrink-0 rounded-xl border border-red-200 bg-white px-4 text-xs font-black text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+          >
+            {deleteLoading ? "처리 중..." : "회원 탈퇴"}
+          </button>
+        </div>
+      </section>
     </section>
-  </section>
-);
+  );
 }
 
 function ActivityCard({
@@ -5799,22 +6364,22 @@ function ActivityCard({
   icon: React.ElementType;
 }) {
   return (
-    <article className="flex min-h-[82px] items-center gap-3 rounded-xl border border-[var(--waivs-border-soft)] bg-slate-50/70 px-4 py-3">
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF3FF] text-[#5873F9]">
-        <Icon size={16} />
+    <article className="flex min-h-[66px] items-center gap-2.5 rounded-xl border border-[var(--waivs-border-soft)] bg-slate-50/70 px-3 py-2.5">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#EEF3FF] text-[#5873F9]">
+        <Icon size={14} />
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-bold text-slate-400">
+        <p className="truncate text-[10px] font-bold text-slate-400">
           {label}
         </p>
 
-        <div className="mt-0.5 flex items-end gap-2">
-          <p className="text-lg font-black leading-none tracking-tight text-slate-950">
+        <div className="mt-0.5 flex items-end gap-1.5">
+          <p className="text-base font-black leading-none tracking-tight text-slate-950">
             {value}
           </p>
 
-          <p className="hidden truncate text-[10px] font-semibold text-slate-400 2xl:block">
+          <p className="hidden truncate text-[9px] font-semibold text-slate-400 2xl:block">
             {description}
           </p>
         </div>
@@ -5902,5 +6467,4 @@ function EmptyState({ message }: { message: string }) {
       </div>
     </div>
   );
-}
 }
