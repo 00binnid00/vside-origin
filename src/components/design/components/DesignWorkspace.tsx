@@ -208,7 +208,8 @@ export function DesignWorkspace() {
               <DesignHeader
                 workspaceName={currentWorkspace?.name ?? ""}
                 state={state}
-                issueCount={report.errorCount + report.warningCount}
+                errorCount={report.errorCount}
+                progressPercent={report.progress.percent}
                 onOpenAiDraft={() => setAiOpen(true)}
                 onOpenCodegen={() => setCodegenOpen(true)}
                 onPrint={() => {
@@ -243,13 +244,13 @@ export function DesignWorkspace() {
                     ) : null}
 
                     {activeTab === "requirements" ? (
-                      <RequirementsTab model={model} mutations={mutations} />
+                      <RequirementsTab model={model} mutations={mutations} findings={report.findings} />
                     ) : activeTab === "screens" ? (
-                      <ScreenFlowTab model={model} mutations={mutations} />
+                      <ScreenFlowTab model={model} mutations={mutations} findings={report.findings} />
                     ) : activeTab === "erd" ? (
-                      <ErdTab model={model} mutations={mutations} awareness={awareness} />
+                      <ErdTab model={model} mutations={mutations} awareness={awareness} findings={report.findings} />
                     ) : (
-                      <ApiTab model={model} mutations={mutations} />
+                      <ApiTab model={model} mutations={mutations} findings={report.findings} />
                     )}
                   </div>
 

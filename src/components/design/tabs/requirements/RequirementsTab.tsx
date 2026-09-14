@@ -27,17 +27,19 @@ import {
 import type { DesignModel, Priority } from "../../model/schema";
 import type { DesignMutations } from "../../realtime/mutations";
 import { useDesignUiStore } from "../../store/designUiStore";
+import type { Finding } from "../../api/designDoctorApi";
+import { CompletionChecklist } from "../../components/CompletionChecklist";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { LinkCountBadge, LinkPicker } from "../../components/LinkPicker";
 import {
   DetailDangerButton,
-  DetailEmpty,
   DetailField,
   DetailPanel,
   DetailPanelBody,
   DetailPanelHeader,
   DetailSection,
 } from "../../components/DetailPanel";
+import { ImpactSummary } from "../../impact/ImpactSummary";
 
 const PRIORITY_LABEL: Record<Priority, string> = {
   must: "필수",
@@ -54,9 +56,11 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 export interface RequirementsTabProps {
   model: DesignModel;
   mutations: DesignMutations;
+  /** 설계 점검 결과. 항목별 체크리스트를 이 값으로 그린다. */
+  findings: Finding[];
 }
 
-export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
+export function RequirementsTab({ model, mutations, findings }: RequirementsTabProps) {
   const confirm = useConfirm();
   const keyword = useDesignUiStore((s) => s.search.requirements);
   const setSearch = useDesignUiStore((s) => s.setSearch);
@@ -236,14 +240,12 @@ export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
         </div>
       </section>
 
-      <DetailPanel>
-        {!selected ? (
-          <DetailEmpty
-            icon={ListChecks}
-            title="요구사항을 선택해 주세요"
-            description="왼쪽 표에서 한 줄을 고르면 설명과 연결을 여기서 편집합니다."
-          />
-        ) : (
+      {/*
+        open 은 열을 만들지 말지를, 안쪽 검사는 selected 의 타입을 좁히는 일을
+        한다. 같은 조건을 두 번 쓰는 것처럼 보이지만 역할이 다르다.
+      */}
+      <DetailPanel open={selected !== null}>
+        {selected ? (
           <>
             <DetailPanelHeader
               eyebrow={selected.code || "REQUIREMENT"}
@@ -253,6 +255,10 @@ export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
             />
 
             <DetailPanelBody>
+              {/* 남은 칸을 먼저 보여 준다. 연결이 "경고 없애기"가 아니라
+                  "완성까지 한 칸" 으로 읽히게 하려는 것이다. */}
+              <CompletionChecklist findings={findings} kind="requirement" id={selected.id} />
+
               <DetailSection tone="soft">
                 <DetailField
                   label="설명"
@@ -271,8 +277,13 @@ export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
                 </DetailField>
               </DetailSection>
 
+              {/* 연결 칸 바로 위에 둔다. 이 요약이 곧 연결의 대가라서,
+                  둘이 붙어 있어야 왜 이어야 하는지가 보인다. */}
+              <ImpactSummary model={model} kind="requirement" id={selected.id} />
+
               <DetailSection title="이 요구사항이 나타나는 화면">
                 <LinkPicker
+                  targetKind="screen"
                   emptyHint="화면 흐름 탭에서 화면을 먼저 만들어 주세요."
                   candidates={screenCandidates}
                   selectedIds={selected.screenIds}
@@ -284,6 +295,7 @@ export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
 
               <DetailSection title="이 요구사항을 담당하는 API">
                 <LinkPicker
+                  targetKind="api"
                   emptyHint="API 명세 탭에서 API를 먼저 만들어 주세요."
                   candidates={apiCandidates}
                   selectedIds={selected.apiIds}
@@ -300,7 +312,7 @@ export function RequirementsTab({ model, mutations }: RequirementsTabProps) {
               />
             </DetailPanelBody>
           </>
-        )}
+        ) : null}
       </DetailPanel>
     </div>
   );

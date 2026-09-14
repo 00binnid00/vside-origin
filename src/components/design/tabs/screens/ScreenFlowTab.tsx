@@ -35,15 +35,17 @@ import {
 import type { DesignModel, ScreenRole, TransitionKind } from "../../model/schema";
 import type { DesignMutations } from "../../realtime/mutations";
 import { useDesignUiStore } from "../../store/designUiStore";
+import type { Finding } from "../../api/designDoctorApi";
+import { CompletionChecklist } from "../../components/CompletionChecklist";
 import {
   DetailDangerButton,
-  DetailEmpty,
   DetailField,
   DetailPanel,
   DetailPanelBody,
   DetailPanelHeader,
   DetailSection,
 } from "../../components/DetailPanel";
+import { ImpactSummary } from "../../impact/ImpactSummary";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { LinkPicker } from "../../components/LinkPicker";
 import { ScreenNode, type ScreenNodeData } from "./ScreenNode";
@@ -71,9 +73,11 @@ const ROLE_LABEL: Record<ScreenRole, string> = {
 export interface ScreenFlowTabProps {
   model: DesignModel;
   mutations: DesignMutations;
+  /** 설계 점검 결과. 항목별 체크리스트를 이 값으로 그린다. */
+  findings: Finding[];
 }
 
-function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
+function ScreenFlowCanvas({ model, mutations, findings }: ScreenFlowTabProps) {
   const confirm = useConfirm();
   const selectedScreenId = useDesignUiStore((s) => s.selection.screenId);
   const select = useDesignUiStore((s) => s.select);
@@ -210,7 +214,11 @@ function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
         </ReactFlow>
       </div>
 
-      <DetailPanel>
+      {/*
+        이 탭은 고를 수 있는 것이 둘이다 - 상자(화면)와 화살표(이동).
+        둘 중 하나라도 골랐을 때만 열을 만든다.
+      */}
+      <DetailPanel open={selectedTransition !== null || selectedScreen !== null}>
         {selectedTransition ? (
           <TransitionPanel
             onClose={() => setSelectedEdgeId(null)}
@@ -239,6 +247,10 @@ function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
             />
 
             <DetailPanelBody>
+            {/* 남은 칸을 먼저 보여 준다. 연결이 "경고 없애기"가 아니라
+                "완성까지 한 칸" 으로 읽히게 하려는 것이다. */}
+            <CompletionChecklist findings={findings} kind="screen" id={selectedScreen.id} />
+
             <DetailSection tone="soft">
             <div className="space-y-3">
               <DetailField label="화면 이름">
@@ -325,8 +337,13 @@ function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
             </div>
             </DetailSection>
 
+            {/* 연결 칸 바로 위에 둔다. 이 요약이 곧 연결의 대가라서,
+                둘이 붙어 있어야 왜 이어야 하는지가 보인다. */}
+            <ImpactSummary model={model} kind="screen" id={selectedScreen.id} />
+
             <DetailSection title="이 화면이 만족시키는 요구사항">
             <LinkPicker
+              targetKind="requirement"
               emptyHint="요구사항 탭에서 먼저 만들어 주세요."
               candidates={model.requirements.map((item) => ({
                 id: item.id,
@@ -342,6 +359,7 @@ function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
 
             <DetailSection title="이 화면이 호출하는 API">
             <LinkPicker
+              targetKind="api"
               emptyHint="API 명세 탭에서 먼저 만들어 주세요."
               candidates={model.apis.map((api) => ({
                 id: api.id,
@@ -362,13 +380,7 @@ function ScreenFlowCanvas({ model, mutations }: ScreenFlowTabProps) {
             />
             </DetailPanelBody>
           </>
-        ) : (
-          <DetailEmpty
-            icon={MonitorSmartphone}
-            title="화면이나 화살표를 골라 주세요"
-            description="다이어그램에서 상자를 누르면 화면을, 화살표를 누르면 이동 조건을 편집합니다."
-          />
-        )}
+        ) : null}
       </DetailPanel>
     </div>
   );

@@ -43,13 +43,58 @@ export interface Finding {
   fix: Fix | null;
 }
 
+/**
+ * 한 단계가 얼마나 채워졌는지.
+ *
+ * `itemCount` 가 0 이면 `percent` 도 0 인데, 화면은 이때 0% 라고 쓰지 않고
+ * "아직 없음" 으로 보여 준다. 아무것도 만들지 않은 단계를 0% 라고 하는 것도
+ * 100% 라고 하는 것도 사실이 아니다.
+ */
+export interface StageProgress {
+  itemCount: number;
+  itemsDone: number;
+  passedChecks: number;
+  totalChecks: number;
+  percent: number;
+}
+
+export interface ProgressReport {
+  requirements: StageProgress;
+  screens: StageProgress;
+  apis: StageProgress;
+  tables: StageProgress;
+  passedChecks: number;
+  totalChecks: number;
+  percent: number;
+}
+
 export interface DoctorReport {
   findings: Finding[];
   errorCount: number;
   warningCount: number;
   infoCount: number;
   codegenBlocked: boolean;
+  /** "아직 안 했다" 는 경고가 아니라 여기로 온다. */
+  progress: ProgressReport;
 }
+
+const EMPTY_STAGE: StageProgress = {
+  itemCount: 0,
+  itemsDone: 0,
+  passedChecks: 0,
+  totalChecks: 0,
+  percent: 0,
+};
+
+export const EMPTY_PROGRESS: ProgressReport = {
+  requirements: EMPTY_STAGE,
+  screens: EMPTY_STAGE,
+  apis: EMPTY_STAGE,
+  tables: EMPTY_STAGE,
+  passedChecks: 0,
+  totalChecks: 0,
+  percent: 0,
+};
 
 export const EMPTY_REPORT: DoctorReport = {
   findings: [],
@@ -57,6 +102,7 @@ export const EMPTY_REPORT: DoctorReport = {
   warningCount: 0,
   infoCount: 0,
   codegenBlocked: false,
+  progress: EMPTY_PROGRESS,
 };
 
 export async function inspectDesignApi(
@@ -81,5 +127,9 @@ export async function inspectDesignApi(
     throw error;
   }
 
-  return (text ? JSON.parse(text) : EMPTY_REPORT) as DoctorReport;
+  const parsed = (text ? JSON.parse(text) : EMPTY_REPORT) as DoctorReport;
+
+  // 백엔드를 아직 재시작하지 않았으면 progress 가 없다. 그때 화면이 깨지지 않도록
+  // 빈 값으로 채운다(진행률이 0% 로 보이고, 오류 목록은 정상 동작한다).
+  return { ...parsed, progress: parsed.progress ?? EMPTY_PROGRESS };
 }

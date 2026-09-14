@@ -18,13 +18,24 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function DetailPanel({
+  open = true,
   width = "w-[340px]",
   children,
 }: {
+  /**
+   * 고른 것이 없으면 이 열(column) 자체를 없앤다.
+   *
+   * 예전에는 "선택해 주세요" 점선 상자를 띄워 두었는데, 아무것도 편집하지 않는
+   * 동안에도 340px(API 탭은 384px)을 계속 차지해서 목록과 캔버스가 그만큼
+   * 좁았다. 머리의 X 버튼이 선택을 해제하므로, 닫으면 자리까지 함께 돌아간다.
+   */
+  open?: boolean;
   /** API 탭은 JSON 예시가 들어가 더 넓어야 한다. */
   width?: string;
   children: React.ReactNode;
 }) {
+  if (!open) return null;
+
   return (
     <aside
       className={cn(
@@ -143,29 +154,6 @@ export function DetailField({
       {hint ? (
         <p className="mt-1.5 text-[11px] text-[var(--waivs-text-muted)]">{hint}</p>
       ) : null}
-    </div>
-  );
-}
-
-/** 아무것도 고르지 않았을 때. 맨 글자보다 점선 상자가 "여기가 빈 자리"임을 알린다. */
-export function DetailEmpty({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-      <div className="w-full rounded-2xl border border-dashed border-[var(--waivs-border)] bg-[var(--waivs-surface-soft)] p-6 text-center">
-        <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-white text-[var(--waivs-text-muted)]">
-          <Icon size={18} />
-        </div>
-        <p className="mt-3 text-sm font-bold text-[var(--waivs-text-sub)]">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-[var(--waivs-text-muted)]">{description}</p>
-      </div>
     </div>
   );
 }

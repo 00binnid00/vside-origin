@@ -98,7 +98,10 @@ function SaveIndicator({ state }: { state: DesignDocState }) {
 export interface DesignHeaderProps {
   workspaceName: string;
   state: DesignDocState;
-  issueCount: number;
+  /** 빨간 배지는 "고쳐야 하는 것"만 센다. 경고와 참고를 합치면 숫자가 수십이 되어 아무도 안 본다. */
+  errorCount: number;
+  /** "아직 안 했다"는 경고가 아니라 진행률로 보여 준다. */
+  progressPercent: number;
   onOpenAiDraft: () => void;
   onOpenCodegen: () => void;
   onPrint: () => void;
@@ -109,7 +112,8 @@ export interface DesignHeaderProps {
 export function DesignHeader({
   workspaceName,
   state,
-  issueCount,
+  errorCount,
+  progressPercent,
   onOpenAiDraft,
   onOpenCodegen,
   onPrint,
@@ -200,6 +204,12 @@ export function DesignHeader({
           코드 생성
         </Button>
 
+        {/*
+          진행률과 오류를 나눠 보여 준다.
+          예전에는 오류와 경고를 합친 숫자가 빨갛게 떠서, 요구사항 한 줄만 적어도
+          빨간 4 가 뜨고 사람이 그 배지를 아예 안 보게 됐다. 진행률은 회색 글씨로,
+          빨간 배지는 정말 고쳐야 할 것에만 쓴다.
+        */}
         <Button
           variant={doctorOpen ? "default" : "outline"}
           size="sm"
@@ -207,10 +217,18 @@ export function DesignHeader({
           className="gap-1.5"
         >
           <Stethoscope className="h-4 w-4" />
-          설계 점검
-          {issueCount > 0 ? (
+          설계 현황
+          <span
+            className={cn(
+              "ml-0.5 text-[11px] font-semibold tabular-nums",
+              doctorOpen ? "text-white/80" : "text-[var(--waivs-text-muted)]",
+            )}
+          >
+            {progressPercent}%
+          </span>
+          {errorCount > 0 ? (
             <span className="ml-0.5 rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
-              {issueCount}
+              {errorCount}
             </span>
           ) : null}
         </Button>

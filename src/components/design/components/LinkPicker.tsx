@@ -13,6 +13,7 @@ import { Check, Link2, Plus, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { focusDesignTarget } from "../store/designUiStore";
 
 export interface LinkCandidate {
   id: string;
@@ -27,6 +28,14 @@ export interface LinkPickerProps {
   candidates: LinkCandidate[];
   selectedIds: string[];
   onToggle: (id: string, linked: boolean) => void;
+  /**
+   * 연결된 항목을 눌렀을 때 어느 탭으로 데려갈지.
+   *
+   * 이 컴포넌트는 후보가 화면인지 API인지 모르기 때문에 호출부가 알려 준다.
+   * focusDesignTarget 이 받는 값과 같아야 한다("requirement" / "screen" /
+   * "api" / "table").
+   */
+  targetKind: string;
 }
 
 export function LinkPicker({
@@ -35,6 +44,7 @@ export function LinkPicker({
   candidates,
   selectedIds,
   onToggle,
+  targetKind,
 }: LinkPickerProps) {
   const [keyword, setKeyword] = useState("");
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -65,9 +75,21 @@ export function LinkPicker({
             className="flex items-center gap-1 rounded-full border border-[var(--waivs-border)] bg-[var(--waivs-surface-soft)] py-1 pl-2.5 pr-1 text-xs text-[var(--waivs-text-sub)]"
           >
             <Link2 className="h-3 w-3 text-[#5873F9]" />
-            <span className="max-w-[170px] truncate font-semibold">
+
+            {/*
+              이름을 누르면 그 항목으로 건너간다. 연결의 값은 사슬을 따라
+              걸을 수 있을 때 나오는데, 예전에는 눌러도 아무 일이 없어서
+              연결이 그냥 "적어 둔 메모"로 끝났다.
+            */}
+            <button
+              type="button"
+              onClick={() => focusDesignTarget(targetKind, item.id)}
+              title="이 항목으로 이동"
+              className="max-w-[170px] truncate font-semibold transition hover:text-[#5873F9] hover:underline"
+            >
               {item.label || "(이름 없음)"}
-            </span>
+            </button>
+
             <button
               type="button"
               onClick={() => onToggle(item.id, false)}

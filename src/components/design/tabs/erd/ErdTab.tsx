@@ -33,6 +33,10 @@ import { Button } from "@/components/ui/button";
 import type { DesignModel } from "../../model/schema";
 import type { DesignMutations } from "../../realtime/mutations";
 import { useConfirm } from "../../components/ConfirmDialog";
+import { useDesignUiStore } from "../../store/designUiStore";
+import type { Finding } from "../../api/designDoctorApi";
+import { CompletionChecklist } from "../../components/CompletionChecklist";
+import { ImpactSummary } from "../../impact/ImpactSummary";
 import { parseDbml, type ParseError } from "./dbml/parser";
 import { serializeDbml } from "./dbml/serialize";
 import { planErdFromParse } from "./dbml/diff";
@@ -53,10 +57,17 @@ export interface ErdTabProps {
   model: DesignModel;
   mutations: DesignMutations;
   awareness: Awareness | null;
+  /** 설계 점검 결과. 항목별 체크리스트를 이 값으로 그린다. */
+  findings: Finding[];
 }
 
-function ErdCanvasAndText({ model, mutations, awareness }: ErdTabProps) {
+function ErdCanvasAndText({ model, mutations, awareness, findings }: ErdTabProps) {
   const confirm = useConfirm();
+
+  // 고른 테이블은 store 가 정본이다. 캔버스 클릭도 여기에 써서, 다른 탭에서
+  // 건너온 선택과 손으로 누른 선택이 어긋나지 않게 한다.
+  const selectedTableId = useDesignUiStore((s) => s.selection.tableId);
+  const select = useDesignUiStore((s) => s.select);
 
   const [text, setText] = useState("");
   const [errors, setErrors] = useState<ParseError[]>([]);
@@ -196,9 +207,21 @@ function ErdCanvasAndText({ model, mutations, awareness }: ErdTabProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<TableNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
+  /*
+   * 고른 테이블에 강조를 켠다.
+   *
+   * 설계 점검이나 API 탭의 연결에서 테이블로 건너올 수 있는데, 예전에는 ERD 탭이
+   * selection.tableId 를 아예 읽지 않아서 탭만 바뀌고 어느 테이블이었는지는
+   * 알 수 없었다. TableNode 가 이미 selected 를 받아 테두리를 그리므로 표시만
+   * 켜 주면 된다.
+   */
   const nextNodes = useMemo<Node<TableNodeData>[]>(
-    () => buildTableNodes(model, usedIds),
-    [model, usedIds],
+    () =>
+      buildTableNodes(model, usedIds).map((node) => ({
+        ...node,
+        selected: node.id === selectedTableId,
+      })),
+    [model, usedIds, selectedTableId],
   );
 
   const nextEdges = useMemo<Edge[]>(() => buildRelationEdges(model), [model]);
@@ -238,6 +261,7 @@ function ErdCanvasAndText({ model, mutations, awareness }: ErdTabProps) {
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeClick={(_event, node) => select({ tableId: node.id })}
           onNodeDragStart={() => {
             draggingRef.current = true;
           }}
@@ -296,6 +320,19 @@ function ErdCanvasAndText({ model, mutations, awareness }: ErdTabProps) {
             }}
           />
         </div>
+
+        {/*
+          테이블을 고르면 영향 범위를 아래에 띄운다.
+          "이 컬럼 지우면 어디가 깨지나"가 설계 단계에서 가장 아픈 질문이라,
+          스키마를 고치는 자리 바로 옆에 답이 있어야 한다.
+        */}
+        {selectedTableId ? (
+          <div className="shrink-0 border-t border-[var(--waivs-border-soft)] p-3">
+            <CompletionChecklist findings={findings} kind="table" id={selectedTableId} />
+
+            <ImpactSummary model={model} kind="table" id={selectedTableId} />
+          </div>
+        ) : null}
 
         <StatusBar errors={errors} focused={focused} />
       </section>

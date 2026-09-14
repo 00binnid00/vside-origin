@@ -25,6 +25,21 @@ export interface CodegenFileView {
   target: string;
   targetLabel: string;
   sourceLabel: string;
+  /**
+   * 이 파일이 어느 요구사항에서 나왔는지.
+   *
+   * 묶는 열쇠는 id 다. 라벨은 이름이 바뀌면 같이 바뀌고 같은 이름이 둘일 수도 있다.
+   * 비어 있으면 여러 기능이 함께 쓰는 파일(DDL, 라우트 표)이거나 연결이 빠진 파일이다.
+   */
+  requirementIds: string[];
+  requirementLabels: string[];
+  /**
+   * 사람이 직접 채워야 하는 몸통이 남아 있는지.
+   *
+   * 생성기가 알려 준다. 내용에서 "UnsupportedOperationException" 을 찾아 알아내면
+   * 스텁 문구를 바꾸는 순간 표시가 조용히 사라진다.
+   */
+  needsHandWork: boolean;
 }
 
 export interface CodegenPreview {

@@ -166,17 +166,57 @@ export function CodegenDialog({
     };
   }, [open, workspaceId, projectName, branchName]);
 
+  /*
+   * 기본은 기능별로 묶는다.
+   *
+   * 예전에는 계층(Entity / Repository / Controller / SQL)으로만 묶여서, 회원가입
+   * 하나를 손보려면 네 그룹을 뒤져 관련 파일을 눈으로 골라야 했다. 테이블 여덟 개짜리
+   * 설계만 해도 자바 파일이 예순 개쯤 나오니 사실상 불가능하다.
+   *
+   * 한 파일이 요구사항 두 개에 걸리면 양쪽에 모두 나온다. 개발자가 "이 기능에
+   * 관련된 것" 을 찾는 것이 목적이라, 한 곳에만 두면 반대쪽에서 놓친다.
+   */
+  const [groupBy, setGroupBy] = useState<"requirement" | "layer">("requirement");
+
   const grouped = useMemo(() => {
     const groups = new Map<string, CodegenFileView[]>();
+    const files = preview?.files ?? [];
 
-    (preview?.files ?? []).forEach((file) => {
-      const list = groups.get(file.targetLabel) ?? [];
-      list.push(file);
-      groups.set(file.targetLabel, list);
+    if (groupBy === "layer") {
+      files.forEach((file) => {
+        const list = groups.get(file.targetLabel) ?? [];
+        list.push(file);
+        groups.set(file.targetLabel, list);
+      });
+
+      return [...groups.entries()];
+    }
+
+    const shared: CodegenFileView[] = [];
+
+    files.forEach((file) => {
+      if (file.requirementLabels.length === 0) {
+        shared.push(file);
+        return;
+      }
+
+      file.requirementLabels.forEach((label) => {
+        const list = groups.get(label) ?? [];
+        list.push(file);
+        groups.set(label, list);
+      });
     });
 
-    return [...groups.entries()];
-  }, [preview]);
+    const entries = [...groups.entries()];
+
+    // 마지막 묶음. 연결이 빠진 파일이 여기 모이므로, 이 자리가 곧 "이을 것이 남았다"는
+    // 신호이기도 하다.
+    if (shared.length > 0) {
+      entries.push(["여러 기능이 함께 쓰거나 · 연결이 없는 파일", shared]);
+    }
+
+    return entries;
+  }, [preview, groupBy]);
 
   const openedFile = preview?.files.find((file) => file.path === openedPath) ?? null;
 
@@ -338,6 +378,8 @@ export function CodegenDialog({
             <PreviewPane
               preview={preview}
               grouped={grouped}
+              groupBy={groupBy}
+              onGroupByChange={setGroupBy}
               selected={selected}
               onToggle={toggle}
               openedFile={openedFile}
@@ -481,6 +523,8 @@ function SetupPane({
 function PreviewPane({
   preview,
   grouped,
+  groupBy,
+  onGroupByChange,
   selected,
   onToggle,
   openedFile,
@@ -489,6 +533,8 @@ function PreviewPane({
 }: {
   preview: CodegenPreview;
   grouped: [string, CodegenFileView[]][];
+  groupBy: "requirement" | "layer";
+  onGroupByChange: (value: "requirement" | "layer") => void;
   selected: Set<string>;
   onToggle: (path: string) => void;
   openedFile: CodegenFileView | null;
@@ -536,6 +582,28 @@ function PreviewPane({
           {preview.basePackage ? ` · 패키지 ${preview.basePackage}` : ""}
         </p>
 
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-[var(--waivs-text-muted)]">묶기</span>
+          {([
+            ["requirement", "기능별"],
+            ["layer", "계층별"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onGroupByChange(value)}
+              className={cn(
+                "rounded-md px-2 py-1 font-medium transition",
+                groupBy === value
+                  ? "bg-[#EEF3FF] text-[#3B4FD8]"
+                  : "text-[var(--waivs-text-muted)] hover:bg-[var(--waivs-surface-soft)]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {grouped.map(([label, files]) => (
           <div key={label}>
             <p className="mb-1 text-xs font-semibold text-[var(--waivs-text-sub)]">{label}</p>
@@ -576,6 +644,13 @@ function PreviewPane({
                       >
                         {STATUS_LABEL[file.status]} · {file.sourceLabel}
                       </span>
+
+                      {/* 무엇이 준비됐는지 한눈에. 표준 CRUD 는 몸통까지 들어 있다. */}
+                      {file.needsHandWork ? (
+                        <span className="mt-1 ml-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                          몸통 직접 채우기
+                        </span>
+                      ) : null}
                     </button>
                   </div>
                 </li>

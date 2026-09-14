@@ -20,17 +20,19 @@ import {
 import { HTTP_METHODS, type DesignModel, type HttpMethod } from "../../model/schema";
 import type { DesignMutations } from "../../realtime/mutations";
 import { useDesignUiStore } from "../../store/designUiStore";
+import type { Finding } from "../../api/designDoctorApi";
+import { CompletionChecklist } from "../../components/CompletionChecklist";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { LinkCountBadge, LinkPicker } from "../../components/LinkPicker";
 import {
   DetailDangerButton,
-  DetailEmpty,
   DetailField,
   DetailPanel,
   DetailPanelBody,
   DetailPanelHeader,
   DetailSection,
 } from "../../components/DetailPanel";
+import { ImpactSummary } from "../../impact/ImpactSummary";
 
 const METHOD_STYLE: Record<HttpMethod, string> = {
   GET: "bg-emerald-50 text-emerald-700",
@@ -43,9 +45,11 @@ const METHOD_STYLE: Record<HttpMethod, string> = {
 export interface ApiTabProps {
   model: DesignModel;
   mutations: DesignMutations;
+  /** 설계 점검 결과. 항목별 체크리스트를 이 값으로 그린다. */
+  findings: Finding[];
 }
 
-export function ApiTab({ model, mutations }: ApiTabProps) {
+export function ApiTab({ model, mutations, findings }: ApiTabProps) {
   const confirm = useConfirm();
   const keyword = useDesignUiStore((s) => s.search.apis);
   const setSearch = useDesignUiStore((s) => s.setSearch);
@@ -206,14 +210,12 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
         </div>
       </section>
 
-      <DetailPanel width="w-96">
-        {!selected ? (
-          <DetailEmpty
-            icon={Route}
-            title="API를 선택해 주세요"
-            description="왼쪽 목록에서 하나를 고르면 요청·응답과 연결을 여기서 편집합니다."
-          />
-        ) : (
+      {/*
+        open 은 열을 만들지 말지를, 안쪽 검사는 selected 의 타입을 좁히는 일을
+        한다. 같은 조건을 두 번 쓰는 것처럼 보이지만 역할이 다르다.
+      */}
+      <DetailPanel open={selected !== null} width="w-96">
+        {selected ? (
           <>
             <DetailPanelHeader
               eyebrow={selected.method}
@@ -223,6 +225,10 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
             />
 
             <DetailPanelBody>
+              {/* 남은 칸을 먼저 보여 준다. 연결이 "경고 없애기"가 아니라
+                  "완성까지 한 칸" 으로 읽히게 하려는 것이다. */}
+              <CompletionChecklist findings={findings} kind="api" id={selected.id} />
+
               <DetailSection tone="soft">
                 <DetailField label="설명">
                   <Input
@@ -252,8 +258,13 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
                 </div>
               </DetailSection>
 
+              {/* 연결 칸 바로 위에 둔다. 이 요약이 곧 연결의 대가라서,
+                  둘이 붙어 있어야 왜 이어야 하는지가 보인다. */}
+              <ImpactSummary model={model} kind="api" id={selected.id} />
+
               <DetailSection title="이 API가 담당하는 요구사항">
                 <LinkPicker
+                  targetKind="requirement"
                   emptyHint="요구사항 탭에서 먼저 만들어 주세요."
                   candidates={requirementCandidates}
                   selectedIds={selected.requirementIds}
@@ -265,6 +276,7 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
 
               <DetailSection title="이 API를 호출하는 화면">
                 <LinkPicker
+                  targetKind="screen"
                   emptyHint="화면 흐름 탭에서 먼저 만들어 주세요."
                   candidates={screenCandidates}
                   selectedIds={selected.screenIds}
@@ -276,6 +288,7 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
 
               <DetailSection title="이 API가 다루는 테이블">
                 <LinkPicker
+                  targetKind="table"
                   emptyHint="ERD 탭에서 테이블을 먼저 만들어 주세요."
                   candidates={tableCandidates}
                   selectedIds={selected.tableIds}
@@ -294,7 +307,7 @@ export function ApiTab({ model, mutations }: ApiTabProps) {
               />
             </DetailPanelBody>
           </>
-        )}
+        ) : null}
       </DetailPanel>
     </div>
   );
