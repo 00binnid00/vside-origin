@@ -202,3 +202,32 @@ export const uploadFile = async (file: File) => {
 
   return text;
 };
+
+/**
+ * 11. 게시글 신고
+ */
+export type ReportReason =
+  | "ABUSE"
+  | "SPAM"
+  | "OBSCENE"
+  | "PERSONAL_INFO"
+  | "ETC";
+
+export type ReportPostRequest = {
+  reason: ReportReason;
+  content: string;
+};
+
+export const reportPost = async (
+  postId: number,
+  reportData: ReportPostRequest,
+) => {
+  return await requestJson(
+    `${COMMUNITY_API_BASE}/${postId}/reports`,
+    {
+      method: "POST",
+      body: JSON.stringify(reportData),
+    },
+    "신고 접수 실패",
+  );
+};
