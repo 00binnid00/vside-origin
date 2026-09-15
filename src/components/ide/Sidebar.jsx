@@ -54,8 +54,13 @@ import {
   saveFileApi,
   renameFileApi,
 } from "@/lib/ide/api";
+import { getWsBase } from "@/lib/ide/wsBase";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
+/** 워크스페이스 이벤트 소켓이 끊겼을 때 첫 재시도까지 기다리는 시간. */
+const RECONNECT_BASE_DELAY_MS = 1000;
+
+/** 재시도 간격은 두 배씩 늘리되 이 값을 넘지 않는다. */
+const RECONNECT_MAX_DELAY_MS = 30000;
 
 const getBaseName = (path = "") => {
   const parts = path.split("/").filter(Boolean);
@@ -339,6 +344,20 @@ export default function Sidebar() {
   const isVirtualMode = virtualTree !== null && virtualTree !== undefined;
   const inputRef = useRef(null);
   const fileTreeRefreshTimerRef = useRef(null);
+
+  /**
+   * 워크스페이스 이벤트 소켓이 메시지를 받았을 때 부를 함수들.
+   *
+   * 이 둘을 effect 의존성에 직접 넣으면 안 된다. refreshOpenFileContents 는
+   * openFiles 와 activeFileId 에 의존해서, 파일을 열거나 탭을 바꿀 때마다
+   * 새 함수가 된다. 그러면 소켓이 끊겼다 다시 붙고, 그 공백에 도착한
+   * 팀원의 파일 생성·삭제 알림이 통째로 사라진다. 팀원 변경이 반영되다
+   * 말다 하던 원인이 이것이다.
+   *
+   * ref 로 넘기면 소켓은 방이 바뀔 때만 다시 만들고, 메시지를 받는 순간
+   * 항상 최신 함수를 읽는다.
+   */
+  const eventHandlersRef = useRef(null);
   const renameSubmittingRef = useRef(false);
   const renameCancelledRef = useRef(false);
 
@@ -528,21 +547,52 @@ export default function Sidebar() {
   ],
 );
 
+  // 소켓이 부를 함수만 최신으로 갈아 끼운다. 소켓 자체는 다시 만들지 않는다.
+  useEffect(() => {
+    eventHandlersRef.current = {
+      handleExpandProject,
+      refreshOpenFileContents,
+    };
+  }, [handleExpandProject, refreshOpenFileContents]);
+
+  /*
+   * 팀원의 파일 생성·삭제·이름변경을 내 탐색기에 즉시 반영하는 소켓.
+   *
+   * 의존성에는 "어느 방에 붙어야 하는가"만 넣는다. 브랜치는 방 이름에
+   * 들어가므로 반드시 남겨야 한다 — 같은 브랜치를 보고 있는 사람끼리만
+   * 반영되는 것이 이 기능의 요구사항이다.
+   *
+   * 반대로 handleExpandProject 와 refreshOpenFileContents 는 넣으면 안 된다.
+   * 파일을 열 때마다 소켓이 새로 붙으면서 그 사이 알림을 놓치기 때문이다.
+   * 두 함수는 eventHandlersRef 로 읽는다.
+   */
   useEffect(() => {
     if (!workspaceId || !activeProject || isVirtualMode) return;
 
     const branchName = activeBranch || "master";
     const room = `workspace:${workspaceId}:project:${activeProject}:branch:${branchName}`;
 
-    const ws = new WebSocket(
-      `${WS_BASE}/ws/workspace-events?room=${encodeURIComponent(room)}`,
-    );
+    /** 정리 중인지. 내가 닫은 소켓의 오류를 사용자에게 보여 주지 않으려고 둔다. */
+    let disposed = false;
 
-    ws.onopen = () => {
-      console.log("📁 [WorkspaceEvents] 연결됨:", room);
+    let socket = null;
+    let retryTimer = null;
+    let retryDelayMs = RECONNECT_BASE_DELAY_MS;
+    let hasConnectedBefore = false;
+    let hasWarnedFailure = false;
+
+    const scheduleReconnect = () => {
+      if (disposed || retryTimer) return;
+
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, retryDelayMs);
+
+      retryDelayMs = Math.min(retryDelayMs * 2, RECONNECT_MAX_DELAY_MS);
     };
 
-    ws.onmessage = (event) => {
+    const handleMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
 
@@ -581,42 +631,120 @@ export default function Sidebar() {
 
         console.log("🔄 [WorkspaceEvents] 파일 트리 변경 감지:", message);
 
+        // 지워졌거나 이름이 바뀐 파일을 내가 열어 두고 있으면 탭을 닫는다.
+        //
+        // 그대로 두면 이제 없는 경로를 가리키는 탭이 남아서, 트리에서는
+        // 사라졌는데 편집기에는 계속 보이고 저장도 실패한다. 폴더가 지워진
+        // 경우 그 아래 파일 탭까지 closeFilesByPath 가 함께 닫아 준다.
+        if (
+          (message.action === "DELETE" || message.action === "RENAME") &&
+          message.filePath
+        ) {
+          dispatch(closeFilesByPath(message.filePath));
+        }
+
         if (fileTreeRefreshTimerRef.current) {
           clearTimeout(fileTreeRefreshTimerRef.current);
         }
 
         fileTreeRefreshTimerRef.current = setTimeout(async () => {
-          await handleExpandProject(message.projectName);
-          await refreshOpenFileContents(message.branchName || branchName);
+          const handlers = eventHandlersRef.current;
+
+          if (!handlers) return;
+
+          await handlers.handleExpandProject(message.projectName);
+          await handlers.refreshOpenFileContents(
+            message.branchName || branchName,
+          );
         }, 100);
       } catch (error) {
         console.error("WorkspaceEvents 메시지 처리 실패:", error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("❌ [WorkspaceEvents] 오류:", error);
+    const connect = () => {
+      if (disposed) return;
+
+      const ws = new WebSocket(
+        `${getWsBase()}/ws/workspace-events?room=${encodeURIComponent(room)}`,
+      );
+
+      socket = ws;
+
+      ws.onopen = () => {
+        if (disposed) return;
+
+        console.log("📁 [WorkspaceEvents] 연결됨:", room);
+
+        // 끊겨 있는 동안 온 알림은 받지 못했다. 다시 붙은 김에 트리를 한 번
+        // 받아 와서 그 공백을 메운다. 이게 없으면 서버가 잠깐 죽은 사이에
+        // 팀원이 만든 파일이 새로고침 전까지 영영 안 보인다.
+        if (hasConnectedBefore) {
+          eventHandlersRef.current?.handleExpandProject(activeProject);
+        }
+
+        hasConnectedBefore = true;
+        hasWarnedFailure = false;
+        retryDelayMs = RECONNECT_BASE_DELAY_MS;
+      };
+
+      ws.onmessage = handleMessage;
+
+      ws.onerror = () => {
+        // 브라우저는 보안상 실패 사유를 이 이벤트에 담지 않는다. 찍어 봐야
+        // 항상 빈 객체라 원인 파악에 도움이 안 되고, console.error 로 남기면
+        // Next.js 개발 오버레이가 빨간 박스로 화면을 가린다. 진짜 사유는
+        // 바로 뒤에 오는 onclose 의 code/reason 에 있으므로 거기서 다룬다.
+      };
+
+      ws.onclose = (event) => {
+        if (disposed) return;
+
+        if (event.code === 1000) {
+          console.log("👋 [WorkspaceEvents] 연결 종료:", room);
+          return;
+        }
+
+        // 재시도할 때마다 찍으면 콘솔이 금방 뒤덮인다. 끊긴 사실은 한 번만
+        // 알리고, 다시 붙으면 위에서 hasWarnedFailure 를 풀어 준다.
+        if (!hasWarnedFailure) {
+          hasWarnedFailure = true;
+
+          console.warn(
+            "[WorkspaceEvents] 연결이 끊어져 팀원의 파일 변경이 반영되지 않습니다. 재접속을 시도합니다.",
+            {
+              room,
+              code: event.code,
+              reason: event.reason || "(없음)",
+              wasClean: event.wasClean,
+            },
+          );
+        }
+
+        scheduleReconnect();
+      };
     };
 
-    ws.onclose = () => {
-      console.log("👋 [WorkspaceEvents] 연결 종료:", room);
-    };
+    connect();
 
     return () => {
+      disposed = true;
+
       if (fileTreeRefreshTimerRef.current) {
         clearTimeout(fileTreeRefreshTimerRef.current);
+        fileTreeRefreshTimerRef.current = null;
       }
 
-      ws.close();
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+
+      // 정상 종료 코드로 닫는다. disposed 가 이미 true 라 onclose 는 조용히
+      // 빠져나가지만, 서버 쪽 로그에도 비정상 종료로 남지 않게 한다.
+      if (socket) socket.close(1000, "leaving room");
     };
-  }, [
-    workspaceId,
-    activeProject,
-    activeBranch,
-    isVirtualMode,
-    handleExpandProject,
-    refreshOpenFileContents,
-  ]);
+  }, [workspaceId, activeProject, activeBranch, isVirtualMode, dispatch]);
 
   
 
