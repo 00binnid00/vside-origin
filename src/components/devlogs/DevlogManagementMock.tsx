@@ -16,6 +16,7 @@ import {
   Search,
   Trash2,
   X,
+  Filter,
 } from "lucide-react";
 
 import {
@@ -1352,6 +1353,10 @@ export default function DevlogManagementMock() {
     };
   };
 
+type SortFilter = "all" | "latest" | "oldest";
+
+const [sortFilter, setSortFilter] = useState<SortFilter>("all");
+
   return (
     <div className="waivs-page min-h-[calc(100dvh-72px)] bg-[#F7F8FA] p-4 text-slate-900 md:p-5">
       <div className="mx-auto flex max-w-[1880px] items-start gap-4">
@@ -1497,6 +1502,40 @@ export default function DevlogManagementMock() {
                     onClick={() => setFilter("done")}
                   />
                 </div>
+                <div className="flex w-full items-center gap-2 xl:w-auto">
+                <div className="relative shrink-0">
+                  <Filter
+                    size={13}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <select
+                    value={
+                      sortFilter
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setSortFilter(
+                        event.target
+                          .value as SortFilter,
+                      )
+                    }
+                    className="h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                  >
+                    <option value="all">
+                      전체
+                    </option>
+
+                    <option value="latest">
+                      최신순
+                    </option>
+
+                    <option value="oldest">
+                      오래된순
+                    </option>
+                  </select>
+                </div>
 
                 <div className="relative w-full xl:w-[320px]">
                   <Search
@@ -1510,6 +1549,7 @@ export default function DevlogManagementMock() {
                     placeholder="제목, 내용, 태그, 연결 일정 검색"
                     className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
                   />
+                </div>
                 </div>
               </div>
             </div>

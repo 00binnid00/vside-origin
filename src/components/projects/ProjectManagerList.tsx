@@ -1992,32 +1992,6 @@ export function ProjectManagerList({
                       현재 선택된 상위 프로젝트에 속한 작업 폴더만 표시합니다.
                     </p>
                   </div>
-
-                  {/* SEARCH */}
-
-                  <div className="relative w-full xl:max-w-md">
-                    <Search
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      size={14}
-                    />
-
-                    <input
-                      value={
-                        query
-                      }
-                      onChange={(
-                        event,
-                      ) =>
-                        setQuery(
-                          event
-                            .target
-                            .value,
-                        )
-                      }
-                      placeholder="프로젝트명, 설명, 언어, Git URL 검색"
-                      className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
-                    />
-                  </div>
                 </div>
 
                 {/* =============================================
@@ -2026,14 +2000,6 @@ export function ProjectManagerList({
 
                 <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="mr-1 hidden items-center gap-1.5 text-[11px] font-black text-slate-400 sm:flex">
-                      <Filter
-                        size={16}
-                      />
-
-                      필터
-                    </div>
-
                     {[
                       {
                         value:
@@ -2096,36 +2062,66 @@ export function ProjectManagerList({
                       ),
                     )}
                   </div>
+                  <div className="flex w-full items-center gap-2 xl:w-auto">
+                  <div className="relative shrink-0">
+                    <Filter
+                      size={13}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                      {/* SORT */}
+                      <select
+                        value={
+                          sortType
+                        }
+                        onChange={(
+                          event,
+                        ) =>
+                          setSortType(
+                            event
+                              .target
+                              .value as SortType,
+                          )
+                        }
+                        className="h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                      >
+                        <option value="recent">
+                          최근 수정순
+                        </option>
 
-                  {/* SORT */}
+                        <option value="name">
+                          이름순
+                        </option>
 
-                  <select
-                    value={
-                      sortType
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setSortType(
-                        event
-                          .target
-                          .value as SortType,
-                      )
-                    }
-                    className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 outline-none transition focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
-                  >
-                    <option value="recent">
-                      최근 수정순
-                    </option>
+                        <option value="progress">
+                          진행률 높은순
+                        </option>
+                      </select>
+                  </div>
+                  {/* SEARCH */}
+                  <div className="relative w-full xl:w-[320px]">
+                    <Search
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      size={14}
+                    />
 
-                    <option value="name">
-                      이름순
-                    </option>
-
-                    <option value="progress">
-                      진행률 높은순
-                    </option>
-                  </select>
+                    <input
+                      value={
+                        query
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        setQuery(
+                          event
+                            .target
+                            .value,
+                        )
+                      }
+                      placeholder="프로젝트명, 설명, 언어, Git URL 검색"
+                      className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
+                    />
+                  </div>
+                  </div>
                 </div>
               </div>
 

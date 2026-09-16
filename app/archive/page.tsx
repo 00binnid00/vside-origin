@@ -25,6 +25,7 @@ import {
   Loader2,
   Search,
   Sparkles,
+  Filter,
 } from "lucide-react";
 
 import {
@@ -3952,7 +3953,12 @@ export default function ArchivePage() {
 
               {activeArchiveTab ===
                 "devlog" && (
-                <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                <div className="flex w-full items-center gap-2 xl:w-auto">
+                  <div className="relative shrink-0">
+                  <Filter
+                      size={16}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
                   <select
                     value={
                       sortType
@@ -3965,7 +3971,7 @@ export default function ArchivePage() {
                           .value as DevlogSortType,
                       )
                     }
-                    className="h-10 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-700 outline-none transition focus:border-[#5873F9]"
+                    className="h-10 rounded-xl border border-slate-200 bg-white pl-10 pr-7 text-sm font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
                   >
                     <option value="latest">
                       최신순
@@ -3975,6 +3981,7 @@ export default function ArchivePage() {
                       오래된순
                     </option>
                   </select>
+                  </div>
 
                   <div className="relative min-w-0">
                     <Search
