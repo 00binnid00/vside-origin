@@ -1,283 +1,256 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import {
   reportPost,
+  reportComment,
   type ReportReason,
 } from "@/lib/communityApi";
 
 type ReportModalProps = {
   open: boolean;
   postId: number;
+  commentId?: number;
   onClose: () => void;
+  onSuccess?: () => void;
 };
 
-export default function ReportModal({
-  open,
-  postId,
-  onClose,
-}: ReportModalProps) {
-  const [reason, setReason] =
-    useState<ReportReason | "">("");
+const REPORT_REASONS: {
+  value: ReportReason;
+  label: string;
+}[] = [
+  { value: "ABUSE", label: "욕설 및 비방" },
+  { value: "SPAM", label: "광고 및 도배" },
+  { value: "OBSCENE", label: "음란하거나 부적절한 내용" },
+  { value: "PERSONAL_INFO", label: "개인정보 노출" },
+  { value: "ETC", label: "기타" },
+];
 
-  const [content, setContent] =
-    useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  // 모달이 닫혀있으면 렌더링하지 않음
-  if (!open) {
+export default function ReportModal(props: ReportModalProps) {
+  if (!props.open) {
     return null;
   }
 
-  const handleClose = () => {
-    if (isSubmitting) return;
+  return (
+    <ReportModalContent
+      key={`${props.postId}-${props.commentId ?? "post"}`}
+      {...props}
+    />
+  );
+}
 
-    setReason("");
-    setContent("");
+function ReportModalContent({
+  postId,
+  commentId,
+  onClose,
+  onSuccess,
+}: ReportModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const submitLock = useRef(false);
+  const mounted = useRef(false);
+
+  const [reason, setReason] = useState<ReportReason | "">("");
+  const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const isComment = commentId !== undefined;
+  const targetName = isComment ? "댓글" : "게시글";
+
+  useEffect(() => {
+    mounted.current = true;
+
+    const dialog = dialogRef.current;
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+    }
+
+    return () => {
+      mounted.current = false;
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  const handleClose = () => {
+    if (submitLock.current) return;
 
     onClose();
   };
 
   const handleSubmit = async () => {
+    if (submitLock.current) return;
+
     if (!reason) {
-      alert("신고 사유를 선택해주세요.");
+      setError("신고 사유를 선택해주세요.");
       return;
     }
 
-    if (isSubmitting) {
-      return;
-    }
+    submitLock.current = true;
+    setIsSubmitting(true);
+    setError("");
 
     try {
-      setIsSubmitting(true);
-
-      await reportPost(postId, {
+      const request = {
         reason,
-        content,
-      });
+        content: content.trim(),
+      };
 
-      alert("신고가 접수되었습니다.");
-
-      setReason("");
-      setContent("");
-
-      onClose();
+      if (commentId !== undefined) {
+        await reportComment(postId, commentId, request);
+      } else {
+        await reportPost(postId, request);
+      }
     } catch (error) {
-      console.error(
-        "신고 요청 오류:",
-        error,
-      );
-
-      let message =
-        "신고 처리 중 오류가 발생했습니다.";
-
-      if (error instanceof Error) {
-        const rawMessage =
-          error.message || "";
-
-        if (
-          rawMessage.includes(
-            "이미 신고",
-          )
-        ) {
-          message =
-            "이미 신고한 게시글입니다.";
-        } else if (
-          rawMessage.includes(
-            "본인이 작성한",
-          )
-        ) {
-          message =
-            "본인이 작성한 게시글은 신고할 수 없습니다.";
-        } else if (
-          rawMessage.includes(
-            "로그인",
-          )
-        ) {
-          message =
-            "로그인이 필요합니다.";
-        } else if (
-          rawMessage.includes(
-            "게시글을 찾을 수 없습니다",
-          )
-        ) {
-          message =
-            "게시글을 찾을 수 없습니다.";
-        } else {
-          message =
-            "신고 접수에 실패했습니다.";
-        }
+      if (mounted.current) {
+        setError(
+          error instanceof Error && error.message
+            ? error.message
+            : "신고 접수에 실패했습니다. 다시 시도해주세요.",
+        );
       }
 
-      alert(message);
+      return;
     } finally {
-      setIsSubmitting(false);
+      submitLock.current = false;
+
+      if (mounted.current) {
+        setIsSubmitting(false);
+      }
     }
+
+    if (!mounted.current) return;
+
+    alert("신고가 접수되었습니다.");
+    onSuccess?.();
+    onClose();
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={handleClose}
-    >
-      <div
-        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
-        onClick={(event) =>
-          event.stopPropagation()
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="report-modal-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        handleClose();
+      }}
+      onClick={(event) => {
+        // 팝업 바깥 배경을 클릭한 경우에만 닫습니다.
+        if (event.target !== event.currentTarget) return;
+
+        const rect = event.currentTarget.getBoundingClientRect();
+
+        if (
+          event.clientX < rect.left ||
+          event.clientX > rect.right ||
+          event.clientY < rect.top ||
+          event.clientY > rect.bottom
+        ) {
+          handleClose();
         }
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        margin: "auto",
+        width: "calc(100% - 32px)",
+        maxWidth: "448px",
+        maxHeight: "calc(100dvh - 32px)",
+      }}
+      className="overflow-y-auto rounded-3xl border-0 bg-white p-6 text-slate-900 shadow-2xl backdrop:bg-black/40"
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <h2
+          id="report-modal-title"
+          className="text-xl font-bold text-slate-900"
+        >
+          {targetName} 신고
+        </h2>
+
+        <button
+          type="button"
+          aria-label="신고 창 닫기"
+          onClick={handleClose}
+          disabled={isSubmitting}
+          className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
       >
-        {/* 헤더 */}
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-900">
-            게시글 신고
-          </h2>
+        <fieldset
+          disabled={isSubmitting}
+          className="space-y-3"
+        >
+          <legend className="sr-only">신고 사유</legend>
 
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isSubmitting}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X size={20} />
-          </button>
-        </div>
+          {REPORT_REASONS.map((item) => (
+            <label
+              key={item.value}
+              className={[
+                "flex items-center gap-3 rounded-xl border p-3 transition",
+                reason === item.value
+                  ? "border-red-300 bg-red-50"
+                  : "border-slate-200 hover:border-red-200 hover:bg-red-50",
+                isSubmitting
+                  ? "cursor-not-allowed opacity-60"
+                  : "cursor-pointer",
+              ].join(" ")}
+            >
+              <input
+                type="radio"
+                name="reportReason"
+                value={item.value}
+                checked={reason === item.value}
+                onChange={() => {
+                  setReason(item.value);
+                  setError("");
+                }}
+                className="h-4 w-4 shrink-0 accent-red-500"
+              />
 
-        {/* 신고 사유 */}
-        <div className="space-y-3">
+              <span className="text-sm text-slate-700">
+                {item.label}
+              </span>
+            </label>
+          ))}
+        </fieldset>
 
-          {/* 욕설 및 비방 */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-red-200 hover:bg-red-50">
-            <input
-              type="radio"
-              name="reportReason"
-              value="ABUSE"
-              checked={
-                reason === "ABUSE"
-              }
-              onChange={() =>
-                setReason("ABUSE")
-              }
-              disabled={isSubmitting}
-              className="accent-red-500"
-            />
-
-            <span className="text-sm text-slate-700">
-              욕설 및 비방
-            </span>
-          </label>
-
-          {/* 광고 및 도배 */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-red-200 hover:bg-red-50">
-            <input
-              type="radio"
-              name="reportReason"
-              value="SPAM"
-              checked={
-                reason === "SPAM"
-              }
-              onChange={() =>
-                setReason("SPAM")
-              }
-              disabled={isSubmitting}
-              className="accent-red-500"
-            />
-
-            <span className="text-sm text-slate-700">
-              광고 및 도배
-            </span>
-          </label>
-
-          {/* 음란하거나 부적절한 내용 */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-red-200 hover:bg-red-50">
-            <input
-              type="radio"
-              name="reportReason"
-              value="OBSCENE"
-              checked={
-                reason === "OBSCENE"
-              }
-              onChange={() =>
-                setReason("OBSCENE")
-              }
-              disabled={isSubmitting}
-              className="accent-red-500"
-            />
-
-            <span className="text-sm text-slate-700">
-              음란하거나 부적절한 내용
-            </span>
-          </label>
-
-          {/* 개인정보 노출 */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-red-200 hover:bg-red-50">
-            <input
-              type="radio"
-              name="reportReason"
-              value="PERSONAL_INFO"
-              checked={
-                reason ===
-                "PERSONAL_INFO"
-              }
-              onChange={() =>
-                setReason(
-                  "PERSONAL_INFO",
-                )
-              }
-              disabled={isSubmitting}
-              className="accent-red-500"
-            />
-
-            <span className="text-sm text-slate-700">
-              개인정보 노출
-            </span>
-          </label>
-
-          {/* 기타 */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-red-200 hover:bg-red-50">
-            <input
-              type="radio"
-              name="reportReason"
-              value="ETC"
-              checked={
-                reason === "ETC"
-              }
-              onChange={() =>
-                setReason("ETC")
-              }
-              disabled={isSubmitting}
-              className="accent-red-500"
-            />
-
-            <span className="text-sm text-slate-700">
-              기타
-            </span>
-          </label>
-        </div>
-
-        {/* 상세 신고 내용 */}
         <textarea
+          aria-label="상세 신고 사유 (선택)"
           value={content}
-          onChange={(event) =>
-            setContent(
-              event.target.value,
-            )
-          }
+          onChange={(event) => setContent(event.target.value)}
           placeholder="상세 사유를 입력해주세요. (선택)"
           maxLength={500}
           disabled={isSubmitting}
-          className="mt-5 min-h-[120px] w-full resize-none rounded-2xl border border-slate-200 p-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-red-300 focus:ring-2 focus:ring-red-100 disabled:bg-slate-50"
+          className="mt-5 block min-h-[120px] w-full resize-none rounded-2xl border border-slate-200 p-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-red-300 focus:ring-2 focus:ring-red-100 disabled:bg-slate-50"
         />
 
-        {/* 글자 수 */}
         <div className="mt-2 text-right text-xs text-slate-400">
           {content.length}/500
         </div>
 
-        {/* 하단 버튼 */}
+        {error && (
+          <p
+            role="alert"
+            className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600"
+          >
+            {error}
+          </p>
+        )}
+
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
@@ -289,17 +262,14 @@ export default function ReportModal({
           </button>
 
           <button
-            type="button"
-            onClick={handleSubmit}
+            type="submit"
             disabled={isSubmitting}
             className="rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-300"
           >
-            {isSubmitting
-              ? "신고 중..."
-              : "신고하기"}
+            {isSubmitting ? "신고 중..." : "신고하기"}
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </dialog>
   );
 }
