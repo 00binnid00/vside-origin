@@ -10,7 +10,7 @@
 // 보여야 한다.
 
 import { useMemo } from "react";
-import { ListChecks, Plus, Search, Trash2 } from "lucide-react";
+import { ListChecks, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -63,7 +63,6 @@ export interface RequirementsTabProps {
 export function RequirementsTab({ model, mutations, findings }: RequirementsTabProps) {
   const confirm = useConfirm();
   const keyword = useDesignUiStore((s) => s.search.requirements);
-  const setSearch = useDesignUiStore((s) => s.setSearch);
   const selectedId = useDesignUiStore((s) => s.selection.requirementId);
   const select = useDesignUiStore((s) => s.select);
 
@@ -117,23 +116,7 @@ export function RequirementsTab({ model, mutations, findings }: RequirementsTabP
   return (
     <div className="flex h-full min-h-0">
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-[var(--waivs-border-soft)] px-6 py-3">
-          <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--waivs-surface-soft)] px-3">
-            <Search className="h-4 w-4 text-[var(--waivs-text-muted)]" />
-            <Input
-              value={keyword}
-              onChange={(event) => setSearch("requirements", event.target.value)}
-              placeholder="요구사항 검색"
-              className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            />
-          </div>
-
-          <Button size="sm" onClick={handleAdd} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            요구사항 추가
-          </Button>
-        </div>
-
+        {/* 검색과 추가는 헤더의 탭 줄 오른쪽 끝으로 옮겼다(DesignTabToolbar). */}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
             <EmptyRequirements hasAny={model.requirements.length > 0} onAdd={handleAdd} />
