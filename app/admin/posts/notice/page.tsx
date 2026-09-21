@@ -480,19 +480,16 @@ export default function AdminNoticePage() {
                     </td>
 
                     {/* 작성일 */}
-
                     <td className="px-5 py-5 text-center text-sm text-gray-500">
                       {notice.createdAt}
                     </td>
 
                     {/* 조회 */}
-
                     <td className="px-5 py-5 text-center text-sm text-gray-500">
                       {notice.views.toLocaleString()}
                     </td>
 
                     {/* 관리 */}
-
                     <td className="px-2 py-5">
                       <div className="flex items-center justify-center gap-2">
                         <button
