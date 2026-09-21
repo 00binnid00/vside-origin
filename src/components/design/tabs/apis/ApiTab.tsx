@@ -3,7 +3,7 @@
 // 경로: src/components/design/tabs/apis/ApiTab.tsx
 
 import { useMemo } from "react";
-import { Braces, Plus, Route, Search, Trash2 } from "lucide-react";
+import { Braces, Plus, Route, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,7 +52,6 @@ export interface ApiTabProps {
 export function ApiTab({ model, mutations, findings }: ApiTabProps) {
   const confirm = useConfirm();
   const keyword = useDesignUiStore((s) => s.search.apis);
-  const setSearch = useDesignUiStore((s) => s.setSearch);
   const selectedId = useDesignUiStore((s) => s.selection.apiId);
   const select = useDesignUiStore((s) => s.select);
 
@@ -110,23 +109,7 @@ export function ApiTab({ model, mutations, findings }: ApiTabProps) {
   return (
     <div className="flex h-full min-h-0">
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-[var(--waivs-border-soft)] px-6 py-3">
-          <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--waivs-surface-soft)] px-3">
-            <Search className="h-4 w-4 text-[var(--waivs-text-muted)]" />
-            <Input
-              value={keyword}
-              onChange={(event) => setSearch("apis", event.target.value)}
-              placeholder="엔드포인트 검색"
-              className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            />
-          </div>
-
-          <Button size="sm" onClick={handleAdd} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            API 추가
-          </Button>
-        </div>
-
+        {/* 검색과 추가는 헤더의 탭 줄 오른쪽 끝으로 옮겼다(DesignTabToolbar). */}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 py-20 text-center">

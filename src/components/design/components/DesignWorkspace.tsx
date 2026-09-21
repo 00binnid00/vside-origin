@@ -116,6 +116,19 @@ export function DesignWorkspace() {
   const [printError, setPrintError] = useState("");
   const documentEmpty = isEmptyModel(model);
 
+  // 헤더 탭에 붙는 숫자. ERD 를 relations 가 아니라 tables 로 세는 것은
+  // isEmptyModel 이 "비었다" 를 판정할 때 쓰는 기준과 같게 맞추기 위해서다.
+  // 기준이 어긋나면 개수가 0 인데 안내가 안 뜨는 상태가 생긴다.
+  const tabCounts = useMemo(
+    () => ({
+      requirements: model.requirements.length,
+      screens: model.screens.length,
+      erd: model.erd.tables.length,
+      apis: model.apis.length,
+    }),
+    [model],
+  );
+
   // 빈 문서에서 "직접 작성하기" 를 고르면 안내를 접는다. 문서에는 아무것도
   // 쓰지 않으므로 새로고침하면 다시 뜨지만, 한 줄이라도 적었으면 문서가
   // 비지 않아 뜨지 않는다.
@@ -210,6 +223,8 @@ export function DesignWorkspace() {
                 state={state}
                 errorCount={report.errorCount}
                 progressPercent={report.progress.percent}
+                counts={tabCounts}
+                mutations={mutations}
                 onOpenAiDraft={() => setAiOpen(true)}
                 onOpenCodegen={() => setCodegenOpen(true)}
                 onPrint={() => {
@@ -235,15 +250,19 @@ export function DesignWorkspace() {
                 </div>
               ) : state.status === "error" || !mutations ? null : (
                 <div className="flex min-h-0 flex-1">
-                  <div className="relative min-w-0 flex-1">
+                  {/*
+                    시작 방법을 고르기 전에는 설계 화면을 아예 렌더하지 않는다.
+                    예전에는 둘을 형제로 두고 안내를 bg-white/95 오버레이로
+                    덮었는데, 5% 가 비쳐 아직 아무것도 없는 화면이 어렴풋이
+                    보였다. 그건 정보가 아니라 잡음이다.
+                  */}
+                  <div className="min-w-0 flex-1">
                     {documentEmpty && !blankStarted ? (
                       <EmptyDesign
                         onStartWithAi={() => setAiOpen(true)}
                         onStartBlank={() => setBlankStarted(true)}
                       />
-                    ) : null}
-
-                    {activeTab === "requirements" ? (
+                    ) : activeTab === "requirements" ? (
                       <RequirementsTab model={model} mutations={mutations} findings={report.findings} />
                     ) : activeTab === "screens" ? (
                       <ScreenFlowTab model={model} mutations={mutations} findings={report.findings} />
@@ -322,7 +341,7 @@ function EmptyDesign({
   onStartBlank: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 bg-white/95 px-8">
+    <div className="flex h-full flex-col items-center justify-center gap-5 px-8">
       <div className="text-center">
         <p className="text-lg font-black text-[var(--waivs-text)]">어떻게 시작할까요?</p>
         <p className="mt-1 text-sm text-[var(--waivs-text-muted)]">
