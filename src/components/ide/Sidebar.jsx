@@ -51,6 +51,7 @@ import {
   deleteFileApi,
   fetchFileContentApi,
   fetchWorkspaceProjectsApi,
+  getMyWorkspacesByTokenApi,
   saveFileApi,
   renameFileApi,
 } from "@/lib/ide/api";
@@ -343,6 +344,38 @@ export default function Sidebar() {
 
   const isVirtualMode = virtualTree !== null && virtualTree !== undefined;
   const inputRef = useRef(null);
+
+  // 탐색기 제목에 붙일 이름. 대시보드에서 "프로젝트"라고 보이는 것이 코드상
+  // 워크스페이스라, 트리 루트 이름을 쓰면 안 된다 — 백엔드가 루트를 늘
+  // "Projects" 로 고정해 보낸다(ProjectService.getProjectList). 그래서 내
+  // 워크스페이스 목록에서 id 로 찾아 온다. 못 찾으면 그냥 "탐색기"만 보인다.
+  //
+  // 이름을 어느 워크스페이스 것인지와 짝지어 둔다. 워크스페이스를 갈아탄
+  // 직후에는 짝이 안 맞으므로 옛 이름이 잠깐이라도 보이지 않는다.
+  const [loadedWorkspace, setLoadedWorkspace] = useState({ id: null, name: "" });
+  const workspaceName =
+    loadedWorkspace.id === workspaceId ? loadedWorkspace.name : "";
+
+  useEffect(() => {
+    if (!workspaceId) return undefined;
+
+    let cancelled = false;
+
+    getMyWorkspacesByTokenApi()
+      .then((workspaces) => {
+        if (cancelled) return;
+        const found = (workspaces || []).find((item) => item?.id === workspaceId);
+        setLoadedWorkspace({ id: workspaceId, name: found?.name || "" });
+      })
+      .catch((error) => {
+        console.error("워크스페이스 이름 로드 실패:", error);
+      });
+
+    // 빠르게 갈아타면 늦게 온 응답이 새 이름을 덮지 않게 한다.
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
   const fileTreeRefreshTimerRef = useRef(null);
 
   /**
@@ -1070,11 +1103,18 @@ export default function Sidebar() {
   return (
     <div className="h-full w-full bg-white flex flex-col font-sans">
       <div className="flex items-center justify-between px-4 h-[44px] border-b border-gray-100 shrink-0 bg-white">
-        <span className="text-[12px] font-black text-gray-800 tracking-wider ">
-          <span className="min-w-0 truncate whitespace-nowrap">탐색기</span>
+        {/* 이름이 길면 말줄임으로 자르고 전체 이름은 툴팁으로 보여 준다.
+            오른쪽 새로고침·닫기 버튼이 밀려나면 안 되기 때문이다. */}
+        <span
+          className="min-w-0 text-[12px] font-black text-gray-800 tracking-wider"
+          title={workspaceName ? `${workspaceName} 탐색기` : undefined}
+        >
+          <span className="block truncate whitespace-nowrap">
+            {workspaceName ? `${workspaceName} 탐색기` : "탐색기"}
+          </span>
         </span>
 
-        <div className="flex items-center gap-1 text-gray-500">
+        <div className="flex shrink-0 items-center gap-1 text-gray-500">
           {!isVirtualMode && (
             <>
               <button
