@@ -30,6 +30,7 @@ import {
   Users,
   X,
   XCircle,
+  Filter,
 } from "lucide-react";
 
 import {
@@ -39,6 +40,7 @@ import {
 } from "@/components/main-dashboard/dashboard.utils";
 
 import { apiFetch, apiJson } from "@/lib/api/apiClient";
+import { SortType } from "@/lib/devlog/types";
 
 /* =========================================================
    타입
@@ -47,6 +49,8 @@ import { apiFetch, apiJson } from "@/lib/api/apiClient";
 type ProjectType = "personal" | "team";
 
 type ProjectRole = "owner" | "member";
+
+type ProjectListSortType = "recent" | "name" | "progress";
 
 type WorkspaceProject = {
   id?: string | number;
@@ -623,75 +627,116 @@ export default function DashboardProjectSelectPage() {
     }
   }
 
-  /* =======================================================
-     필터
-  ======================================================= */
+    /* ====================================================
+      필터
+    ======================================================= */
 
-  const filteredProjects =
-    useMemo(() => {
-      const keyword =
-        search
-          .trim()
-          .toLowerCase();
+    const [projectListSortType, setProjectListSortType] =
+      useState<ProjectListSortType>("recent");
 
-      return projects.filter(
-        (project) => {
-          const matchesFilter =
-            filter === "all" ||
-            project.type ===
-              filter;
+    const filteredProjects =
+      useMemo(() => {
+        const keyword =
+          search
+            .trim()
+            .toLowerCase();
 
-          const matchesSearch =
-            keyword === "" ||
-            project.title
-              .toLowerCase()
-              .includes(keyword) ||
-            project.description
-              .toLowerCase()
-              .includes(keyword) ||
-            project.tech
-              .toLowerCase()
-              .includes(keyword);
+        const filtered =
+          projects.filter(
+            (project) => {
+              const matchesFilter =
+                filter === "all" ||
+                project.type ===
+                  filter;
 
-          return (
-            matchesFilter &&
-            matchesSearch
+              const matchesSearch =
+                keyword === "" ||
+                project.title
+                  .toLowerCase()
+                  .includes(keyword) ||
+                project.description
+                  .toLowerCase()
+                  .includes(keyword) ||
+                project.tech
+                  .toLowerCase()
+                  .includes(keyword);
+
+              return (
+                matchesFilter &&
+                matchesSearch
+              );
+            },
           );
-        },
-      );
-    }, [
-      filter,
-      search,
-      projects,
-    ]);
 
-  const totalCount =
-    projects.length;
+        return [...filtered].sort(
+          (a, b) => {
+            // 이름순
+            if (
+              projectListSortType ===
+              "name"
+            ) {
+              return a.title.localeCompare(
+                b.title,
+                "ko",
+              );
+            }
 
-  const teamCount =
-    projects.filter(
-      (project) =>
-        project.type === "team",
-    ).length;
+            // 진행률 높은순
+            if (
+              projectListSortType ===
+              "progress"
+            ) {
+              return (
+                b.progress -
+                a.progress
+              );
+            }
 
-  const personalCount =
-    projects.filter(
-      (project) =>
-        project.type ===
-        "personal",
-    ).length;
-
-  const averageProgress =
-    totalCount === 0
-      ? 0
-      : Math.round(
-          projects.reduce(
-            (sum, project) =>
-              sum +
-              project.progress,
-            0,
-          ) / totalCount,
+            // 최근 수정순
+            return (
+              new Date(
+                b.lastModified,
+              ).getTime() -
+              new Date(
+                a.lastModified,
+              ).getTime()
+            );
+          },
         );
+      }, [
+        filter,
+        search,
+        projects,
+        projectListSortType,
+      ]);
+
+    const totalCount =
+      projects.length;
+
+    const teamCount =
+      projects.filter(
+        (project) =>
+          project.type === "team",
+      ).length;
+
+    const personalCount =
+      projects.filter(
+        (project) =>
+          project.type ===
+          "personal",
+      ).length;
+
+    const averageProgress =
+      totalCount === 0
+        ? 0
+        : Math.round(
+            projects.reduce(
+              (sum, project) =>
+                sum +
+                project.progress,
+              0,
+            ) / totalCount,
+          );
 
   return (
     <>
@@ -811,7 +856,7 @@ export default function DashboardProjectSelectPage() {
               ========================================= */}
 
               <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 lg:flex-row lg:items-center lg:justify-between">
-
+                <div className="flex w-full flex-row items-center gap-2 lg:w-[820px]">
                 <div className="relative w-full lg:max-w-[620px]">
 
                   <Search
@@ -833,6 +878,40 @@ export default function DashboardProjectSelectPage() {
                   />
                 </div>
 
+                <div className="relative shrink-0">
+                    <Filter
+                      size={13}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <select
+                      value={
+                        projectListSortType
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        setProjectListSortType(
+                          event
+                            .target
+                            .value as ProjectListSortType,
+                        )
+                      }
+                      className="h-9 w-[140px] rounded-xl border border-slate-200 bg-white pl-8 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                    >
+                      <option value="recent">
+                        최근 수정순
+                      </option>
+
+                      <option value="name">
+                        이름순
+                      </option>
+
+                      <option value="progress">
+                        진행률 높은순
+                      </option>
+                    </select>
+                  </div>
+                  </div>
                 <div className="flex w-full items-center rounded-2xl bg-slate-100 p-1 lg:w-auto">
                   {FILTERS.map(
                     (item) => (

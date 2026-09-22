@@ -1,14 +1,7 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  useParams,
-  useRouter,
-} from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
 import {
@@ -33,9 +26,7 @@ import {
 } from "@/lib/communityApi";
 
 import CommentSection from "@/components/community/CommentSection";
-import {
-  getCurrentUser,
-} from "@/components/community/CommunityUtil";
+import { getCurrentUser } from "@/components/community/CommunityUtil";
 import ReportModal from "@/components/community/ReportModal";
 import SendMessageButton from "@/components/messages/SendMessageButton";
 import { getAuthorId } from "@/lib/messages/identity";
@@ -57,10 +48,7 @@ export default function CommunityDetailPage() {
   const [post, setPost] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [reportOpen, setReportOpen] = useState(false);
-
-  const [displayViews, setDisplayViews] =
-    useState<number | null>(null);
-
+  const [displayViews, setDisplayViews] = useState<number | null>(null);
   const [prevPost, setPrevPost] = useState<any>(null);
   const [nextPost, setNextPost] = useState<any>(null);
 
@@ -74,13 +62,8 @@ export default function CommunityDetailPage() {
   useEffect(() => {
     if (!id) return;
 
-    const savedViews = sessionStorage.getItem(
-      `community-view-${id}`,
-    );
-
-    setDisplayViews(
-      savedViews !== null ? Number(savedViews) : null,
-    );
+    const savedViews = sessionStorage.getItem(`community-view-${id}`);
+    setDisplayViews(savedViews !== null ? Number(savedViews) : null);
   }, [id]);
 
   useEffect(() => {
@@ -108,13 +91,7 @@ export default function CommunityDetailPage() {
 
     const loadAdjacentPosts = async () => {
       try {
-        const data = await fetchPosts(
-          undefined,
-          undefined,
-          0,
-          1000,
-        );
-
+        const data = await fetchPosts(undefined, undefined, 0, 1000);
         const posts = data.content ?? [];
 
         const currentIndex = posts.findIndex(
@@ -134,16 +111,10 @@ export default function CommunityDetailPage() {
         );
 
         setNextPost(
-          currentIndex > 0
-            ? posts[currentIndex - 1]
-            : null,
+          currentIndex > 0 ? posts[currentIndex - 1] : null,
         );
       } catch (error) {
-        console.error(
-          "이전/다음 게시글 조회 실패:",
-          error,
-        );
-
+        console.error("이전/다음 게시글 조회 실패:", error);
         setPrevPost(null);
         setNextPost(null);
       }
@@ -169,26 +140,17 @@ export default function CommunityDetailPage() {
       post?.postType === "NOTICE" ||
       post?.category === "NOTICE"
     ) {
-      alert(
-        "공지사항은 관리자 페이지에서 관리할 수 있습니다.",
-      );
+      alert("공지사항은 관리자 페이지에서 관리할 수 있습니다.");
       return;
     }
 
-    if (
-      !window.confirm(
-        "정말 이 게시글을 삭제하시겠습니까?",
-      )
-    ) {
+    if (!window.confirm("정말 이 게시글을 삭제하시겠습니까?")) {
       return;
     }
 
     try {
       await deletePost(Number(id));
-
-      sessionStorage.removeItem(
-        `community-view-${id}`,
-      );
+      sessionStorage.removeItem(`community-view-${id}`);
 
       alert("게시글이 삭제되었습니다.");
       router.push("/community", { scroll: true });
@@ -233,9 +195,7 @@ export default function CommunityDetailPage() {
             ? result.active
             : prev.liked,
         likeCount:
-          result?.count ??
-          result?.likeCount ??
-          prev.likeCount,
+          result?.count ?? result?.likeCount ?? prev.likeCount,
       }));
     } catch (error) {
       console.error("좋아요 처리 실패:", error);
@@ -285,9 +245,7 @@ export default function CommunityDetailPage() {
             ? result.active
             : prev.scrapped,
         scrapCount:
-          result?.count ??
-          result?.scrapCount ??
-          prev.scrapCount,
+          result?.count ?? result?.scrapCount ?? prev.scrapCount,
       }));
     } catch (error) {
       console.error("스크랩 처리 실패:", error);
@@ -321,8 +279,7 @@ export default function CommunityDetailPage() {
   }
 
   const isNotice =
-    post.postType === "NOTICE" ||
-    post.category === "NOTICE";
+    post.postType === "NOTICE" || post.category === "NOTICE";
 
   const currentUserName =
     currentUser?.nickname ||
@@ -336,32 +293,30 @@ export default function CommunityDetailPage() {
   const views =
     displayViews ?? post.viewCount ?? post.views ?? 0;
 
-  const likeCount =
-    post.likeCount ?? post.likes ?? 0;
-
-  const scrapCount =
-    post.scrapCount ?? post.scraps ?? 0;
+  const likeCount = post.likeCount ?? post.likes ?? 0;
+  const scrapCount = post.scrapCount ?? post.scraps ?? 0;
 
   return (
-    <main className="min-h-screen bg-[#f5f6fa] px-4 py-8 text-slate-900 sm:px-6 sm:py-10">
+    <main className="flex-1 bg-[#f5f6fa] px-4 pb-8 pt-4 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl">
         <Link
           href="/community"
-          className="mb-6 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-blue-600"
+          className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-blue-600"
         >
           <ArrowLeft size={14} />
           목록으로
         </Link>
 
+        {/* 게시글 */}
         <div
-          className={`rounded-3xl bg-white p-5 shadow-sm sm:p-7 ${
+          className={`rounded-2xl bg-white p-5 shadow-sm sm:p-6 ${
             isNotice
               ? "border border-blue-200"
               : "border border-blue-100"
           }`}
         >
-          <div className="mb-5">
-            <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {isNotice ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
@@ -370,8 +325,7 @@ export default function CommunityDetailPage() {
                   </span>
                 ) : (
                   <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-600">
-                    {categoryLabel[post.category] ??
-                      post.category}
+                    {categoryLabel[post.category] ?? post.category}
                   </span>
                 )}
 
@@ -421,12 +375,12 @@ export default function CommunityDetailPage() {
               )}
             </div>
 
-            <h1 className="break-words text-2xl font-bold leading-snug text-slate-950 sm:text-3xl">
+            <h1 className="break-words text-2xl font-bold leading-snug text-slate-950 sm:text-2xl">
               {post.title}
             </h1>
           </div>
 
-          <p className="mt-6 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
+          <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
             {post.content}
           </p>
 
@@ -472,15 +426,14 @@ export default function CommunityDetailPage() {
             </div>
           )}
 
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-5">
+          {/* 통계와 반응 버튼 */}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
             <div className="text-sm text-slate-500">
               조회 {views}
               {!isNotice && (
                 <>
-                  {" · "}
-                  좋아요 {likeCount}
-                  {" · "}
-                  스크랩 {scrapCount}
+                  {" · "}좋아요 {likeCount}
+                  {" · "}스크랩 {scrapCount}
                 </>
               )}
             </div>
@@ -532,12 +485,35 @@ export default function CommunityDetailPage() {
           </div>
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+        {/* 댓글은 게시글 바로 아래 */}
+        {!isNotice ? (
+          <div className="mt-4">
+            <CommentSection
+              key={String(post.id)}
+              postTitle={post.title}
+              postAuthorId={getAuthorId(post)}
+            />
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-blue-100 bg-white px-5 py-4 text-center shadow-sm">
+            <Megaphone
+              size={23}
+              className="mx-auto text-blue-400"
+            />
+
+            <p className="mt-3 text-sm font-semibold text-slate-600">
+              공지사항에는 댓글을 작성할 수 없습니다.
+            </p>
+          </div>
+        )}
+
+        {/* 이전 글 / 다음 글은 댓글 아래 */}
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {prevPost ? (
             <Link
               href={`/community/${prevPost.id}`}
               onClick={() => handleAdjacentClick(prevPost)}
-              className="group flex items-center gap-4 border-b border-slate-100 px-5 py-4 transition hover:bg-blue-50/50 sm:px-6"
+              className="group flex items-center gap-4 border-b border-slate-100 px-4 py-3 transition hover:bg-blue-50/50 sm:px-5"
             >
               <div className="flex w-[82px] shrink-0 items-center gap-1 text-sm font-semibold text-slate-400">
                 <ChevronUp size={16} />
@@ -553,7 +529,7 @@ export default function CommunityDetailPage() {
               </span>
             </Link>
           ) : (
-            <div className="flex items-center gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-4 border-b border-slate-100 px-4 py-3 sm:px-5">
               <div className="flex w-[82px] shrink-0 items-center gap-1 text-sm font-semibold text-slate-300">
                 <ChevronUp size={16} />
                 이전 글
@@ -569,7 +545,7 @@ export default function CommunityDetailPage() {
             <Link
               href={`/community/${nextPost.id}`}
               onClick={() => handleAdjacentClick(nextPost)}
-              className="group flex items-center gap-4 px-5 py-4 transition hover:bg-blue-50/50 sm:px-6"
+              className="group flex items-center gap-4 px-4 py-3 transition hover:bg-blue-50/50 sm:px-5"
             >
               <div className="flex w-[82px] shrink-0 items-center gap-1 text-sm font-semibold text-slate-400">
                 <ChevronDown size={16} />
@@ -585,7 +561,7 @@ export default function CommunityDetailPage() {
               </span>
             </Link>
           ) : (
-            <div className="flex items-center gap-4 px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-4 px-4 py-3 sm:px-5">
               <div className="flex w-[82px] shrink-0 items-center gap-1 text-sm font-semibold text-slate-300">
                 <ChevronDown size={16} />
                 다음 글
@@ -597,27 +573,6 @@ export default function CommunityDetailPage() {
             </div>
           )}
         </div>
-
-        {!isNotice ? (
-          <div className="mt-6">
-         <CommentSection
-  key={String(post.id)}
-  postTitle={post.title}
-  postAuthorId={getAuthorId(post)}
-/>
-          </div>
-        ) : (
-          <div className="mt-6 rounded-2xl border border-blue-100 bg-white px-6 py-8 text-center shadow-sm">
-            <Megaphone
-              size={23}
-              className="mx-auto text-blue-400"
-            />
-
-            <p className="mt-3 text-sm font-semibold text-slate-600">
-              공지사항에는 댓글을 작성할 수 없습니다.
-            </p>
-          </div>
-        )}
       </div>
 
       {!isNotice && !isMyPost && (

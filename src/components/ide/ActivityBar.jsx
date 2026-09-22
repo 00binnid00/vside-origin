@@ -24,9 +24,10 @@ export default function ActivityBar() {
 
   const topItems = [
     { id: "editor", icon: <VscFiles size={24} />, label: "에디터" },
-    { id: "docs", icon: <VscBook size={24} />, label: "문서" },
+   
     { id: "api-test", icon: <VscBeaker size={24} />, label: "API 테스트" },
     { id: "git", icon: <VscSourceControl size={24} />, label: "Git 연동" },
+     { id: "docs", icon: <VscBook size={24} />, label: "문서" },
   ];
 
   const getWorkspaceMainPath = () => {

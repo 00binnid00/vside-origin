@@ -3636,8 +3636,8 @@ export default function ArchivePage() {
      ========================================================= */
 
   return (
-    <main className="waivs-page min-h-[calc(100dvh-72px)] bg-[#F7F8FA] p-4 text-slate-950 md:p-5">
-      <div className="mx-auto flex max-w-[1880px] gap-4">
+    <main className="waivs-page flex min-h-0 flex-1 p-4 font-sans text-slate-950 md:p-5">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 gap-4">
         <ProjectSidebar
           workspaces={
             sidebarWorkspaces
@@ -3652,9 +3652,9 @@ export default function ArchivePage() {
           }
         />
 
-        <section className="min-w-0 flex-1">
-          <section className="waivs-panel overflow-visible">
-            <div className="border-b border-slate-100 px-5 pt-4 pb-3">
+        <div className="flex min-w-0 flex-1">
+          <section className="waivs-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 px-5 py-3">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -3892,7 +3892,7 @@ export default function ArchivePage() {
                 </div>
               </div>
 
-              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px]">
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-3 text-[11px]">
                 <ArchiveSummaryItem
                   label="개발일지"
                   value={`${filteredDevlogs.length}개`}
@@ -3911,7 +3911,8 @@ export default function ArchivePage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 px-5 pb-4 pt-1 xl:flex-row xl:items-center xl:justify-between">
+            <div className="shrink-0 border-t border-slate-100 px-5 py-3">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex w-fit max-w-full items-center gap-1 rounded-xl bg-slate-100 p-1">
                 {archiveTabs.map(
                   (tab) => {
@@ -3971,7 +3972,7 @@ export default function ArchivePage() {
                           .value as DevlogSortType,
                       )
                     }
-                    className="h-10 rounded-xl border border-slate-200 bg-white pl-10 pr-7 text-sm font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                    className="h-9 rounded-xl border border-slate-200 bg-white pl-9 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
                   >
                     <option value="latest">
                       최신순
@@ -4000,14 +4001,15 @@ export default function ArchivePage() {
                         )
                       }
                       placeholder="개발일지 검색"
-                      className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10 sm:w-[300px]"
+                      className="h-9 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10 sm:w-[320px]"
                     />
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
-            <div className="px-5 pb-5 pt-1">
+            <div className="min-h-0 flex-1 border-t border-slate-100 px-5 pb-5 pt-4">
               {activeArchiveTab ===
                 "devlog" && (
                 <ArchiveDevlogContent
@@ -4081,7 +4083,7 @@ export default function ArchivePage() {
               )}
             </div>
           </section>
-        </section>
+        </div>
       </div>
     </main>
   );
@@ -4151,7 +4153,7 @@ function ArchiveDevlogContent({
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3">
           {devlogs.map(
             (devlog) => (
               <DevlogCard

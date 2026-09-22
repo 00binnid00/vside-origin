@@ -44,12 +44,12 @@ export function MessageProvider({ children }: { children: ReactNode }) {
   const path = usePathname() || "/",
     owner = getViewerId(user),
     authed = Boolean(isAuthenticated || isLoggedIn);
-  const enabled =
-    !loading &&
-    authed &&
-    Boolean(owner) &&
-    user?.role !== "ADMIN" &&
-    !/^\/(projects|admin|auth)(\/|$)/.test(path);
+ const enabled =
+  !loading &&
+  authed &&
+  Boolean(owner) &&
+  user?.role !== "ADMIN" &&
+  !/^\/(admin|auth)(\/|$)/.test(path);
   return (
     <Session key={authed && owner ? owner : "out"} enabled={enabled}>
       {children}

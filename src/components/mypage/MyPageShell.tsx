@@ -25,6 +25,7 @@ import {
   UserRound,
   Users,
   X,
+  Filter,
 } from "lucide-react";
 
 import {
@@ -1968,6 +1969,7 @@ function MyProjectsSection({
 }) {
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<ProjectTypeFilter>("all");
+  const [projectSortType, setProjectSortType] = useState<DevlogSortType>("latest");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [detailProject, setDetailProject] = useState<Project | null>(null);
 
@@ -2001,37 +2003,61 @@ function MyProjectsSection({
   return (
     <>
       <section className="waivs-panel overflow-visible">
-        <div className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
-              My Projects
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-black tracking-tight text-slate-950">
-                내 프로젝트
-              </h2>
-              <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]">
-                {projects.length}개
-              </span>
-            </div>
-            <p className="mt-1 text-xs font-medium text-slate-500">
-              참여 중인 프로젝트를 확인하고 필요한 작업 화면으로 바로 이동합니다.
-            </p>
-          </div>
+  <div className="flex flex-col gap-3 px-5 py-4 xl:flex-row xl:items-end xl:justify-between">
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+        My Projects
+      </p>
 
-          <div className="relative w-full xl:w-[300px]">
-            <Search
-              size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              value={keyword}
-              onChange={(event) => onKeywordChange(event.target.value)}
-              placeholder="프로젝트 검색"
-              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
-            />
-          </div>
-        </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <h2 className="text-xl font-black tracking-tight text-slate-950">
+          내 프로젝트
+        </h2>
+
+        <span className="rounded-full bg-[#EEF3FF] px-2.5 py-1 text-[10px] font-black text-[#5873F9]">
+          {projects.length}개
+        </span>
+      </div>
+
+      <p className="mt-1 text-xs font-medium text-slate-500">
+        참여 중인 프로젝트를 확인하고 필요한 작업 화면으로 바로 이동합니다.
+      </p>
+    </div>
+
+    <div className="flex w-full items-center gap-2 xl:w-auto">
+      <div className="relative w-full xl:w-[250px]">
+        <Search
+          size={15}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+        />
+
+        <input
+          value={keyword}
+          onChange={(event) => onKeywordChange(event.target.value)}
+          placeholder="프로젝트 검색"
+          className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+        />
+      </div>
+
+      <div className="relative shrink-0">
+        <Filter
+          size={13}
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        />
+
+        <select
+          value={projectSortType}
+          onChange={(event) =>
+            setProjectSortType(event.target.value as DevlogSortType)
+          }
+          className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white pl-8 pr-8 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
+        >
+          <option value="latest">최신순</option>
+          <option value="oldest">오래된순</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
         <div className="flex flex-col gap-3 border-y border-[var(--waivs-border-soft)] bg-slate-50/50 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -3541,18 +3567,23 @@ function ProjectArchiveSection({
                 />
               </div>
 
-              {activeArchiveTab === "devlog" && (
+              <div className="relative shrink-0">
+                <Filter
+                      size={13}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
                 <select
                   value={sortType}
                   onChange={(event) =>
                     setSortType(event.target.value as DevlogSortType)
                   }
-                  className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
+                  className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white pl-7 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
                 >
                   <option value="latest">최신순</option>
                   <option value="oldest">오래된순</option>
                 </select>
-              )}
+              </div>
             </div>
           </div>
         </div>
