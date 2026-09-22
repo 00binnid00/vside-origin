@@ -18,6 +18,7 @@ import {
   Search,
   Trash2,
   X,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -310,6 +311,16 @@ export default function DevlogManagementMock() {
 
   const [showNoDevlogPanel, setShowNoDevlogPanel] =
     useState(false);
+
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  const [dateFilterMode, setDateFilterMode] =
+    useState<"single" | "range">("single");
+
+  const [selectedDate, setSelectedDate] = useState("");
+
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   /* =====================================================
      MODAL
@@ -1859,7 +1870,7 @@ export default function DevlogManagementMock() {
                   </button>
 
                   {/* SORT */}
-
+                  <div className="flex items-center gap-2">
                   <div className="relative shrink-0">
                     <Filter
                       size={13}
@@ -1874,7 +1885,7 @@ export default function DevlogManagementMock() {
                             .value as SortFilter,
                         )
                       }
-                      className="h-9 min-w-[128px] rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                      className="h-9 w-[120px] rounded-xl border border-slate-200 bg-white pl-8 pr-5 text-sm font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
                     >
                       <option value="all">
                         전체
@@ -1888,6 +1899,162 @@ export default function DevlogManagementMock() {
                         오래된순
                       </option>
                     </select>
+                    </div>
+
+                    {/* 날짜 / 기간 선택 */}
+                  <div className="relative shrink-0">
+                    {/* 화면에 보이는 버튼 하나 */}
+                    <button
+                      type="button"
+                      onClick={() => setDatePickerOpen((prev) => !prev)}
+                      className="flex h-9 items-center gap-2 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition hover:bg-slate-50 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                    >
+                      <CalendarDays size={15} />
+
+                      <span>
+                        {dateFilterMode === "single" && selectedDate
+                          ? selectedDate
+                          : dateFilterMode === "range" && startDate && endDate
+                            ? `${startDate} ~ ${endDate}`
+                            : "날짜/기간"}
+                      </span>
+
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform ${
+                          datePickerOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {/* 버튼 클릭 시 나오는 팝업 */}
+                    {datePickerOpen && (
+                      <div className="absolute right-0 top-12 z-50 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+
+                        {/* 날짜 / 기간 탭 */}
+                        <div className="mb-4 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDateFilterMode("single");
+                              setStartDate("");
+                              setEndDate("");
+                            }}
+                            className={[
+                              "h-9 rounded-lg text-sm font-bold transition",
+                              dateFilterMode === "single"
+                                ? "bg-white text-[#5873F9] shadow-sm"
+                                : "text-slate-500 hover:text-slate-700",
+                            ].join(" ")}
+                          >
+                            날짜
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDateFilterMode("range");
+                              setSelectedDate("");
+                            }}
+                            className={[
+                              "h-9 rounded-lg text-sm font-bold transition",
+                              dateFilterMode === "range"
+                                ? "bg-white text-[#5873F9] shadow-sm"
+                                : "text-slate-500 hover:text-slate-700",
+                            ].join(" ")}
+                          >
+                            기간
+                          </button>
+                        </div>
+
+                        {/* 날짜 모드 */}
+                        {dateFilterMode === "single" && (
+                          <div>
+                            <p className="mb-2 text-xs font-bold text-slate-500">
+                              조회할 날짜
+                            </p>
+
+                            <input
+                              type="date"
+                              value={selectedDate}
+                              onChange={(event) =>
+                                setSelectedDate(event.target.value)
+                              }
+                              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                            />
+                          </div>
+                        )}
+
+                        {/* 기간 모드 */}
+                        {dateFilterMode === "range" && (
+                          <div>
+                            <p className="mb-2 text-xs font-bold text-slate-500">
+                              조회할 기간
+                            </p>
+
+                            <div className="flex flex-col gap-3">
+                              {/* 시작일 */}
+                              <div>
+                                <p className="mb-1 text-[11px] font-bold text-slate-400">
+                                  시작일
+                                </p>
+
+                                <input
+                                  type="date"
+                                  value={startDate}
+                                  max={endDate || undefined}
+                                  onChange={(event) =>
+                                    setStartDate(event.target.value)
+                                  }
+                                  className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                                />
+                              </div>
+
+                              {/* 종료일 */}
+                              <div>
+                                <p className="mb-1 text-[11px] font-bold text-slate-400">
+                                  종료일
+                                </p>
+
+                                <input
+                                  type="date"
+                                  value={endDate}
+                                  min={startDate || undefined}
+                                  onChange={(event) =>
+                                    setEndDate(event.target.value)
+                                  }
+                                  className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 하단 */}
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate("");
+                              setStartDate("");
+                              setEndDate("");
+                            }}
+                            className="text-xs font-bold text-slate-400 transition hover:text-slate-700"
+                          >
+                            초기화
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setDatePickerOpen(false)}
+                            className="h-8 rounded-lg bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8]"
+                          >
+                            적용
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   </div>
 
                   {/* SEARCH */}
