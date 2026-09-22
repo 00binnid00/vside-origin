@@ -133,7 +133,11 @@ const CustomNode = ({ data }) => {
   // 코드맵은 fitView 로 전체를 담느라 0.3~0.5배쯤으로 줄여 보인다. 처음에는
   // 3px 테와 10px 모서리 배지로 표시했는데, 그 배율에서는 1px 선과 4px 글자가
   // 되어 아무도 알아보지 못했다. 그래서 가는 선이 아니라 "면적"으로 구분한다.
-  // 카드 윗부분을 가로지르는 띠, 두꺼운 테, 보라 빛번짐은 줄여도 색 덩어리로 남는다.
+  // 카드 윗부분을 가로지르는 띠와 바깥 테는 줄여도 색 덩어리로 남는다.
+  //
+  // 한때 진한 보라→자홍 그라데이션(600/500) + 6px 테 + 보라 빛번짐으로 했더니
+  // 생성 파일이 여러 개 모이면 눈이 아프다는 피드백이 있었다. 면적은 그대로 두고
+  // 채도만 낮춰 연한 파스텔 띠(글자는 진한 보라)와 연한 테로 바꿨다. 빛번짐은 뺐다.
   const isAiGenerated = Boolean(data.aiGenerated);
   const cardBorder = isAiGenerated
     ? borderStyle.replace(/\bring-\S+/g, "").trim()
@@ -153,7 +157,7 @@ const CustomNode = ({ data }) => {
       {isAiGenerated && (
         <div
           title="설계 관리의 코드 생성으로 만든 파일"
-          className={`${aiBandMargin} rounded-t-[10px] bg-gradient-to-r from-violet-600 to-fuchsia-500 py-1.5 text-[12px] font-black tracking-wide text-white`}
+          className={`${aiBandMargin} rounded-t-[10px] border-b border-violet-200 bg-gradient-to-r from-violet-100 to-fuchsia-100 py-1.5 text-[12px] font-bold tracking-wide text-violet-700`}
         >
           ✨ AI 생성
         </div>
@@ -182,7 +186,7 @@ const CustomNode = ({ data }) => {
       {isAiGenerated ? (
         // 카드 배경이 반투명(bg-indigo-50/30 등)이라 흰 바탕을 한 겹 깔지 않으면
         // 그라데이션이 카드 안까지 비쳐 카드 전체가 보라로 물든다.
-        <div className="rounded-[18px] bg-gradient-to-r from-violet-600 to-fuchsia-500 p-[6px] shadow-[0_0_28px_rgba(168,85,247,0.55)]">
+        <div className="rounded-[16px] bg-gradient-to-r from-violet-300 to-fuchsia-300 p-[4px]">
           <div className="rounded-[12px] bg-white">{card}</div>
         </div>
       ) : (
@@ -1288,7 +1292,7 @@ const handleOpenNewComponentModal = (x, y) => {
           {/* renderLegend 는 언어별로 세 갈래라, 언어와 무관한 이 항목은 셋에
               따로 넣지 않고 공통으로 한 번만 둔다. */}
           <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-2.5 text-[11px] font-bold text-gray-700">
-            <span className="rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-500 px-2 py-0.5 text-[10px] font-black text-white">
+            <span className="rounded-md border border-violet-200 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
               ✨ AI 생성
             </span>
             설계 관리의 코드 생성으로 만든 파일
@@ -1316,7 +1320,7 @@ const handleOpenNewComponentModal = (x, y) => {
                     {selectedNode.aiGenerated && (
                       <span
                         title="설계 관리의 코드 생성으로 만든 파일"
-                        className="text-[10px] font-black text-white px-2 py-0.5 rounded bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                        className="text-[10px] font-bold text-violet-700 px-2 py-0.5 rounded border border-violet-200 bg-gradient-to-r from-violet-100 to-fuchsia-100"
                       >
                         ✨ AI 생성
                       </span>
