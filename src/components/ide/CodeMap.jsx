@@ -120,6 +120,58 @@ const CustomNode = ({ data }) => {
   const cardWidth = isGeneral ? "min-w-[180px]" : "min-w-[240px]";
   const titleSize = isGeneral ? "text-[13px]" : "text-[15px]";
 
+  // 설계 관리의 코드 생성이 만든 파일(백엔드가 헤더 주석으로 판별해 실어 준다).
+  //
+  // 테두리 색은 역할을 뜻하므로 그대로 두고, 그 바깥에 그라데이션 테를 한 겹
+  // 더 두른다. 생성 파일은 거의 다 컨트롤러·서비스·엔티티라 테두리를 한 색으로
+  // 덮으면 역할 구분이 통째로 사라지고, 보라 단색은 이미 인터페이스가 쓴다.
+  // 그라데이션은 단색만 쓰는 역할 색 누구와도 겹치지 않는다.
+  //
+  // 역할 링(ring-4)은 카드 바깥 4px 에 그려져서 바깥 테를 덮어 버리므로 AI
+  // 노드에서만 뺀다. 역할은 테두리 색과 위쪽 역할 글자로 여전히 보인다.
+  //
+  // 코드맵은 fitView 로 전체를 담느라 0.3~0.5배쯤으로 줄여 보인다. 처음에는
+  // 3px 테와 10px 모서리 배지로 표시했는데, 그 배율에서는 1px 선과 4px 글자가
+  // 되어 아무도 알아보지 못했다. 그래서 가는 선이 아니라 "면적"으로 구분한다.
+  // 카드 윗부분을 가로지르는 띠, 두꺼운 테, 보라 빛번짐은 줄여도 색 덩어리로 남는다.
+  const isAiGenerated = Boolean(data.aiGenerated);
+  const cardBorder = isAiGenerated
+    ? borderStyle.replace(/\bring-\S+/g, "").trim()
+    : borderStyle;
+
+  // 띠가 카드 폭 전체를 채우도록 카드 안쪽 여백만큼 밖으로 당긴다.
+  // 모서리는 카드(rounded-xl 12px)에서 테두리 2px 를 뺀 값이다.
+  const aiBandMargin = isGeneral ? "-mx-4 -mt-3 mb-2" : "-mx-6 -mt-5 mb-3";
+
+  const card = (
+    <div className={`relative ${cardPadding} rounded-xl border-2 ${cardBorder} shadow-sm group-hover:shadow-lg ${cardWidth} text-center transition-all duration-300 backdrop-blur-sm`}>
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-full h-4 top-[-8px] opacity-0 hover:opacity-50 bg-blue-400 z-50 transition-opacity"
+      />
+      {isAiGenerated && (
+        <div
+          title="설계 관리의 코드 생성으로 만든 파일"
+          className={`${aiBandMargin} rounded-t-[10px] bg-gradient-to-r from-violet-600 to-fuchsia-500 py-1.5 text-[12px] font-black tracking-wide text-white`}
+        >
+          ✨ AI 생성
+        </div>
+      )}
+      <div className={`text-[10px] font-extrabold ${roleColor} uppercase tracking-widest mb-1.5 flex items-center justify-center gap-1`}>
+        <TypeIcon size={14} /> {displayRole}
+      </div>
+      <div className={`${titleSize} font-bold text-gray-900 truncate`} title={data.label}>
+        {data.label}
+      </div>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-full h-4 bottom-[-8px] opacity-0 hover:opacity-50 bg-blue-400 z-50 transition-opacity"
+      />
+    </div>
+  );
+
   return (
     <div className="flex flex-col items-center group cursor-pointer hover:-translate-y-1 transition-transform">
       {data.showLayerLabel && (
@@ -127,24 +179,15 @@ const CustomNode = ({ data }) => {
           {data.layerName}
         </div>
       )}
-      <div className={`relative ${cardPadding} rounded-xl border-2 ${borderStyle} shadow-sm group-hover:shadow-lg ${cardWidth} text-center transition-all duration-300 backdrop-blur-sm`}>
-        <Handle
-          type="target"
-          position={Position.Top}
-          className="w-full h-4 top-[-8px] opacity-0 hover:opacity-50 bg-blue-400 z-50 transition-opacity"
-        />
-        <div className={`text-[10px] font-extrabold ${roleColor} uppercase tracking-widest mb-1.5 flex items-center justify-center gap-1`}>
-          <TypeIcon size={14} /> {displayRole}
+      {isAiGenerated ? (
+        // 카드 배경이 반투명(bg-indigo-50/30 등)이라 흰 바탕을 한 겹 깔지 않으면
+        // 그라데이션이 카드 안까지 비쳐 카드 전체가 보라로 물든다.
+        <div className="rounded-[18px] bg-gradient-to-r from-violet-600 to-fuchsia-500 p-[6px] shadow-[0_0_28px_rgba(168,85,247,0.55)]">
+          <div className="rounded-[12px] bg-white">{card}</div>
         </div>
-        <div className={`${titleSize} font-bold text-gray-900 truncate`} title={data.label}>
-          {data.label}
-        </div>
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          className="w-full h-4 bottom-[-8px] opacity-0 hover:opacity-50 bg-blue-400 z-50 transition-opacity"
-        />
-      </div>
+      ) : (
+        card
+      )}
     </div>
   );
 };
@@ -1242,6 +1285,14 @@ const handleOpenNewComponentModal = (x, y) => {
         <div className="absolute left-4 bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-xl border border-gray-200 shadow-lg z-10 flex flex-col pointer-events-none min-w-[360px]">
           <div className="text-[12px] font-extrabold text-gray-800 border-b border-gray-100 pb-2 mb-3 flex items-center gap-1.5">🎨 아키텍처 맵 범례 (Legend)</div>
           {renderLegend()}
+          {/* renderLegend 는 언어별로 세 갈래라, 언어와 무관한 이 항목은 셋에
+              따로 넣지 않고 공통으로 한 번만 둔다. */}
+          <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-2.5 text-[11px] font-bold text-gray-700">
+            <span className="rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-500 px-2 py-0.5 text-[10px] font-black text-white">
+              ✨ AI 생성
+            </span>
+            설계 관리의 코드 생성으로 만든 파일
+          </div>
         </div>
 
         {selectedNode && (
@@ -1262,6 +1313,14 @@ const handleOpenNewComponentModal = (x, y) => {
                   <div className="flex gap-2 mt-2">
                     <span className="text-[10px] font-bold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{selectedNode.type}</span>
                     <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase">{selectedNode.role}</span>
+                    {selectedNode.aiGenerated && (
+                      <span
+                        title="설계 관리의 코드 생성으로 만든 파일"
+                        className="text-[10px] font-black text-white px-2 py-0.5 rounded bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                      >
+                        ✨ AI 생성
+                      </span>
+                    )}
                   </div>
                 </div>
 
