@@ -3,10 +3,12 @@
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
 import {
   CalendarDays,
   Download,
   FilePenLine,
+  Filter,
   FolderOpen,
   Link2,
   Loader2,
@@ -16,7 +18,6 @@ import {
   Search,
   Trash2,
   X,
-  Filter,
 } from "lucide-react";
 
 import {
@@ -47,7 +48,6 @@ import {
 } from "./devlog.utils";
 
 import { CreateDevlogModal } from "./components/CreateDevlogModal";
-import { DevlogFilterButton } from "./components/DevlogFilterButton";
 import { DevlogListPanel } from "./components/DevlogListPanel";
 
 import ProjectSidebar, {
@@ -55,16 +55,24 @@ import ProjectSidebar, {
   type WorkspaceSidebarItem as SharedWorkspaceSidebarItem,
 } from "@/components/layout/ProjectSidebar";
 
+/* =========================================================
+   TYPE
+========================================================= */
+
 type WorkspaceLike = {
   id?: string;
   uuid?: string;
   workspaceId?: string;
+
   name?: string;
   title?: string;
   projectName?: string;
+
   mode?: WorkspaceMode;
   type?: WorkspaceMode;
+
   role?: string;
+
   childCount?: number;
   subProjectCount?: number;
   childrenCount?: number;
@@ -76,6 +84,11 @@ type WorkspaceSidebarItem = SharedWorkspaceSidebarItem & {
   workspaceId?: string;
 };
 
+type SortFilter = "all" | "latest" | "oldest";
+
+/* =========================================================
+   MAPPING
+========================================================= */
 
 function mapScheduleFromApi(item: ScheduleApiItem): ScheduleOption {
   return {
@@ -95,15 +108,22 @@ function mapDevlogFromApi(item: any): DevlogItem {
     id: item.id,
     workspaceId: item.workspaceId,
     projectName: item.projectName ?? "프로젝트",
+
     title: item.title ?? "",
     content: item.content ?? "",
+
     date: item.date ?? item.workedDate,
     workedDate: item.workedDate ?? item.date,
+
     type: item.type ?? (item.scheduleId ? "linked" : "general"),
+
     scheduleId: item.scheduleId ?? null,
     scheduleTitle: item.scheduleTitle ?? null,
+
     status: item.status ?? item.scheduleStatus ?? null,
+
     tags: Array.isArray(item.tags) ? item.tags : [],
+
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -114,21 +134,29 @@ function mapWorkspaceFromApi(
 ): WorkspaceSidebarItem | null {
   const id = item.uuid || item.id || item.workspaceId;
 
-  if (!id) return null;
+  if (!id) {
+    return null;
+  }
 
   const mode = item.mode || item.type || "personal";
 
   return {
     id,
+
     uuid: item.uuid,
+
     workspaceId: item.workspaceId,
+
     name:
       item.name ||
       item.title ||
       item.projectName ||
       "이름 없는 프로젝트",
+
     mode,
+
     role: item.role,
+
     childCount:
       item.childCount ??
       item.subProjectCount ??
@@ -136,6 +164,10 @@ function mapWorkspaceFromApi(
       (Array.isArray(item.children) ? item.children.length : 0),
   };
 }
+
+/* =========================================================
+   COMMON
+========================================================= */
 
 function isSameWorkspace(
   workspace: WorkspaceSidebarItem,
@@ -147,6 +179,30 @@ function isSameWorkspace(
     workspace.workspaceId === targetWorkspaceId
   );
 }
+
+function getDevlogSortTime(devlog: DevlogItem) {
+  const value =
+    devlog.workedDate ||
+    devlog.date ||
+    devlog.updatedAt ||
+    devlog.createdAt;
+
+  if (!value) {
+    return 0;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  return date.getTime();
+}
+
+/* =========================================================
+   PRINT
+========================================================= */
 
 function escapePrintHtml(value: string) {
   return String(value ?? "")
@@ -172,8 +228,13 @@ function getPrintDateLabel() {
 }
 
 function getDevlogDocumentStatusLabel(devlog: DevlogItem) {
-  if (devlog.type === "general") return "일반 일지";
-  if (!devlog.status) return "일정 연결";
+  if (devlog.type === "general") {
+    return "일반 일지";
+  }
+
+  if (!devlog.status) {
+    return "일정 연결";
+  }
 
   return (
     scheduleStatusLabel[
@@ -186,59 +247,114 @@ function getDevlogDocumentTypeLabel(devlog: DevlogItem) {
   return devlog.type === "linked" ? "일정 연결" : "일반 일지";
 }
 
+/* =========================================================
+   MAIN
+========================================================= */
+
 export default function DevlogManagementMock() {
-  
   const router = useRouter();
+
   const pathname = usePathname();
+
   const searchParams = useSearchParams();
 
   const workspaceId = normalizeWorkspaceId(
     searchParams.get("workspaceId") ?? searchParams.get("id"),
   );
 
-  const [workspaces, setWorkspaces] = useState<WorkspaceSidebarItem[]>([]);
+  /* =====================================================
+     WORKSPACE
+  ===================================================== */
+
+  const [workspaces, setWorkspaces] = useState<
+    WorkspaceSidebarItem[]
+  >([]);
+
   const [workspaceName, setWorkspaceName] = useState("프로젝트");
 
+  /* =====================================================
+     DATA
+  ===================================================== */
+
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
+
   const [devlogs, setDevlogs] = useState<DevlogItem[]>([]);
 
+  /* =====================================================
+     LOADING / ERROR
+  ===================================================== */
+
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
-  const [workspaceErrorMessage, setWorkspaceErrorMessage] = useState("");
+
+  const [workspaceErrorMessage, setWorkspaceErrorMessage] =
+    useState("");
 
   const [loading, setLoading] = useState(true);
+
   const [saving, setSaving] = useState(false);
+
   const [errorMessage, setErrorMessage] = useState("");
 
+  /* =====================================================
+     FILTER / SEARCH
+  ===================================================== */
+
   const [selectedDevlogId, setSelectedDevlogId] = useState("");
+
   const [filter, setFilter] = useState<DevlogFilter>("all");
+
   const [query, setQuery] = useState("");
 
-  const [showNoDevlogPanel, setShowNoDevlogPanel] = useState(false);
+  const [sortFilter, setSortFilter] =
+    useState<SortFilter>("all");
+
+  const [showNoDevlogPanel, setShowNoDevlogPanel] =
+    useState(false);
+
+  /* =====================================================
+     MODAL
+  ===================================================== */
 
   const autoCreateHandledRef = useRef("");
 
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] =
+    useState(false);
 
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] =
+    useState(false);
+
+  const [isEditModalOpen, setIsEditModalOpen] =
+    useState(false);
 
   const [editingDevlog, setEditingDevlog] =
     useState<DevlogItem | null>(null);
 
   const [deletingDevlogId, setDeletingDevlogId] = useState("");
 
+  /* =====================================================
+     FORM
+  ===================================================== */
+
   const [formTitle, setFormTitle] = useState("");
+
   const [formContent, setFormContent] = useState("");
+
   const [formDate, setFormDate] = useState(getTodayDateKey());
+
   const [formScheduleId, setFormScheduleId] = useState("");
 
   const [formStatusChange, setFormStatusChange] = useState<
     "none" | "progress" | "done"
   >("none");
 
+  /* =====================================================
+     LOAD WORKSPACES
+  ===================================================== */
+
   const loadWorkspaces = async () => {
     try {
       setWorkspaceLoading(true);
+
       setWorkspaceErrorMessage("");
 
       const response = await getMyWorkspacesByTokenApi();
@@ -253,16 +369,23 @@ export default function DevlogManagementMock() {
 
       if (mapped.length === 0) {
         setWorkspaceName("프로젝트");
-        setWorkspaceErrorMessage("접근 가능한 프로젝트가 없습니다.");
+
+        setWorkspaceErrorMessage(
+          "접근 가능한 프로젝트가 없습니다.",
+        );
+
         return;
       }
 
       if (!workspaceId) {
         const firstWorkspace = mapped[0];
 
-        const params = new URLSearchParams(searchParams.toString());
+        const params = new URLSearchParams(
+          searchParams.toString(),
+        );
 
         params.set("workspaceId", firstWorkspace.id);
+
         params.set("mode", firstWorkspace.mode);
 
         if (typeof window !== "undefined") {
@@ -308,14 +431,18 @@ export default function DevlogManagementMock() {
 
       if (typeof window !== "undefined") {
         localStorage.removeItem("currentWorkspaceId");
+
         localStorage.removeItem("currentWorkspaceMode");
       }
 
       const firstWorkspace = mapped[0];
 
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(
+        searchParams.toString(),
+      );
 
       params.set("workspaceId", firstWorkspace.id);
+
       params.set("mode", firstWorkspace.mode);
 
       setWorkspaceName(firstWorkspace.name);
@@ -334,9 +461,14 @@ export default function DevlogManagementMock() {
     }
   };
 
+  /* =====================================================
+     LOAD WORKSPACE NAME
+  ===================================================== */
+
   const loadWorkspaceName = async () => {
     if (!workspaceId) {
       setWorkspaceName("프로젝트");
+
       return;
     }
 
@@ -346,6 +478,7 @@ export default function DevlogManagementMock() {
 
     if (matchedWorkspace) {
       setWorkspaceName(matchedWorkspace.name);
+
       return;
     }
 
@@ -354,13 +487,15 @@ export default function DevlogManagementMock() {
 
       const workspaceList = extractWorkspaceList(response);
 
-      const matchedWorkspaceFromApi = workspaceList.find((workspace) => {
-        return (
-          workspace.uuid === workspaceId ||
-          workspace.id === workspaceId ||
-          workspace.workspaceId === workspaceId
-        );
-      });
+      const matchedWorkspaceFromApi = workspaceList.find(
+        (workspace) => {
+          return (
+            workspace.uuid === workspaceId ||
+            workspace.id === workspaceId ||
+            workspace.workspaceId === workspaceId
+          );
+        },
+      );
 
       const name =
         matchedWorkspaceFromApi?.name ||
@@ -372,6 +507,10 @@ export default function DevlogManagementMock() {
       setWorkspaceName("프로젝트");
     }
   };
+
+  /* =====================================================
+     LOAD DEVLOG DATA
+  ===================================================== */
 
   const loadDevlogData = async () => {
     if (workspaceLoading) {
@@ -394,7 +533,9 @@ export default function DevlogManagementMock() {
 
     if (!matchedWorkspace) {
       setLoading(false);
+
       setSchedules([]);
+
       setDevlogs([]);
 
       setErrorMessage(
@@ -407,6 +548,7 @@ export default function DevlogManagementMock() {
 
         if (savedWorkspaceId === workspaceId) {
           localStorage.removeItem("currentWorkspaceId");
+
           localStorage.removeItem("currentWorkspaceMode");
         }
       }
@@ -416,23 +558,25 @@ export default function DevlogManagementMock() {
 
     try {
       setLoading(true);
+
       setErrorMessage("");
 
       const [scheduleResult, devlogResult] = await Promise.all([
         fetchWorkspaceSchedulesApi({
           workspaceId,
         }),
+
         fetchWorkspaceDevlogsApi(workspaceId),
       ]);
 
-      const mappedSchedules =
-        scheduleResult.map(mapScheduleFromApi);
+      const mappedSchedules = scheduleResult.map(mapScheduleFromApi);
 
       const mappedDevlogs = Array.isArray(devlogResult)
         ? devlogResult.map(mapDevlogFromApi)
         : [];
 
       setSchedules(mappedSchedules);
+
       setDevlogs(mappedDevlogs);
 
       const currentProjectName =
@@ -464,6 +608,10 @@ export default function DevlogManagementMock() {
     }
   };
 
+  /* =====================================================
+     INITIAL LOAD
+  ===================================================== */
+
   useEffect(() => {
     void loadWorkspaces();
 
@@ -471,23 +619,20 @@ export default function DevlogManagementMock() {
   }, []);
 
   useEffect(() => {
-    if (workspaceLoading) return;
+    if (workspaceLoading) {
+      return;
+    }
 
     void loadWorkspaceName();
+
     void loadDevlogData();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, workspaceLoading, workspaces]);
 
-  const noDevlogSchedules = useMemo(() => {
-    return schedules.filter((schedule) => {
-      const linkedByDevlog = devlogs.some(
-        (devlog) => devlog.scheduleId === schedule.id,
-      );
-
-      return !schedule.hasDevlog && !linkedByDevlog;
-    });
-  }, [devlogs, schedules]);
+  /* =====================================================
+     CURRENT WORKSPACE
+  ===================================================== */
 
   const currentWorkspace = useMemo(() => {
     return (
@@ -499,21 +644,41 @@ export default function DevlogManagementMock() {
 
   const currentWorkspaceMode: WorkspaceMode =
     currentWorkspace?.mode ||
-    (searchParams.get("mode") === "team" ? "team" : "personal");
+    (searchParams.get("mode") === "team"
+      ? "team"
+      : "personal");
 
   const currentWorkspaceRole =
     currentWorkspace?.role?.toUpperCase() === "OWNER"
       ? "OWNER"
       : "MEMBER";
 
+  /* =====================================================
+     NO DEVLOG SCHEDULE
+  ===================================================== */
+
+  const noDevlogSchedules = useMemo(() => {
+    return schedules.filter((schedule) => {
+      const linkedByDevlog = devlogs.some(
+        (devlog) => devlog.scheduleId === schedule.id,
+      );
+
+      return !schedule.hasDevlog && !linkedByDevlog;
+    });
+  }, [devlogs, schedules]);
+
+  /* =====================================================
+     FILTERED DEVLOG
+  ===================================================== */
+
   const filteredDevlogs = useMemo(() => {
-    return devlogs.filter((item) => {
+    const keyword = query.trim().toLowerCase();
+
+    const result = devlogs.filter((item) => {
       const matchesFilter =
         filter === "all" ||
         item.type === filter ||
         item.status === filter;
-
-      const keyword = query.trim().toLowerCase();
 
       const matchesQuery =
         !keyword ||
@@ -522,11 +687,33 @@ export default function DevlogManagementMock() {
         item.tags.some((tag) =>
           tag.toLowerCase().includes(keyword),
         ) ||
-        item.scheduleTitle?.toLowerCase().includes(keyword);
+        Boolean(
+          item.scheduleTitle
+            ?.toLowerCase()
+            .includes(keyword),
+        );
 
       return matchesFilter && matchesQuery;
     });
-  }, [devlogs, filter, query]);
+
+    if (sortFilter === "latest") {
+      result.sort(
+        (a, b) =>
+          getDevlogSortTime(b) -
+          getDevlogSortTime(a),
+      );
+    }
+
+    if (sortFilter === "oldest") {
+      result.sort(
+        (a, b) =>
+          getDevlogSortTime(a) -
+          getDevlogSortTime(b),
+      );
+    }
+
+    return result;
+  }, [devlogs, filter, query, sortFilter]);
 
   const selectedDevlog =
     filteredDevlogs.find(
@@ -535,15 +722,9 @@ export default function DevlogManagementMock() {
     filteredDevlogs[0] ??
     null;
 
-  const totalDevlogs = filteredDevlogs.length;
-
-  const linkedDevlogs = filteredDevlogs.filter(
-    (item) => item.type === "linked",
-  ).length;
-
-  const generalDevlogs = filteredDevlogs.filter(
-    (item) => item.type === "general",
-  ).length;
+  /* =====================================================
+     WEEK RANGE
+  ===================================================== */
 
   const currentWeekRange = useMemo(() => {
     const today = new Date();
@@ -555,6 +736,7 @@ export default function DevlogManagementMock() {
     const start = new Date(today);
 
     start.setHours(0, 0, 0, 0);
+
     start.setDate(today.getDate() + mondayDiff);
 
     const end = new Date(start);
@@ -593,12 +775,31 @@ export default function DevlogManagementMock() {
 
     return {
       startKey: toDateKey(start),
+
       endKey: toDateKey(end),
-      label: `${toShortDateLabel(start)} ~ ${toShortDateLabel(end)}`,
+
+      label: `${toShortDateLabel(start)} ~ ${toShortDateLabel(
+        end,
+      )}`,
     };
   }, []);
 
-  const weeklyDevlogs = filteredDevlogs.filter((item) => {
+  /* =====================================================
+     STATISTICS
+     일정관리처럼 전체 데이터 기준
+  ===================================================== */
+
+  const totalDevlogs = devlogs.length;
+
+  const linkedDevlogs = devlogs.filter(
+    (item) => item.type === "linked",
+  ).length;
+
+  const generalDevlogs = devlogs.filter(
+    (item) => item.type === "general",
+  ).length;
+
+  const weeklyDevlogs = devlogs.filter((item) => {
     const workedDate = item.workedDate || item.date;
 
     return Boolean(
@@ -608,11 +809,15 @@ export default function DevlogManagementMock() {
     );
   }).length;
 
-  const doneLinkedSchedules = filteredDevlogs.filter(
+  const doneLinkedSchedules = devlogs.filter(
     (item) =>
       item.type === "linked" &&
       item.status === "done",
   ).length;
+
+  /* =====================================================
+     WORKSPACE SELECT
+  ===================================================== */
 
   const handleSelectWorkspace = (
     workspace: SharedWorkspaceSidebarItem,
@@ -622,39 +827,63 @@ export default function DevlogManagementMock() {
     );
 
     params.set("workspaceId", workspace.id);
+
     params.set("mode", workspace.mode);
 
-    router.push(
-      `${pathname}?${params.toString()}`,
-    );
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "currentWorkspaceId",
+        workspace.id,
+      );
+
+      localStorage.setItem(
+        "currentWorkspaceMode",
+        workspace.mode,
+      );
+    }
+
+    router.push(`${pathname}?${params.toString()}`);
   };
 
-  const handleSelectDevlog = (
-    devlogId: string,
-  ) => {
+  /* =====================================================
+     SELECT DEVLOG
+  ===================================================== */
+
+  const handleSelectDevlog = (devlogId: string) => {
     setSelectedDevlogId(devlogId);
+
     setIsDetailModalOpen(true);
   };
 
+  /* =====================================================
+     FORM
+  ===================================================== */
+
   const resetForm = () => {
     setFormTitle("");
+
     setFormContent("");
+
     setFormDate(getTodayDateKey());
+
     setFormScheduleId("");
+
     setFormStatusChange("none");
   };
 
   const openCreateModal = () => {
     resetForm();
+
     setIsCreateModalOpen(true);
   };
 
-  const openCreateModalWithSchedule = (
-    scheduleId: string,
-  ) => {
+  const openCreateModalWithSchedule = (scheduleId: string) => {
     resetForm();
+
     setFormScheduleId(scheduleId);
+
     setFormStatusChange("progress");
+
     setIsCreateModalOpen(true);
   };
 
@@ -662,11 +891,13 @@ export default function DevlogManagementMock() {
      일정관리 -> 개발일지 자동 연결
 
      /devlogs?workspaceId=...&create=1&scheduleId=...
-     로 진입하면 해당 일정을 자동 선택하고 작성 모달을 연다.
-     ===================================================== */
+  ===================================================== */
+
   useEffect(() => {
     const shouldCreate = searchParams.get("create") === "1";
-    const requestedScheduleId = searchParams.get("scheduleId");
+
+    const requestedScheduleId =
+      searchParams.get("scheduleId");
 
     if (
       !shouldCreate ||
@@ -679,7 +910,9 @@ export default function DevlogManagementMock() {
     }
 
     const targetSchedule = schedules.find(
-      (schedule) => String(schedule.id) === String(requestedScheduleId),
+      (schedule) =>
+        String(schedule.id) ===
+        String(requestedScheduleId),
     );
 
     if (!targetSchedule) {
@@ -695,19 +928,23 @@ export default function DevlogManagementMock() {
     autoCreateHandledRef.current = handledKey;
 
     openCreateModalWithSchedule(targetSchedule.id);
+
     setShowNoDevlogPanel(false);
 
-    // 모달을 닫은 뒤 같은 URL 때문에 다시 열리지 않도록
-    // 1회 처리용 query만 제거한다. workspaceId/mode는 유지한다.
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(
+      searchParams.toString(),
+    );
 
     params.delete("create");
+
     params.delete("scheduleId");
 
     const queryString = params.toString();
 
     router.replace(
-      queryString ? `${pathname}?${queryString}` : pathname,
+      queryString
+        ? `${pathname}?${queryString}`
+        : pathname,
     );
   }, [
     loading,
@@ -719,8 +956,14 @@ export default function DevlogManagementMock() {
     workspaceLoading,
   ]);
 
+  /* =====================================================
+     CREATE
+  ===================================================== */
+
   const closeCreateModal = () => {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     setIsCreateModalOpen(false);
   };
@@ -736,41 +979,44 @@ export default function DevlogManagementMock() {
 
     if (!formTitle.trim()) {
       alert("제목을 입력해주세요.");
+
       return;
     }
 
     if (!formDate) {
       alert("작업한 날짜를 선택해주세요.");
+
       return;
     }
 
     if (!formContent.trim()) {
       alert("내용을 입력해주세요.");
+
       return;
     }
 
     try {
       setSaving(true);
 
-      const created =
-        await createWorkspaceDevlogApi({
-          workspaceId,
-          scheduleId: formScheduleId || null,
-          title: formTitle.trim(),
-          content: formContent.trim(),
-          workedDate: formDate,
-          scheduleStatusAfterWrite:
-            formScheduleId
-              ? formStatusChange
-              : "none",
-        });
+      const created = await createWorkspaceDevlogApi({
+        workspaceId,
+
+        scheduleId: formScheduleId || null,
+
+        title: formTitle.trim(),
+
+        content: formContent.trim(),
+
+        workedDate: formDate,
+
+        scheduleStatusAfterWrite: formScheduleId
+          ? formStatusChange
+          : "none",
+      });
 
       const mapped = mapDevlogFromApi(created);
 
-      setDevlogs((prev) => [
-        mapped,
-        ...prev,
-      ]);
+      setDevlogs((prev) => [mapped, ...prev]);
 
       setSelectedDevlogId(mapped.id);
 
@@ -792,10 +1038,13 @@ export default function DevlogManagementMock() {
     }
   };
 
-  const openEditModal = (
-    devlog: DevlogItem,
-  ) => {
+  /* =====================================================
+     EDIT
+  ===================================================== */
+
+  const openEditModal = (devlog: DevlogItem) => {
     setIsDetailModalOpen(false);
+
     setEditingDevlog(devlog);
 
     setFormTitle(devlog.title ?? "");
@@ -808,9 +1057,7 @@ export default function DevlogManagementMock() {
         getTodayDateKey(),
     );
 
-    setFormScheduleId(
-      devlog.scheduleId ?? "",
-    );
+    setFormScheduleId(devlog.scheduleId ?? "");
 
     setFormStatusChange("none");
 
@@ -818,7 +1065,9 @@ export default function DevlogManagementMock() {
   };
 
   const closeEditModal = () => {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     setIsEditModalOpen(false);
 
@@ -828,20 +1077,25 @@ export default function DevlogManagementMock() {
   };
 
   const updateDevlog = async () => {
-    if (!editingDevlog) return;
+    if (!editingDevlog) {
+      return;
+    }
 
     if (!formTitle.trim()) {
       alert("제목을 입력해주세요.");
+
       return;
     }
 
     if (!formDate) {
       alert("작업한 날짜를 선택해주세요.");
+
       return;
     }
 
     if (!formContent.trim()) {
       alert("내용을 입력해주세요.");
+
       return;
     }
 
@@ -850,14 +1104,17 @@ export default function DevlogManagementMock() {
 
       const updated = await updateDevlogApi({
         devlogId: editingDevlog.id,
+
         scheduleId: formScheduleId || null,
+
         title: formTitle.trim(),
+
         content: formContent.trim(),
+
         workedDate: formDate,
       });
 
-      const mapped =
-        mapDevlogFromApi(updated);
+      const mapped = mapDevlogFromApi(updated);
 
       setDevlogs((prev) =>
         prev.map((item) =>
@@ -873,7 +1130,11 @@ export default function DevlogManagementMock() {
 
       await loadDevlogData();
 
-      closeEditModal();
+      setIsEditModalOpen(false);
+
+      setEditingDevlog(null);
+
+      resetForm();
     } catch (error) {
       alert(
         error instanceof Error
@@ -885,14 +1146,18 @@ export default function DevlogManagementMock() {
     }
   };
 
-  const deleteDevlog = async (
-    devlog: DevlogItem,
-  ) => {
+  /* =====================================================
+     DELETE
+  ===================================================== */
+
+  const deleteDevlog = async (devlog: DevlogItem) => {
     const confirmed = window.confirm(
       `"${devlog.title || "제목 없는 개발일지"}" 개발일지를 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.`,
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setDeletingDevlogId(devlog.id);
@@ -908,26 +1173,23 @@ export default function DevlogManagementMock() {
           (item) => item.id !== devlog.id,
         );
 
-        setSelectedDevlogId(
-          (currentId) => {
-            if (
-              currentId !== devlog.id
-            ) {
-              return currentId;
-            }
+        setSelectedDevlogId((currentId) => {
+          if (currentId !== devlog.id) {
+            return currentId;
+          }
 
-            return next[0]?.id ?? "";
-          },
-        );
+          return next[0]?.id ?? "";
+        });
 
         return next;
       });
 
-      if (
-        editingDevlog?.id ===
-        devlog.id
-      ) {
-        closeEditModal();
+      if (editingDevlog?.id === devlog.id) {
+        setIsEditModalOpen(false);
+
+        setEditingDevlog(null);
+
+        resetForm();
       }
 
       await loadDevlogData();
@@ -941,6 +1203,10 @@ export default function DevlogManagementMock() {
       setDeletingDevlogId("");
     }
   };
+
+  /* =====================================================
+     PDF
+  ===================================================== */
 
   const handlePrintDevlogsPdf = () => {
     const printWindow = window.open(
@@ -957,8 +1223,7 @@ export default function DevlogManagementMock() {
       return;
     }
 
-    const documentTitle =
-      "개발일지 문서";
+    const documentTitle = "개발일지 문서";
 
     const documentDescription =
       query.trim() || filter !== "all"
@@ -975,40 +1240,47 @@ export default function DevlogManagementMock() {
                 devlog.date ||
                 "-";
 
-              const tags =
-                devlog.tags?.length
-                  ? devlog.tags
-                      .map(
-                        (tag) =>
-                          `#${escapePrintHtml(tag)}`,
-                      )
-                      .join(" ")
-                  : "태그 없음";
+              const tags = devlog.tags?.length
+                ? devlog.tags
+                    .map(
+                      (tag) =>
+                        `#${escapePrintHtml(tag)}`,
+                    )
+                    .join(" ")
+                : "태그 없음";
 
               return `
                 <article class="print-card">
                   <div class="print-card-header">
-                    <span class="index">${index + 1}</span>
+                    <span class="index">
+                      ${index + 1}
+                    </span>
 
                     <div class="header-content">
                       <div class="title-row">
-                        <h2>${escapePrintHtml(
-                          devlog.title ||
-                            "제목 없는 개발일지",
-                        )}</h2>
+                        <h2>
+                          ${escapePrintHtml(
+                            devlog.title ||
+                              "제목 없는 개발일지",
+                          )}
+                        </h2>
 
-                        <span class="pill">${escapePrintHtml(
-                          getDevlogDocumentStatusLabel(
-                            devlog,
-                          ),
-                        )}</span>
+                        <span class="pill">
+                          ${escapePrintHtml(
+                            getDevlogDocumentStatusLabel(
+                              devlog,
+                            ),
+                          )}
+                        </span>
                       </div>
 
                       <p class="meta">
                         ${escapePrintHtml(
                           devlog.projectName ||
                             workspaceName,
-                        )} · ${escapePrintHtml(
+                        )}
+                        ·
+                        ${escapePrintHtml(
                           workedDate,
                         )}
                       </p>
@@ -1019,30 +1291,41 @@ export default function DevlogManagementMock() {
                     devlog.scheduleTitle
                       ? `
                         <section class="linked-schedule">
-                          <span class="linked-label">연결 일정</span>
-                          <span class="linked-title">${escapePrintHtml(
-                            devlog.scheduleTitle,
-                          )}</span>
+                          <span class="linked-label">
+                            연결 일정
+                          </span>
+
+                          <span class="linked-title">
+                            ${escapePrintHtml(
+                              devlog.scheduleTitle,
+                            )}
+                          </span>
                         </section>
                       `
                       : ""
                   }
 
                   <section class="content-box">
-                    <p class="body-text">${escapePrintHtmlWithLineBreaks(
-                      devlog.content ||
-                        "작성된 내용이 없습니다.",
-                    )}</p>
+                    <p class="body-text">
+                      ${escapePrintHtmlWithLineBreaks(
+                        devlog.content ||
+                          "작성된 내용이 없습니다.",
+                      )}
+                    </p>
                   </section>
 
                   <div class="tag-row">
-                    <span>${escapePrintHtml(
-                      getDevlogDocumentTypeLabel(
-                        devlog,
-                      ),
-                    )}</span>
+                    <span>
+                      ${escapePrintHtml(
+                        getDevlogDocumentTypeLabel(
+                          devlog,
+                        ),
+                      )}
+                    </span>
 
-                    <span>${tags}</span>
+                    <span>
+                      ${tags}
+                    </span>
                   </div>
                 </article>
               `;
@@ -1056,9 +1339,11 @@ export default function DevlogManagementMock() {
         <head>
           <meta charset="utf-8" />
 
-          <title>${escapePrintHtml(
-            documentTitle,
-          )}</title>
+          <title>
+            ${escapePrintHtml(
+              documentTitle,
+            )}
+          </title>
 
           <style>
             @page {
@@ -1074,7 +1359,12 @@ export default function DevlogManagementMock() {
               margin: 0;
               background: #ffffff;
               color: #111827;
-              font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              font-family:
+                Pretendard,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
               line-height: 1.65;
             }
 
@@ -1263,7 +1553,8 @@ export default function DevlogManagementMock() {
               }
 
               .header-meta {
-                grid-template-columns: repeat(2, 1fr);
+                grid-template-columns:
+                  repeat(2, 1fr);
               }
             }
           </style>
@@ -1346,6 +1637,7 @@ export default function DevlogManagementMock() {
     `);
 
     printWindow.document.close();
+
     printWindow.focus();
 
     printWindow.onload = () => {
@@ -1353,263 +1645,361 @@ export default function DevlogManagementMock() {
     };
   };
 
-type SortFilter = "all" | "latest" | "oldest";
-
-const [sortFilter, setSortFilter] = useState<SortFilter>("all");
+  /* =====================================================
+     RENDER
+  ===================================================== */
 
   return (
-    <div className="waivs-page min-h-[calc(100dvh-72px)] bg-[#F7F8FA] p-4 text-slate-900 md:p-5">
-      <div className="mx-auto flex max-w-[1880px] items-start gap-4">
-        {/* =================================================
-            PROJECT SIDEBAR
-            Dashboard / 일정관리와 동일한 구조
-           ================================================= */}
-        <ProjectSidebar
-          workspaces={workspaces}
-          selectedWorkspaceId={workspaceId}
-          loading={workspaceLoading}
-          errorMessage={workspaceErrorMessage}
-          onSelectWorkspace={handleSelectWorkspace}
-        />
+    <>
+      <main className="waivs-page flex min-h-0 flex-1 p-4 font-sans md:p-5">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 gap-4">
+          {/* =================================================
+              PROJECT SIDEBAR
+          ================================================= */}
 
-        {/* =================================================
-            MAIN DEVLOG AREA
-            일정관리와 동일하게 상단/하단을 하나의 카드로 통합
-           ================================================= */}
-        <main className="flex min-h-[calc(100dvh-104px)] min-w-0 flex-1 flex-col">
-          <section className="waivs-panel flex min-h-[calc(100dvh-104px)] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* =================================================
-                HEADER
-               ================================================= */}
-            <div className="shrink-0 px-5 py-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#5873F9]">
-                      Devlog
-                    </p>
+          <ProjectSidebar
+            workspaces={workspaces}
+            selectedWorkspaceId={workspaceId}
+            loading={workspaceLoading}
+            errorMessage={workspaceErrorMessage}
+            onSelectWorkspace={handleSelectWorkspace}
+          />
 
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                        currentWorkspaceMode === "team"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-blue-50 text-blue-700"
-                      }`}
+          {/* =================================================
+              DEVLOG CONTENT
+          ================================================= */}
+
+          <div className="flex min-w-0 flex-1">
+            <section className="waivs-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+              {/* =================================================
+                  COMPACT HEADER
+                  일정관리와 동일한 크기
+              ================================================= */}
+
+              <div className="shrink-0 border-b border-slate-100 px-5 py-3">
+                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                  {/* LEFT */}
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#5873F9]">
+                        DEVLOG
+                      </p>
+
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                          currentWorkspaceMode === "team"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-blue-50 text-blue-700"
+                        }`}
+                      >
+                        {currentWorkspaceMode === "team"
+                          ? "TEAM"
+                          : "PERSONAL"}
+                      </span>
+
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                        {currentWorkspaceRole}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex min-w-0 items-end gap-3">
+                      <h1 className="truncate text-xl font-black tracking-tight text-slate-950">
+                        {workspaceName}
+                      </h1>
+
+                      <span className="hidden pb-0.5 text-xs font-semibold text-slate-400 sm:inline">
+                        개발일지 관리
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* RIGHT ACTION */}
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrintDevlogsPdf}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF]"
                     >
-                      {currentWorkspaceMode === "team" ? "TEAM" : "PERSONAL"}
-                    </span>
+                      <Download size={15} />
 
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
-                      {currentWorkspaceRole}
-                    </span>
-                  </div>
+                      PDF 저장
+                    </button>
 
-                  <div className="mt-1 flex min-w-0 items-end gap-3">
-                    <h1 className="truncate text-xl font-black tracking-tight text-slate-950">
-                      {workspaceName}
-                    </h1>
+                    <button
+                      type="button"
+                      onClick={openCreateModal}
+                      disabled={!workspaceId}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={15} />
 
-                    <span className="hidden pb-0.5 text-xs font-semibold text-slate-400 sm:inline">
-                      개발일지 관리
-                    </span>
+                      새 개발일지
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePrintDevlogsPdf}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF]"
-                  >
-                    <Download size={15} />
-                    PDF 저장
-                  </button>
+                {/* =============================================
+                    COMPACT STATS
+                    일정관리와 동일
+                ============================================= */}
 
-                  <button
-                    type="button"
-                    onClick={openCreateModal}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8]"
-                  >
-                    <Plus size={15} />
-                    새 개발일지
-                  </button>
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-2.5">
+                  <DevlogMetric
+                    label="전체"
+                    value={totalDevlogs}
+                  />
+
+                  <DevlogMetric
+                    label="일정 연결"
+                    value={linkedDevlogs}
+                    active
+                  />
+
+                  <DevlogMetric
+                    label="일반"
+                    value={generalDevlogs}
+                  />
+
+                  <DevlogMetric
+                    label="이번 주"
+                    value={weeklyDevlogs}
+                  />
+
+                  <DevlogMetric
+                    label="완료 처리"
+                    value={doneLinkedSchedules}
+                  />
+
+                  <span className="ml-auto text-[10px] font-bold text-slate-400">
+                    {currentWeekRange.label}
+                  </span>
                 </div>
               </div>
 
-              {/* 일정관리의 상단 통계 행과 동일한 흐름 */}
-              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-3">
-                <DevlogMetric label="전체" value={totalDevlogs} />
-                <DevlogMetric label="일정 연결" value={linkedDevlogs} active />
-                <DevlogMetric label="일반" value={generalDevlogs} />
-                <DevlogMetric label="이번 주" value={weeklyDevlogs} />
-                <DevlogMetric label="완료 처리" value={doneLinkedSchedules} />
+              {/* =================================================
+                  TOOLBAR
+                  일정관리 구조:
+                  LEFT = 보기/분류
+                  RIGHT = 스마트필터 + SELECT + SEARCH
+              ================================================= */}
 
-                <span className="ml-auto text-[10px] font-bold text-slate-400">
-                  {currentWeekRange.label}
-                </span>
-              </div>
-            </div>
+              <div className="flex shrink-0 flex-col gap-3 border-b border-slate-100 px-5 py-3 xl:flex-row xl:items-center xl:justify-between">
+                {/* =============================================
+                    LEFT FILTER GROUP
+                ============================================= */}
 
-            {/* =================================================
-                TOOLBAR
-                별도 카드가 아니라 같은 카드 내부의 한 행
-               ================================================= */}
-            <div className="shrink-0 border-t border-slate-100 px-5 py-3">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1">
+                  <DevlogSegmentButton
+                    active={filter === "all"}
+                    label="전체"
+                    onClick={() =>
+                      setFilter("all")
+                    }
+                  />
+
+                  <DevlogSegmentButton
+                    active={filter === "linked"}
+                    label="일정 연결"
+                    onClick={() =>
+                      setFilter("linked")
+                    }
+                  />
+
+                  <DevlogSegmentButton
+                    active={filter === "general"}
+                    label="일반 일지"
+                    onClick={() =>
+                      setFilter("general")
+                    }
+                  />
+
+                  <DevlogSegmentButton
+                    active={filter === "progress"}
+                    label="진행 중"
+                    onClick={() =>
+                      setFilter("progress")
+                    }
+                  />
+
+                  <DevlogSegmentButton
+                    active={filter === "done"}
+                    label="완료"
+                    onClick={() =>
+                      setFilter("done")
+                    }
+                  />
+                </div>
+
+                {/* =============================================
+                    RIGHT FILTER
+                ============================================= */}
+
+                <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                  {/* 일지 미작성 */}
+
                   <button
                     type="button"
-                    onClick={() => setShowNoDevlogPanel((prev) => !prev)}
-                    className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[11px] font-black transition ${
+                    onClick={() =>
+                      setShowNoDevlogPanel(
+                        (prev) => !prev,
+                      )
+                    }
+                    className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-black transition ${
                       showNoDevlogPanel
                         ? "border-amber-200 bg-amber-50 text-amber-700"
                         : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                     }`}
                   >
                     <FilePenLine size={13} />
-                    일지 미작성 {noDevlogSchedules.length}
+
+                    일지 미작성{" "}
+                    {noDevlogSchedules.length}
                   </button>
 
-                  <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+                  {/* SORT */}
 
-                  <DevlogFilterButton
-                    active={filter === "all"}
-                    label="전체"
-                    onClick={() => setFilter("all")}
-                  />
+                  <div className="relative shrink-0">
+                    <Filter
+                      size={13}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
 
-                  <DevlogFilterButton
-                    active={filter === "linked"}
-                    label="일정 연결"
-                    onClick={() => setFilter("linked")}
-                  />
+                    <select
+                      value={sortFilter}
+                      onChange={(event) =>
+                        setSortFilter(
+                          event.target
+                            .value as SortFilter,
+                        )
+                      }
+                      className="h-9 min-w-[128px] rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
+                    >
+                      <option value="all">
+                        전체
+                      </option>
 
-                  <DevlogFilterButton
-                    active={filter === "general"}
-                    label="일반 일지"
-                    onClick={() => setFilter("general")}
-                  />
+                      <option value="latest">
+                        최신순
+                      </option>
 
-                  <DevlogFilterButton
-                    active={filter === "progress"}
-                    label="진행 중"
-                    onClick={() => setFilter("progress")}
-                  />
+                      <option value="oldest">
+                        오래된순
+                      </option>
+                    </select>
+                  </div>
 
-                  <DevlogFilterButton
-                    active={filter === "done"}
-                    label="완료"
-                    onClick={() => setFilter("done")}
-                  />
-                </div>
-                <div className="flex w-full items-center gap-2 xl:w-auto">
-                <div className="relative shrink-0">
-                  <Filter
-                    size={13}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  {/* SEARCH */}
 
-                  <select
-                    value={
-                      sortFilter
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setSortFilter(
-                        event.target
-                          .value as SortFilter,
-                      )
-                    }
-                    className="h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-xs font-bold text-slate-600 outline-none transition focus:border-[#AAB8FF]"
-                  >
-                    <option value="all">
-                      전체
-                    </option>
+                  <div className="relative w-full sm:w-[300px]">
+                    <Search
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
 
-                    <option value="latest">
-                      최신순
-                    </option>
-
-                    <option value="oldest">
-                      오래된순
-                    </option>
-                  </select>
-                </div>
-
-                <div className="relative w-full xl:w-[320px]">
-                  <Search
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="제목, 내용, 태그, 연결 일정 검색"
-                    className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
-                  />
-                </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 기존 사이드바 기능인 '일지 미작성 일정'도 동일 카드 내부에 유지 */}
-            {showNoDevlogPanel && (
-              <NoDevlogMainPanel
-                schedules={noDevlogSchedules}
-                onCreateWithSchedule={openCreateModalWithSchedule}
-                onClose={() => setShowNoDevlogPanel(false)}
-              />
-            )}
-
-            {/* =================================================
-                DEVLOG LIST
-               ================================================= */}
-            <div className="flex min-h-0 flex-1 flex-col border-t border-slate-100">
-              <div className="flex shrink-0 items-center justify-between px-5 pt-4">
-                <div>
-                  <h2 className="text-base font-black text-slate-900">
-                    개발일지 목록
-                  </h2>
-
-                  <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                    일정 연결 여부와 진행 상태 기준으로 기록을 확인합니다.
-                  </p>
-                </div>
-
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
-                  {filteredDevlogs.length}개
-                </span>
-              </div>
-
-              <div className="min-h-0 flex-1 px-5 pb-5">
-                <DataState loading={loading} errorMessage={errorMessage}>
-                  <div className="mt-4">
-                    <DevlogListPanel
-                      filteredDevlogs={filteredDevlogs}
-                      selectedDevlog={selectedDevlog}
-                      onSelectDevlog={handleSelectDevlog}
+                    <input
+                      value={query}
+                      onChange={(event) =>
+                        setQuery(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="제목, 내용, 태그, 연결 일정 검색"
+                      className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none transition placeholder:text-slate-400 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
                     />
                   </div>
-                </DataState>
+                </div>
               </div>
-            </div>
-          </section>
-        </main>
 
-        {isDetailModalOpen && selectedDevlog && (
-          <DevlogDetailModal
-            selectedDevlog={selectedDevlog}
-            deletingDevlogId={deletingDevlogId}
-            onClose={() => setIsDetailModalOpen(false)}
-            onEdit={openEditModal}
-            onDelete={deleteDevlog}
-          />
-        )}
-      </div>
+              {/* =================================================
+                  NO DEVLOG SCHEDULE
+              ================================================= */}
 
-      {isCreateModalOpen && (
+              {showNoDevlogPanel ? (
+                <NoDevlogMainPanel
+                  schedules={noDevlogSchedules}
+                  onCreateWithSchedule={
+                    openCreateModalWithSchedule
+                  }
+                  onClose={() =>
+                    setShowNoDevlogPanel(false)
+                  }
+                />
+              ) : null}
+
+              {/* =================================================
+                  DEVLOG LIST
+              ================================================= */}
+
+              <div className="flex min-h-0 flex-1 flex-col">
+                {/* LIST HEADER */}
+
+                <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-4">
+                  <div>
+                    <h2 className="text-base font-black tracking-tight text-slate-900">
+                      개발일지 목록
+                    </h2>
+
+                    <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                      일정 연결 여부와 진행 상태 기준으로 기록을 확인합니다.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">
+                    {filteredDevlogs.length}개
+                  </span>
+                </div>
+
+                {/* LIST */}
+
+                <div className="min-h-0 flex-1 px-5 pb-5">
+                  <DataState
+                    loading={loading}
+                    errorMessage={errorMessage}
+                  >
+                    <div className="mt-4">
+                      <DevlogListPanel
+                        filteredDevlogs={
+                          filteredDevlogs
+                        }
+                        selectedDevlog={
+                          selectedDevlog
+                        }
+                        onSelectDevlog={
+                          handleSelectDevlog
+                        }
+                      />
+                    </div>
+                  </DataState>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      {/* =================================================
+          DETAIL MODAL
+      ================================================= */}
+
+      {isDetailModalOpen && selectedDevlog ? (
+        <DevlogDetailModal
+          selectedDevlog={selectedDevlog}
+          deletingDevlogId={deletingDevlogId}
+          onClose={() =>
+            setIsDetailModalOpen(false)
+          }
+          onEdit={openEditModal}
+          onDelete={deleteDevlog}
+        />
+      ) : null}
+
+      {/* =================================================
+          CREATE MODAL
+      ================================================= */}
+
+      {isCreateModalOpen ? (
         <CreateDevlogModal
           selectedProjectName={workspaceName}
           visibleSchedules={schedules}
@@ -1627,11 +2017,15 @@ const [sortFilter, setSortFilter] = useState<SortFilter>("all");
           onClose={closeCreateModal}
           onSubmit={createDevlog}
         />
-      )}
+      ) : null}
 
-      {isEditModalOpen && editingDevlog && (
+      {/* =================================================
+          EDIT MODAL
+      ================================================= */}
+
+      {isEditModalOpen && editingDevlog ? (
         <CreateDevlogModal
-         mode="edit"
+          mode="edit"
           selectedProjectName={workspaceName}
           visibleSchedules={schedules}
           formTitle={formTitle}
@@ -1648,14 +2042,14 @@ const [sortFilter, setSortFilter] = useState<SortFilter>("all");
           onClose={closeEditModal}
           onSubmit={updateDevlog}
         />
-      )}
-    </div>
+      ) : null}
+    </>
   );
 }
 
 /* =========================================================
    DEVLOG METRIC
-   ========================================================= */
+========================================================= */
 
 function DevlogMetric({
   label,
@@ -1663,15 +2057,22 @@ function DevlogMetric({
   active,
 }: {
   label: string;
+
   value: number;
+
   active?: boolean;
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[11px] font-bold text-slate-400">{label}</span>
+      <span className="text-[11px] font-bold text-slate-400">
+        {label}
+      </span>
+
       <span
         className={`text-sm font-black ${
-          active ? "text-[#5873F9]" : "text-slate-800"
+          active
+            ? "text-[#5873F9]"
+            : "text-slate-800"
         }`}
       >
         {value}
@@ -1681,8 +2082,39 @@ function DevlogMetric({
 }
 
 /* =========================================================
-   기존 사이드바 기능 -> 메인 화면 패널
-   ========================================================= */
+   DEVLOG SEGMENT BUTTON
+   일정관리 ViewButton과 동일 계열
+========================================================= */
+
+function DevlogSegmentButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+
+  label: string;
+
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-[11px] font-black transition ${
+        active
+          ? "bg-white text-[#5873F9] shadow-sm"
+          : "text-slate-500 hover:bg-white/60 hover:text-slate-700"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* =========================================================
+   NO DEVLOG MAIN PANEL
+========================================================= */
 
 function NoDevlogMainPanel({
   schedules,
@@ -1690,33 +2122,34 @@ function NoDevlogMainPanel({
   onClose,
 }: {
   schedules: ScheduleOption[];
+
   onCreateWithSchedule: (scheduleId: string) => void;
+
   onClose: () => void;
 }) {
   return (
     <div className="shrink-0 border-b border-slate-100 bg-[#FBFCFF] px-5 py-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-600">
-              <FilePenLine size={15} />
-            </span>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
+            <FilePenLine size={15} />
+          </span>
 
-            <div>
-              <h3 className="text-sm font-black text-slate-900">
-                일지 미작성 일정
-              </h3>
-              <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
-                아직 수행 기록이 없는 일정에서 바로 개발일지를 작성할 수 있습니다.
-              </p>
-            </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-black text-slate-900">
+              일지 미작성 일정
+            </h3>
+
+            <p className="mt-0.5 text-[10px] font-semibold text-slate-400">
+              아직 수행 기록이 없는 일정에서 바로 개발일지를 작성할 수 있습니다.
+            </p>
           </div>
         </div>
 
         <button
           type="button"
           onClick={onClose}
-          className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700"
           aria-label="일지 미작성 일정 닫기"
         >
           <PanelLeftClose size={15} />
@@ -1741,15 +2174,23 @@ function NoDevlogMainPanel({
                   <p className="truncate text-xs font-black text-slate-800">
                     {schedule.title}
                   </p>
+
                   <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black ${statusStyle[schedule.status]}`}
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black ${
+                      statusStyle[schedule.status]
+                    }`}
                   >
-                    {scheduleStatusLabel[schedule.status]}
+                    {
+                      scheduleStatusLabel[
+                        schedule.status
+                      ]
+                    }
                   </span>
                 </div>
 
                 <p className="mt-1 truncate text-[10px] font-semibold text-slate-400">
-                  {schedule.startDate === schedule.endDate
+                  {schedule.startDate ===
+                  schedule.endDate
                     ? schedule.startDate
                     : `${schedule.startDate} ~ ${schedule.endDate}`}
                 </p>
@@ -1757,10 +2198,15 @@ function NoDevlogMainPanel({
 
               <button
                 type="button"
-                onClick={() => onCreateWithSchedule(schedule.id)}
+                onClick={() =>
+                  onCreateWithSchedule(
+                    schedule.id,
+                  )
+                }
                 className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-[#EEF3FF] px-2.5 text-[10px] font-black text-[#5873F9] transition hover:bg-[#E4EAFF]"
               >
                 <FilePenLine size={11} />
+
                 작성
               </button>
             </div>
@@ -1771,6 +2217,9 @@ function NoDevlogMainPanel({
   );
 }
 
+/* =========================================================
+   DETAIL MODAL
+========================================================= */
 
 function DevlogDetailModal({
   selectedDevlog,
@@ -1780,9 +2229,13 @@ function DevlogDetailModal({
   onDelete,
 }: {
   selectedDevlog: DevlogItem;
+
   deletingDevlogId: string;
+
   onClose: () => void;
+
   onEdit: (devlog: DevlogItem) => void;
+
   onDelete: (devlog: DevlogItem) => void;
 }) {
   const workedDate =
@@ -1790,25 +2243,30 @@ function DevlogDetailModal({
     selectedDevlog.date ||
     "-";
 
-  const isLinked =
-    selectedDevlog.type === "linked";
+  const isLinked = selectedDevlog.type === "linked";
 
   const deleting =
-    deletingDevlogId ===
-    selectedDevlog.id;
+    deletingDevlogId === selectedDevlog.id;
 
   useEffect(() => {
     const html = document.documentElement;
+
     const body = document.body;
 
-    const previousHtmlOverflow = html.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-    const previousBodyPaddingRight = body.style.paddingRight;
+    const previousHtmlOverflow =
+      html.style.overflow;
+
+    const previousBodyOverflow =
+      body.style.overflow;
+
+    const previousBodyPaddingRight =
+      body.style.paddingRight;
 
     const scrollbarWidth =
       window.innerWidth - html.clientWidth;
 
     html.style.overflow = "hidden";
+
     body.style.overflow = "hidden";
 
     if (scrollbarWidth > 0) {
@@ -1816,9 +2274,14 @@ function DevlogDetailModal({
     }
 
     return () => {
-      html.style.overflow = previousHtmlOverflow;
-      body.style.overflow = previousBodyOverflow;
-      body.style.paddingRight = previousBodyPaddingRight;
+      html.style.overflow =
+        previousHtmlOverflow;
+
+      body.style.overflow =
+        previousBodyOverflow;
+
+      body.style.paddingRight =
+        previousBodyPaddingRight;
     };
   }, []);
 
@@ -1831,10 +2294,13 @@ function DevlogDetailModal({
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 top-[72px] z-[8999] flex items-center justify-center overflow-hidden p-4">
         <article
-          onMouseDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) =>
+            event.stopPropagation()
+          }
           className="pointer-events-auto flex max-h-[calc(100dvh-104px)] w-full max-w-[760px] flex-col overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.2)]"
         >
-          {/* header */}
+          {/* HEADER */}
+
           <header className="flex shrink-0 items-start justify-between border-b border-slate-100 px-6 py-5">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -1848,7 +2314,8 @@ function DevlogDetailModal({
               </div>
 
               <h2 className="mt-1 break-keep text-xl font-black leading-snug tracking-tight text-slate-950">
-                {selectedDevlog.title || "제목 없는 개발일지"}
+                {selectedDevlog.title ||
+                  "제목 없는 개발일지"}
               </h2>
 
               <p className="mt-1 text-xs font-semibold text-slate-400">
@@ -1866,12 +2333,15 @@ function DevlogDetailModal({
             </button>
           </header>
 
-          {/* content */}
+          {/* CONTENT */}
+
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="space-y-5 px-6 py-5">
               <section className="overflow-hidden rounded-xl border border-slate-200">
                 <DevlogDetailMetaRow
-                  icon={<FolderOpen size={15} />}
+                  icon={
+                    <FolderOpen size={15} />
+                  }
                   label="프로젝트"
                 >
                   <span className="text-xs font-black text-slate-700">
@@ -1880,7 +2350,9 @@ function DevlogDetailModal({
                 </DevlogDetailMetaRow>
 
                 <DevlogDetailMetaRow
-                  icon={<CalendarDays size={15} />}
+                  icon={
+                    <CalendarDays size={15} />
+                  }
                   label="작업일"
                 >
                   <span className="text-xs font-bold text-slate-600">
@@ -1889,7 +2361,9 @@ function DevlogDetailModal({
                 </DevlogDetailMetaRow>
 
                 <DevlogDetailMetaRow
-                  icon={<FilePenLine size={15} />}
+                  icon={
+                    <FilePenLine size={15} />
+                  }
                   label="유형"
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -1900,18 +2374,26 @@ function DevlogDetailModal({
                           : "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {isLinked ? "일정 연결" : "일반 일지"}
+                      {isLinked
+                        ? "일정 연결"
+                        : "일반 일지"}
                     </span>
 
-                    {selectedDevlog.status && (
+                    {selectedDevlog.status ? (
                       <span
                         className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${
-                          statusStyle[selectedDevlog.status]
+                          statusStyle[
+                            selectedDevlog.status
+                          ]
                         }`}
                       >
-                        {scheduleStatusLabel[selectedDevlog.status]}
+                        {
+                          scheduleStatusLabel[
+                            selectedDevlog.status
+                          ]
+                        }
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </DevlogDetailMetaRow>
 
@@ -1923,7 +2405,9 @@ function DevlogDetailModal({
                   {selectedDevlog.scheduleTitle ? (
                     <span className="inline-flex min-w-0 items-center rounded-lg bg-[#F7F9FF] px-3 py-2 text-xs font-black text-[#5873F9]">
                       <span className="truncate">
-                        {selectedDevlog.scheduleTitle}
+                        {
+                          selectedDevlog.scheduleTitle
+                        }
                       </span>
                     </span>
                   ) : (
@@ -1934,11 +2418,14 @@ function DevlogDetailModal({
                 </DevlogDetailMetaRow>
               </section>
 
+              {/* WORK LOG */}
+
               <section>
                 <div className="mb-2">
                   <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
                     Work Log
                   </p>
+
                   <h3 className="mt-0.5 text-sm font-black text-slate-800">
                     작성 내용
                   </h3>
@@ -1952,28 +2439,33 @@ function DevlogDetailModal({
                 </div>
               </section>
 
-              {selectedDevlog.tags.length > 0 && (
+              {/* TAGS */}
+
+              {selectedDevlog.tags.length > 0 ? (
                 <section>
                   <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-400">
                     Tags
                   </p>
 
                   <div className="flex flex-wrap gap-2">
-                    {selectedDevlog.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
+                    {selectedDevlog.tags.map(
+                      (tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500"
+                        >
+                          #{tag}
+                        </span>
+                      ),
+                    )}
                   </div>
                 </section>
-              )}
+              ) : null}
             </div>
           </div>
 
-          {/* footer */}
+          {/* FOOTER */}
+
           <footer className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-6 py-4">
             <p className="hidden text-[10px] font-semibold text-slate-400 sm:block">
               목록으로 돌아가 다른 개발일지를 계속 확인할 수 있습니다.
@@ -1982,24 +2474,33 @@ function DevlogDetailModal({
             <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onDelete(selectedDevlog)}
+                onClick={() =>
+                  onDelete(selectedDevlog)
+                }
                 disabled={deleting}
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-rose-100 bg-white px-4 text-xs font-black text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {deleting ? (
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2
+                    size={14}
+                    className="animate-spin"
+                  />
                 ) : (
                   <Trash2 size={14} />
                 )}
+
                 삭제
               </button>
 
               <button
                 type="button"
-                onClick={() => onEdit(selectedDevlog)}
+                onClick={() =>
+                  onEdit(selectedDevlog)
+                }
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8]"
               >
                 <Pencil size={14} />
+
                 수정
               </button>
             </div>
@@ -2010,6 +2511,10 @@ function DevlogDetailModal({
   );
 }
 
+/* =========================================================
+   DETAIL META ROW
+========================================================= */
+
 function DevlogDetailMetaRow({
   icon,
   label,
@@ -2017,29 +2522,39 @@ function DevlogDetailMetaRow({
   last,
 }: {
   icon: React.ReactNode;
+
   label: string;
+
   children: React.ReactNode;
+
   last?: boolean;
 }) {
   return (
     <div
       className={`grid grid-cols-[100px_minmax(0,1fr)] gap-4 px-4 py-3 ${
-        last ? "" : "border-b border-slate-100"
+        last
+          ? ""
+          : "border-b border-slate-100"
       }`}
     >
       <div className="flex items-center gap-2 text-slate-400">
         {icon}
+
         <span className="text-[10px] font-black text-slate-500">
           {label}
         </span>
       </div>
 
-      <div className="min-w-0 flex items-center">
+      <div className="flex min-w-0 items-center">
         {children}
       </div>
     </div>
   );
 }
+
+/* =========================================================
+   DATA STATE
+========================================================= */
 
 function DataState({
   loading,
@@ -2047,20 +2562,21 @@ function DataState({
   children,
 }: {
   loading: boolean;
+
   errorMessage: string;
+
   children: React.ReactNode;
 }) {
   if (loading) {
     return (
-      <div className="mt-6 grid min-h-[360px] place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+      <div className="mt-4 grid min-h-[280px] place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60">
         <div className="flex items-center gap-3 text-sm font-bold text-slate-500">
           <Loader2
             className="animate-spin"
             size={18}
           />
 
-          개발일지 데이터를 불러오는
-          중입니다.
+          개발일지 데이터를 불러오는 중입니다.
         </div>
       </div>
     );
@@ -2068,11 +2584,11 @@ function DataState({
 
   if (errorMessage) {
     return (
-      <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm font-bold text-rose-700">
+      <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm font-bold text-rose-700">
         {errorMessage}
       </div>
     );
   }
 
   return <>{children}</>;
-} 
+}
