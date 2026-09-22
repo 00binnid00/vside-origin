@@ -10,6 +10,7 @@ import React, {
 } from "react";
 
 import { authClient } from "@/lib/auth/authClient";
+
 import {
   clearAuth,
   getAccessToken,
@@ -18,283 +19,714 @@ import {
   setAuthSnapshot,
 } from "@/lib/auth/tokenStore";
 
-type AuthUser = {
+/* ==========================================
+   권한
+========================================== */
+
+export type UserRole = "USER" | "ADMIN";
+
+/* ==========================================
+   사용자 타입
+========================================== */
+
+export type AuthUser = {
   id: string | null;
   userId: number | null;
+
   email: string;
   nickname: string;
   name: string;
+
   username?: string;
+
   profileImageUrl?: string | null;
+
+  role: UserRole;
 };
 
 type LegacyLoginPayload = {
   id?: string | number;
   userId?: string | number;
+
   name?: string;
   nickname?: string;
   username?: string;
+
   email?: string;
+
   token?: string;
   accessToken?: string;
+
   profileImageUrl?: string | null;
+
+  role?: UserRole;
 };
 
 type AuthContextValue = {
   user: AuthUser | null;
+
   accessToken: string | null;
 
   isAuthenticated: boolean;
   isLoggedIn: boolean;
+
   loading: boolean;
 
   login: (
     emailOrPayload: string | LegacyLoginPayload,
     password?: string,
-  ) => Promise<void>;
+  ) => Promise<AuthUser>;
 
   logout: () => Promise<void>;
+
   refreshAuth: () => Promise<boolean>;
+
   setAuthFromResponse: (data: any) => void;
 };
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext =
+  createContext<AuthContextValue | null>(null);
 
-const isAuthExpiredStatus = (status: unknown) => status === 401 || status === 403;
+/* ==========================================
+   인증 만료 여부
+========================================== */
 
-const getErrorStatus = (error: unknown): number | null => {
-  if (typeof error === "object" && error !== null && "status" in error) {
-    const status = Number((error as { status?: unknown }).status);
-    return Number.isFinite(status) ? status : null;
+const isAuthExpiredStatus = (
+  status: unknown,
+) => {
+  return (
+    status === 401 ||
+    status === 403
+  );
+};
+
+/* ==========================================
+   에러 status
+========================================== */
+
+const getErrorStatus = (
+  error: unknown,
+): number | null => {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error
+  ) {
+    const status =
+      Number(
+        (
+          error as {
+            status?: unknown;
+          }
+        ).status,
+      );
+
+    return Number.isFinite(status)
+      ? status
+      : null;
   }
 
   return null;
 };
 
-const normalizeAuthUser = (user: any): AuthUser | null => {
-  const normalized = normalizeUser(user);
+/* ==========================================
+   사용자 정규화
+========================================== */
 
-  if (!normalized) return null;
+const normalizeAuthUser = (
+  user: any,
+): AuthUser | null => {
+  const normalized =
+    normalizeUser(user);
+
+  if (!normalized) {
+    return null;
+  }
 
   return {
     id: normalized.id,
-    userId: normalized.userId,
-    email: normalized.email,
-    nickname: normalized.nickname,
-    name: normalized.name,
-    username: normalized.username,
-    profileImageUrl: normalized.profileImageUrl,
+
+    userId:
+      normalized.userId,
+
+    email:
+      normalized.email ?? "",
+
+    nickname:
+      normalized.nickname ?? "",
+
+    name:
+      normalized.name ??
+      normalized.nickname ??
+      "",
+
+    username:
+      normalized.username,
+
+    profileImageUrl:
+      normalized.profileImageUrl ??
+      null,
+
+    role:
+      normalized.role === "ADMIN"
+        ? "ADMIN"
+        : "USER",
   };
 };
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() =>
-    normalizeAuthUser(getAuthUser()),
-  );
+/* ==========================================
+   Provider
+========================================== */
 
-  const [accessToken, setAccessTokenState] = useState<string | null>(() =>
-    getAccessToken(),
-  );
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [
+    user,
+    setUser,
+  ] =
+    useState<AuthUser | null>(
+      () =>
+        normalizeAuthUser(
+          getAuthUser(),
+        ),
+    );
 
-  const [loading, setLoading] = useState(true);
+  const [
+    accessToken,
+    setAccessTokenState,
+  ] =
+    useState<string | null>(
+      () =>
+        getAccessToken(),
+    );
 
-  const syncStateFromStorage = useCallback(() => {
-    setAccessTokenState(getAccessToken());
-    setUser(normalizeAuthUser(getAuthUser()));
-  }, []);
+  const [
+    loading,
+    setLoading,
+  ] =
+    useState(true);
 
-  const clearAuthState = useCallback(() => {
-    clearAuth();
-    setAccessTokenState(null);
-    setUser(null);
-  }, []);
+  /* ========================================
+     Storage → State
+  ======================================== */
 
-  const setAuthFromResponse = useCallback((data: any) => {
-    const token = data?.accessToken || data?.token || null;
+  const syncStateFromStorage =
+    useCallback(() => {
+      setAccessTokenState(
+        getAccessToken(),
+      );
 
-    const nextUser =
-      data?.user ||
-      (data?.userId
-        ? {
-            id: data.userId,
-            userId: data.userId,
-            email: data.email,
-            nickname: data.nickname,
-            profileImageUrl: data.profileImageUrl,
-          }
-        : null);
+      setUser(
+        normalizeAuthUser(
+          getAuthUser(),
+        ),
+      );
+    }, []);
 
-    setAuthSnapshot({
-      accessToken: token,
-      token,
-      user: nextUser,
-      userId: data?.userId,
-    });
+  /* ========================================
+     인증 초기화
+  ======================================== */
 
-    setAccessTokenState(token);
-    setUser(normalizeAuthUser(nextUser));
-  }, []);
+  const clearAuthState =
+    useCallback(() => {
+      clearAuth();
 
-  const refreshAuth = useCallback(async () => {
-    try {
-      const result = await authClient.refresh();
+      setAccessTokenState(
+        null,
+      );
 
-      setAuthSnapshot(result);
-      setAccessTokenState(result.accessToken);
-      setUser(normalizeAuthUser(result.user));
+      setUser(
+        null,
+      );
+    }, []);
 
-      return true;
-    } catch (error) {
-      const status = getErrorStatus(error);
+  /* ========================================
+     로그인 응답 저장
+  ======================================== */
 
-      /*
-       * refresh token 자체가 만료/무효인 경우에만 인증 상태 제거.
-       * refresh 500, 네트워크 오류, 일시 서버 오류에서는 로그인 정보를 지우지 않습니다.
-       */
-      if (isAuthExpiredStatus(status)) {
-        clearAuthState();
-      } else {
-        syncStateFromStorage();
-      }
+  const setAuthFromResponse =
+    useCallback(
+      (data: any) => {
+        const token =
+          data?.accessToken ||
+          data?.token ||
+          null;
 
-      return false;
-    }
-  }, [clearAuthState, syncStateFromStorage]);
+        const nextUser =
+          data?.user ||
+          (
+            data?.userId
+              ? {
+                  id:
+                    data.userId,
 
-  const login = useCallback(
-    async (
-      emailOrPayload: string | LegacyLoginPayload,
-      password?: string,
-    ) => {
-      if (typeof emailOrPayload === "object") {
-        const payload = emailOrPayload;
+                  userId:
+                    data.userId,
 
-        setAuthFromResponse({
-          accessToken: payload.accessToken || payload.token,
-          token: payload.token || payload.accessToken,
-          userId: payload.userId ?? payload.id,
-          user: {
-            id: payload.id ?? payload.userId,
-            userId: payload.userId ?? payload.id,
-            email: payload.email,
-            nickname: payload.nickname ?? payload.name,
-            name: payload.name ?? payload.nickname,
-            username: payload.username,
-            profileImageUrl: payload.profileImageUrl,
-          },
+                  email:
+                    data.email,
+
+                  nickname:
+                    data.nickname,
+
+                  profileImageUrl:
+                    data.profileImageUrl,
+
+                  role:
+                    data.role,
+                }
+              : null
+          );
+
+        setAuthSnapshot({
+          accessToken:
+            token,
+
+          token,
+
+          user:
+            nextUser,
+
+          userId:
+            data?.userId,
         });
 
-        return;
-      }
+        setAccessTokenState(
+          token,
+        );
 
-      if (!password) {
-        throw new Error("비밀번호가 필요합니다.");
-      }
+        setUser(
+          normalizeAuthUser(
+            nextUser,
+          ),
+        );
+      },
+      [],
+    );
 
-      const result = await authClient.login(emailOrPayload, password);
+  /* ========================================
+     Refresh
+  ======================================== */
 
-      setAccessTokenState(result.accessToken);
-      setUser(normalizeAuthUser(result.user));
-    },
-    [setAuthFromResponse],
-  );
-
-  const logout = useCallback(async () => {
-    await authClient.logout();
-
-    setAccessTokenState(null);
-    setUser(null);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const bootstrap = async () => {
-      try {
-        const currentAccessToken = getAccessToken();
-
-        if (!currentAccessToken) {
-          clearAuth();
-
-          if (!cancelled) {
-            setAccessTokenState(null);
-            setUser(null);
-          }
-
-          return;
-        }
-
+  const refreshAuth =
+    useCallback(
+      async () => {
         try {
-          const me = await authClient.me();
-
-          if (!cancelled) {
-            setUser(normalizeAuthUser(me));
-            setAccessTokenState(getAccessToken());
-          }
-
-          return;
-        } catch (error) {
-          const status = getErrorStatus(error);
+          const result =
+            await authClient.refresh();
 
           /*
-           * /me가 인증 만료로 실패한 경우에만 refresh 복구 시도.
-           * 서버 500, 네트워크 오류는 로그인 상태를 유지합니다.
+           * refresh 응답도 role을 포함하고 있지만
+           * /me를 다시 호출해서 현재 DB의 권한을 기준으로
+           * 사용자 정보를 동기화한다.
            */
-          if (isAuthExpiredStatus(status)) {
-            await refreshAuth();
+          const me =
+            await authClient.me();
+
+          const normalizedUser =
+            normalizeAuthUser(me);
+
+          if (!normalizedUser) {
+            throw new Error(
+              "사용자 정보를 확인할 수 없습니다.",
+            );
+          }
+
+          setAuthSnapshot({
+            accessToken:
+              result.accessToken,
+
+            token:
+              result.token,
+
+            user:
+              me,
+
+            userId:
+              me?.id,
+          });
+
+          setAccessTokenState(
+            result.accessToken,
+          );
+
+          setUser(
+            normalizedUser,
+          );
+
+          return true;
+        } catch (error) {
+          const status =
+            getErrorStatus(error);
+
+          if (
+            isAuthExpiredStatus(
+              status,
+            )
+          ) {
+            clearAuthState();
+          } else {
+            syncStateFromStorage();
+          }
+
+          return false;
+        }
+      },
+      [
+        clearAuthState,
+        syncStateFromStorage,
+      ],
+    );
+
+  /* ========================================
+     로그인
+  ======================================== */
+
+  const login =
+    useCallback(
+      async (
+        emailOrPayload:
+          | string
+          | LegacyLoginPayload,
+
+        password?: string,
+      ): Promise<AuthUser> => {
+        /* ==================================
+           Legacy 로그인
+        ================================== */
+
+        if (
+          typeof emailOrPayload ===
+          "object"
+        ) {
+          const payload =
+            emailOrPayload;
+
+          const nextUser = {
+            id:
+              payload.id ??
+              payload.userId,
+
+            userId:
+              payload.userId ??
+              payload.id,
+
+            email:
+              payload.email,
+
+            nickname:
+              payload.nickname ??
+              payload.name,
+
+            name:
+              payload.name ??
+              payload.nickname,
+
+            username:
+              payload.username,
+
+            profileImageUrl:
+              payload.profileImageUrl,
+
+            role:
+              payload.role ??
+              "USER",
+          };
+
+          setAuthFromResponse({
+            accessToken:
+              payload.accessToken ||
+              payload.token,
+
+            token:
+              payload.token ||
+              payload.accessToken,
+
+            userId:
+              payload.userId ??
+              payload.id,
+
+            user:
+              nextUser,
+          });
+
+          const normalized =
+            normalizeAuthUser(
+              nextUser,
+            );
+
+          if (!normalized) {
+            throw new Error(
+              "로그인 사용자 정보를 확인할 수 없습니다.",
+            );
+          }
+
+          return normalized;
+        }
+
+        /* ==================================
+           일반 로그인
+        ================================== */
+
+        if (!password) {
+          throw new Error(
+            "비밀번호가 필요합니다.",
+          );
+        }
+
+        /*
+         * 1. 로그인
+         */
+        const loginResult =
+          await authClient.login(
+            emailOrPayload,
+            password,
+          );
+
+        /*
+         * 2. 로그인 직후 /me 호출
+         *
+         * 로그인 응답만 믿지 않고
+         * DB의 최신 role을 다시 확인한다.
+         */
+        const me =
+          await authClient.me();
+
+        const normalizedUser =
+          normalizeAuthUser(me);
+
+        if (!normalizedUser) {
+          throw new Error(
+            "로그인 사용자 정보를 확인할 수 없습니다.",
+          );
+        }
+
+        /*
+         * 3. role까지 포함된 사용자 저장
+         */
+        setAuthSnapshot({
+          accessToken:
+            loginResult.accessToken,
+
+          token:
+            loginResult.token,
+
+          user:
+            me,
+
+          userId:
+            me?.id,
+        });
+
+        setAccessTokenState(
+          loginResult.accessToken,
+        );
+
+        setUser(
+          normalizedUser,
+        );
+
+        console.log(
+          "[AuthContext 로그인 사용자]",
+          normalizedUser,
+        );
+
+        console.log(
+          "[AuthContext 로그인 role]",
+          normalizedUser.role,
+        );
+
+        return normalizedUser;
+      },
+      [
+        setAuthFromResponse,
+      ],
+    );
+
+  /* ========================================
+     로그아웃
+  ======================================== */
+
+  const logout =
+    useCallback(
+      async () => {
+        try {
+          await authClient.logout();
+        } finally {
+          clearAuthState();
+        }
+      },
+      [
+        clearAuthState,
+      ],
+    );
+
+  /* ========================================
+     최초 인증 확인
+  ======================================== */
+
+  useEffect(() => {
+    let cancelled =
+      false;
+
+    const bootstrap =
+      async () => {
+        try {
+          const currentAccessToken =
+            getAccessToken();
+
+          if (
+            !currentAccessToken
+          ) {
+            clearAuth();
+
+            if (!cancelled) {
+              setAccessTokenState(
+                null,
+              );
+
+              setUser(
+                null,
+              );
+            }
+
             return;
           }
 
+          try {
+            /*
+             * 서버 기준 사용자 정보 조회
+             * 여기서 role도 다시 받는다.
+             */
+            const me =
+              await authClient.me();
+
+            const normalized =
+              normalizeAuthUser(
+                me,
+              );
+
+            if (!cancelled) {
+              setUser(
+                normalized,
+              );
+
+              setAccessTokenState(
+                getAccessToken(),
+              );
+            }
+
+            return;
+          } catch (error) {
+            const status =
+              getErrorStatus(error);
+
+            if (
+              isAuthExpiredStatus(
+                status,
+              )
+            ) {
+              await refreshAuth();
+
+              return;
+            }
+
+            if (!cancelled) {
+              syncStateFromStorage();
+            }
+          }
+        } finally {
           if (!cancelled) {
-            syncStateFromStorage();
+            setLoading(
+              false,
+            );
           }
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
+      };
 
     bootstrap();
 
     return () => {
-      cancelled = true;
-    };
-  }, [refreshAuth, syncStateFromStorage]);
-
-  const value = useMemo<AuthContextValue>(() => {
-    const authenticated = Boolean(user && accessToken);
-
-    return {
-      user,
-      accessToken,
-      isAuthenticated: authenticated,
-      isLoggedIn: authenticated,
-      loading,
-      login,
-      logout,
-      refreshAuth,
-      setAuthFromResponse,
+      cancelled =
+        true;
     };
   }, [
-    user,
-    accessToken,
-    loading,
-    login,
-    logout,
     refreshAuth,
-    setAuthFromResponse,
+    syncStateFromStorage,
   ]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  /* ========================================
+     Context 값
+  ======================================== */
+
+  const value =
+    useMemo<AuthContextValue>(
+      () => {
+        const authenticated =
+          Boolean(
+            user &&
+            accessToken,
+          );
+
+        return {
+          user,
+
+          accessToken,
+
+          isAuthenticated:
+            authenticated,
+
+          isLoggedIn:
+            authenticated,
+
+          loading,
+
+          login,
+
+          logout,
+
+          refreshAuth,
+
+          setAuthFromResponse,
+        };
+      },
+      [
+        user,
+        accessToken,
+        loading,
+        login,
+        logout,
+        refreshAuth,
+        setAuthFromResponse,
+      ],
+    );
+
+  return (
+    <AuthContext.Provider
+      value={value}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
+/* ==========================================
+   Hook
+========================================== */
+
 export function useAuth() {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(
+      AuthContext,
+    );
 
   if (!context) {
-    throw new Error("useAuth must be used within AuthProvider.");
+    throw new Error(
+      "useAuth must be used within AuthProvider.",
+    );
   }
 
   return context;

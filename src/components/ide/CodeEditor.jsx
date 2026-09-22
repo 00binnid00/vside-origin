@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import Editor, { DiffEditor, useMonaco } from "@monaco-editor/react";
 import { useDispatch, useSelector } from "react-redux";
@@ -312,12 +319,32 @@ const applyConflictEdit = (monacoInstance, editor, conflict, type) => {
 };
 
 
-function EditorModalPortal({ children }) {
-  const [mounted, setMounted] = useState(false);
+/**
+ * 구독할 외부 상태가 없으므로 해지 함수만 돌려준다.
+ *
+ * 모듈 바깥에 두는 이유는 매 렌더마다 새 함수가 되면 useSyncExternalStore 가
+ * 그때마다 다시 구독하기 때문이다.
+ */
+const subscribeToNothing = () => () => {};
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+/** 서버에서는 false, 브라우저에서는 true. */
+const getIsClient = () => true;
+const getIsServer = () => false;
+
+function EditorModalPortal({ children }) {
+  /*
+   * 브라우저에 올라온 뒤에만 그린다.
+   *
+   * 예전에는 useEffect 에서 setMounted(true) 를 불렀는데, 그리자마자 상태를
+   * 바꿔 한 번 더 그리게 만드는 형태라 React 19 의 set-state-in-effect 규칙에
+   * 걸린다. useSyncExternalStore 는 같은 판단("지금 서버인가 브라우저인가")을
+   * 상태 변경 없이 곧바로 돌려주므로 재렌더가 생기지 않는다.
+   */
+  const mounted = useSyncExternalStore(
+    subscribeToNothing,
+    getIsClient,
+    getIsServer,
+  );
 
   if (!mounted || typeof document === "undefined") return null;
 
@@ -823,14 +850,31 @@ export default function CodeEditor() {
     }
 
     if (bindingRef.current) {
-      try {
-        bindingRef.current.destroy();
-      } catch {
-        // y-monaco 가 이미 떼어진 핸들러를 다시 떼려다 던지는 경우가 있다.
-        // 정리 중이라 무시해도 안전하다.
-      }
-
+      const binding = bindingRef.current;
       bindingRef.current = null;
+
+      /*
+       * 모델이 이미 파기됐다면 여기서 destroy 를 부르면 안 된다.
+       *
+       * y-monaco 는 생성자에서 monacoModel.onWillDispose 에 자기 destroy 를
+       * 걸어 둔다. 그래서 파일을 갈아탈 때처럼 모델이 먼저 버려지면 다리는
+       * 이미 걷어진 상태다. 그때 우리가 또 부르면 y-monaco 가
+       * ytext.unobserve 로 없는 핸들러를 떼려 하고, yjs 가
+       * "[yjs] Tried to remove event handler that doesn't exist." 를 남긴다.
+       *
+       * 이건 throw 가 아니라 yjs 내부의 console.error 라서 아래 try/catch 로는
+       * 막히지 않는다. 호출 자체를 하지 않아야 한다.
+       *
+       * 반대 순서는 괜찮다. 우리가 먼저 destroy 하면 그 안에서
+       * _monacoDisposeHandler 까지 떼어 내므로 자동 destroy 가 뒤따르지 않는다.
+       */
+      if (!binding.monacoModel?.isDisposed?.()) {
+        try {
+          binding.destroy();
+        } catch {
+          // 에디터가 이미 정리된 경우
+        }
+      }
     }
 
     if (lockDecosRef.current.length > 0) {

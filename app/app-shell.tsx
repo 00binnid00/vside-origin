@@ -1,20 +1,28 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import {
+  useEffect,
+  type ReactNode,
+} from "react";
+import {
+  usePathname,
+  useRouter,
+} from "next/navigation";
 
 import TopNav from "@/components/landing/TopNav";
 import { useAuth } from "@/contexts/AuthContext";
+import { MessageProvider } from "@/contexts/MessageContext";
 
 export default function AppShell({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || "/";
   const router = useRouter();
 
   const {
+    user,
     loading,
     isAuthenticated,
     isLoggedIn,
@@ -24,99 +32,90 @@ export default function AppShell({
     isAuthenticated || isLoggedIn,
   );
 
-  const publicPaths = useMemo(
-    () => [
-      "/",
-      "/auth/login",
-      "/auth/signup",
-    ],
-    [],
-  );
+  const isAdmin =
+    user?.role === "ADMIN";
 
-  const isPublicPath = useMemo(() => {
-    if (!pathname) {
-      return false;
-    }
+  const isAdminPath =
+    /^\/admin(\/|$)/.test(pathname);
 
-    if (publicPaths.includes(pathname)) {
-      return true;
-    }
+  const isAuthPage =
+    pathname === "/auth/login" ||
+    pathname === "/auth/signup";
 
-    if (
-      pathname.startsWith("/auth/github")
-    ) {
-      return true;
-    }
+  const isGithubAuth =
+    /^\/auth\/github(\/|$)/.test(pathname);
 
-    return false;
-  }, [pathname, publicPaths]);
+  const isPublicPath =
+    pathname === "/" ||
+    isAuthPage ||
+    isGithubAuth;
 
   const hideTopNav =
-    pathname === "/auth/login" ||
-    pathname === "/auth/signup" ||
-    pathname?.startsWith("/auth/github") ||
-    pathname?.startsWith("/admin");
+    isAuthPage ||
+    isGithubAuth ||
+    isAdminPath;
 
   useEffect(() => {
-    if (loading) return;
-    if (isPublicPath) return;
-    if (isAuthed) return;
+    if (loading) {
+      return;
+    }
 
-    const currentPath =
-      typeof window !== "undefined"
-        ? `${window.location.pathname}${window.location.search}`
-        : pathname || "/";
+    if (!isPublicPath && !isAuthed) {
+      const currentPath =
+        `${window.location.pathname}${window.location.search}`;
 
-    router.replace(
-      `/auth/login?next=${encodeURIComponent(
-        currentPath,
-      )}`,
-    );
-  }, [
-    loading,
-    isPublicPath,
-    isAuthed,
-    pathname,
-    router,
-  ]);
+      router.replace(
+        `/auth/login?next=${encodeURIComponent(
+          currentPath,
+        )}`,
+      );
 
-  useEffect(() => {
-    if (loading) return;
-    if (!isAuthed) return;
+      return;
+    }
 
-    if (
-      pathname === "/auth/login" ||
-      pathname === "/auth/signup"
+    if (!isAuthed || !user) {
+      return;
+    }
+
+    if (isAuthPage) {
+      router.replace(
+        isAdmin ? "/admin" : "/main",
+      );
+    } else if (
+      isAdminPath &&
+      !isAdmin
     ) {
       router.replace("/main");
     }
   }, [
     loading,
+    isPublicPath,
     isAuthed,
+    user,
+    isAuthPage,
+    isAdmin,
+    isAdminPath,
     pathname,
     router,
   ]);
 
-  if (loading) {
-    return null;
-  }
-
   if (
-    !isPublicPath &&
-    !isAuthed
+    loading ||
+    (!isPublicPath && !isAuthed) ||
+    (isAdminPath && (!user || !isAdmin))
   ) {
     return null;
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[#F7F8FA]">
-      {!hideTopNav && (
-        <TopNav />
-      )}
+    <MessageProvider>
+      <div className="flex min-h-dvh flex-col bg-[#F7F8FA]">
+        {!hideTopNav && <TopNav />}
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {children}
+        </div>
       </div>
-    </div>
+    </MessageProvider>
   );
 }
