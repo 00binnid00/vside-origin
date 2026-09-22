@@ -65,22 +65,10 @@ function formatDateTime(value?: string | null) {
   }
 
   const year = date.getFullYear();
-
-  const month = String(
-    date.getMonth() + 1,
-  ).padStart(2, "0");
-
-  const day = String(
-    date.getDate(),
-  ).padStart(2, "0");
-
-  const hour = String(
-    date.getHours(),
-  ).padStart(2, "0");
-
-  const minute = String(
-    date.getMinutes(),
-  ).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
 
   return `${year}.${month}.${day} ${hour}:${minute}`;
 }
@@ -98,27 +86,15 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function AdminNoticePage() {
-  const [notices, setNotices] =
-    useState<NoticeItem[]>([]);
-
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
 
-  const [editingId, setEditingId] =
-    useState<number | null>(null);
-
-  const [isLoading, setIsLoading] =
-    useState(true);
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  const [editingLoadingId, setEditingLoadingId] =
-    useState<number | null>(null);
-
-  const [totalElements, setTotalElements] =
-    useState(0);
-
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingLoadingId, setEditingLoadingId] = useState<number | null>(null);
+  const [totalElements, setTotalElements] = useState(0);
 
   /* =========================
      공지 목록 조회
@@ -130,37 +106,23 @@ export default function AdminNoticePage() {
     setIsLoading(true);
 
     try {
-      const data =
-        await apiJson(
-          "/api/admin/notices?page=0&size=100",
-        ) as PageResponse<NoticeItem>;
+      const data = (await apiJson(
+        "/api/admin/notices?page=0&size=100",
+      )) as PageResponse<NoticeItem>;
 
       setNotices(data?.content ?? []);
-
-      setTotalElements(
-        data?.totalElements ??
-          data?.content?.length ??
-          0,
-      );
+      setTotalElements(data?.totalElements ?? data?.content?.length ?? 0);
     } catch (error) {
-      console.error(
-        "공지사항 조회 실패:",
-        error,
-      );
-
-      alert(
-        getErrorMessage(error),
-      );
+      console.error("공지사항 조회 실패:", error);
+      alert(getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-
   useEffect(() => {
     loadNotices();
   }, [loadNotices]);
-
 
   /* =========================
      폼 초기화
@@ -171,7 +133,6 @@ export default function AdminNoticePage() {
     setContent("");
     setEditingId(null);
   };
-
 
   /* =========================
      등록 / 수정
@@ -195,17 +156,12 @@ export default function AdminNoticePage() {
       return;
     }
 
-
     /* =========================
        수정
     ========================= */
 
     if (editingId !== null) {
-      const confirmed =
-        window.confirm(
-          "공지사항을 수정하시겠습니까?",
-        );
-
+      const confirmed = window.confirm("공지사항을 수정하시겠습니까?");
       if (!confirmed) {
         return;
       }
@@ -213,41 +169,26 @@ export default function AdminNoticePage() {
       setIsSubmitting(true);
 
       try {
-        await apiJson(
-          `/api/admin/notices/${editingId}`,
-          {
-            method: "PUT",
+        await apiJson(`/api/admin/notices/${editingId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            title: trimmedTitle,
+            content: trimmedContent,
+          }),
+        });
 
-            body: JSON.stringify({
-              title: trimmedTitle,
-              content: trimmedContent,
-            }),
-          },
-        );
-
-        alert(
-          "공지사항이 수정되었습니다.",
-        );
-
+        alert("공지사항이 수정되었습니다.");
         resetForm();
-
         await loadNotices();
       } catch (error) {
-        console.error(
-          "공지사항 수정 실패:",
-          error,
-        );
-
-        alert(
-          getErrorMessage(error),
-        );
+        console.error("공지사항 수정 실패:", error);
+        alert(getErrorMessage(error));
       } finally {
         setIsSubmitting(false);
       }
 
       return;
     }
-
 
     /* =========================
        등록
@@ -256,39 +197,24 @@ export default function AdminNoticePage() {
     setIsSubmitting(true);
 
     try {
-      await apiJson(
-        "/api/admin/notices",
-        {
-          method: "POST",
+      await apiJson("/api/admin/notices", {
+        method: "POST",
+        body: JSON.stringify({
+          title: trimmedTitle,
+          content: trimmedContent,
+        }),
+      });
 
-          body: JSON.stringify({
-            title: trimmedTitle,
-            content: trimmedContent,
-          }),
-        },
-      );
-
-      alert(
-        "공지사항이 등록되었습니다.",
-      );
-
+      alert("공지사항이 등록되었습니다.");
       resetForm();
-
       await loadNotices();
     } catch (error) {
-      console.error(
-        "공지사항 등록 실패:",
-        error,
-      );
-
-      alert(
-        getErrorMessage(error),
-      );
+      console.error("공지사항 등록 실패:", error);
+      alert(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
   };
-
 
   /* =========================
      수정 시작
@@ -299,9 +225,7 @@ export default function AdminNoticePage() {
      GET /api/admin/notices/{id}
   ========================= */
 
-  const handleEdit = async (
-    notice: NoticeItem,
-  ) => {
+  const handleEdit = async (notice: NoticeItem) => {
     if (editingLoadingId !== null) {
       return;
     }
@@ -309,10 +233,9 @@ export default function AdminNoticePage() {
     setEditingLoadingId(notice.id);
 
     try {
-      const detail =
-        await apiJson(
-          `/api/admin/notices/${notice.id}`,
-        ) as NoticeDetail;
+      const detail = (await apiJson(
+        `/api/admin/notices/${notice.id}`,
+      )) as NoticeDetail;
 
       setEditingId(detail.id);
       setTitle(detail.title ?? "");
@@ -323,19 +246,12 @@ export default function AdminNoticePage() {
         behavior: "smooth",
       });
     } catch (error) {
-      console.error(
-        "공지사항 상세 조회 실패:",
-        error,
-      );
-
-      alert(
-        getErrorMessage(error),
-      );
+      console.error("공지사항 상세 조회 실패:", error);
+      alert(getErrorMessage(error));
     } finally {
       setEditingLoadingId(null);
     }
   };
-
 
   /* =========================
      삭제
@@ -343,47 +259,31 @@ export default function AdminNoticePage() {
      DELETE /api/admin/notices/{id}
   ========================= */
 
-  const handleDelete = async (
-    notice: NoticeItem,
-  ) => {
-    const confirmed =
-      window.confirm(
-        `"${notice.title}" 공지사항을 삭제하시겠습니까?\n삭제된 공지는 복구할 수 없습니다.`,
-      );
+  const handleDelete = async (notice: NoticeItem) => {
+    const confirmed = window.confirm(
+      `"${notice.title}" 공지사항을 삭제하시겠습니까?\n삭제된 공지는 복구할 수 없습니다.`,
+    );
 
     if (!confirmed) {
       return;
     }
 
     try {
-      await apiJson(
-        `/api/admin/notices/${notice.id}`,
-        {
-          method: "DELETE",
-        },
-      );
+      await apiJson(`/api/admin/notices/${notice.id}`, {
+        method: "DELETE",
+      });
 
       if (editingId === notice.id) {
         resetForm();
       }
 
-      alert(
-        "공지사항이 삭제되었습니다.",
-      );
-
+      alert("공지사항이 삭제되었습니다.");
       await loadNotices();
     } catch (error) {
-      console.error(
-        "공지사항 삭제 실패:",
-        error,
-      );
-
-      alert(
-        getErrorMessage(error),
-      );
+      console.error("공지사항 삭제 실패:", error);
+      alert(getErrorMessage(error));
     }
   };
-
 
   return (
     <div className="mx-auto w-full max-w-[1500px]">
@@ -392,9 +292,7 @@ export default function AdminNoticePage() {
       ========================= */}
 
       <section className="mb-8">
-        <p className="mb-2 text-sm font-medium text-gray-400">
-          Board Management
-        </p>
+        <p className="mb-2 text-sm font-medium text-gray-400">Board Management</p>
 
         <div className="flex items-center gap-3">
           <Link
@@ -410,11 +308,9 @@ export default function AdminNoticePage() {
         </div>
 
         <p className="mt-3 text-sm leading-6 text-gray-500">
-          WAIVS 사용자에게 노출되는 공지사항을 등록하고
-          관리할 수 있습니다.
+          WAIVS 사용자에게 노출되는 공지사항을 등록하고 관리할 수 있습니다.
         </p>
       </section>
-
 
       {/* =========================
           작성 / 수정 폼
@@ -425,18 +321,12 @@ export default function AdminNoticePage() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-700">
-                {editingId !== null ? (
-                  <Pencil size={18} />
-                ) : (
-                  <Megaphone size={18} />
-                )}
+                {editingId !== null ? <Pencil size={18} /> : <Megaphone size={18} />}
               </div>
 
               <div>
                 <h2 className="text-base font-bold text-gray-900">
-                  {editingId !== null
-                    ? "공지 수정"
-                    : "공지 작성"}
+                  {editingId !== null ? "공지 수정" : "공지 작성"}
                 </h2>
 
                 <p className="mt-1 text-xs text-gray-400">
@@ -461,19 +351,14 @@ export default function AdminNoticePage() {
           </div>
         </div>
 
-
         <div className="space-y-7 px-6 py-6">
           {/* 제목 */}
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-semibold text-gray-700">
-                제목
-              </label>
+              <label className="text-sm font-semibold text-gray-700">제목</label>
 
-              <span className="text-xs text-gray-400">
-                {title.length} / 100
-              </span>
+              <span className="text-xs text-gray-400">{title.length} / 100</span>
             </div>
 
             <input
@@ -481,45 +366,31 @@ export default function AdminNoticePage() {
               value={title}
               maxLength={100}
               disabled={isSubmitting}
-              onChange={(e) =>
-                setTitle(
-                  e.target.value,
-                )
-              }
+              onChange={(e) => setTitle(e.target.value)}
               placeholder="공지 제목을 입력해주세요."
               className="h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-100 disabled:bg-gray-50"
             />
           </div>
 
-
           {/* 내용 */}
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-semibold text-gray-700">
-                내용
-              </label>
+              <label className="text-sm font-semibold text-gray-700">내용</label>
 
-              <span className="text-xs text-gray-400">
-                {content.length} / 3000
-              </span>
+              <span className="text-xs text-gray-400">{content.length} / 3000</span>
             </div>
 
             <textarea
               value={content}
               maxLength={3000}
               disabled={isSubmitting}
-              onChange={(e) =>
-                setContent(
-                  e.target.value,
-                )
-              }
+              onChange={(e) => setContent(e.target.value)}
               placeholder="공지 내용을 입력해주세요."
               className="min-h-[260px] w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-4 text-sm leading-7 text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-100 disabled:bg-gray-50"
             />
           </div>
         </div>
-
 
         {/* 하단 버튼 */}
 
@@ -541,21 +412,15 @@ export default function AdminNoticePage() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-gray-900 px-5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? (
-              <Loader2
-                size={16}
-                className="animate-spin"
-              />
+              <Loader2 size={16} className="animate-spin" />
             ) : (
               <Save size={16} />
             )}
 
-            {editingId !== null
-              ? "수정 완료"
-              : "공지 등록"}
+            {editingId !== null ? "수정 완료" : "공지 등록"}
           </button>
         </div>
       </section>
-
 
       {/* =========================
           공지 목록
@@ -564,9 +429,7 @@ export default function AdminNoticePage() {
       <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5">
           <div>
-            <h2 className="text-base font-bold text-gray-900">
-              등록된 공지
-            </h2>
+            <h2 className="text-base font-bold text-gray-900">등록된 공지</h2>
 
             <p className="mt-1 text-xs text-gray-400">
               등록된 공지사항을 확인하거나 수정 및 삭제할 수 있습니다.
@@ -577,7 +440,6 @@ export default function AdminNoticePage() {
             총 {totalElements}개
           </span>
         </div>
-
 
         {isLoading ? (
           <div className="flex min-h-[220px] flex-col items-center justify-center">
@@ -615,74 +477,72 @@ export default function AdminNoticePage() {
               </thead>
 
               <tbody className="divide-y divide-gray-100">
-                {notices.map(
-                  (notice) => (
-                    <tr
-                      key={notice.id}
-                      className={`transition hover:bg-gray-50/70 ${
-                        editingId ===
+                {notices.map((notice) => (
+                  <tr
+                    key={notice.id}
+                    className={`transition hover:bg-gray-50/70 ${
+                      editingId ===
                         notice.id
-                          ? "bg-gray-50"
-                          : ""
-                      }`}
-                    >
-                      <td className="px-5 py-5 text-center text-sm text-gray-400">
-                        {notice.id}
-                      </td>
+                        ? "bg-gray-50"
+                        : ""
+                    }`}
+                  >
+                    <td className="px-5 py-5 text-center text-sm text-gray-400">
+                      {notice.id}
+                    </td>
 
-                      <td className="px-5 py-5">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex shrink-0 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">
-                              공지
-                            </span>
+                    <td className="px-5 py-5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex shrink-0 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">
+                            공지
+                          </span>
 
-                            <p className="truncate text-sm font-bold text-gray-900">
-                              {notice.title}
-                            </p>
-                          </div>
-
-                          <p className="mt-2 line-clamp-1 text-xs leading-5 text-gray-500">
-                            {
-                              notice.contentSnippet
-                            }
+                          <p className="truncate text-sm font-bold text-gray-900">
+                            {notice.title}
                           </p>
                         </div>
+
                         <p className="mt-2 line-clamp-1 text-xs leading-5 text-gray-500">
-                          {notice.content}
+                          {notice.contentSnippet}
                         </p>
                       </div>
                     </td>
 
-                    {/* 작성일 */}
                     <td className="px-5 py-5 text-center text-sm text-gray-500">
-                      {notice.createdAt}
+                      {formatDateTime(notice.createdAt)}
                     </td>
 
-                    {/* 조회 */}
                     <td className="px-5 py-5 text-center text-sm text-gray-500">
-                      {notice.views.toLocaleString()}
+                      {Number(notice.views ?? 0).toLocaleString()}
                     </td>
 
-                    {/* 관리 */}
                     <td className="px-2 py-5">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            handleEdit(notice)
-                          }
-                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-xs font-semibold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+                          disabled={editingLoadingId !== null}
+                          onClick={() => handleEdit(notice)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-xs font-semibold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <Pencil size={14} />
+                          {editingLoadingId ===
+                          notice.id ? (
+                            <Loader2
+                              size={14}
+                              className="animate-spin"
+                            />
+                          ) : (
+                            <Pencil
+                              size={14}
+                            />
+                          )}
+
                           수정
                         </button>
 
                         <button
                           type="button"
-                          onClick={() =>
-                            handleDelete(notice)
-                          }
+                          onClick={() => handleDelete(notice)}
                           className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100 hover:text-red-900"
                         >
                           <Trash2 size={14} />
@@ -692,75 +552,6 @@ export default function AdminNoticePage() {
                     </td>
                   </tr>
                 ))}
-=======
-                      </td>
-
-                      <td className="px-5 py-5 text-center text-sm text-gray-500">
-                        {formatDateTime(
-                          notice.createdAt,
-                        )}
-                      </td>
-
-                      <td className="px-5 py-5 text-center text-sm text-gray-500">
-                        {Number(
-                          notice.views ??
-                            0,
-                        ).toLocaleString()}
-                      </td>
-
-                      <td className="px-2 py-5">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            type="button"
-                            disabled={
-                              editingLoadingId !==
-                              null
-                            }
-                            onClick={() =>
-                              handleEdit(
-                                notice,
-                              )
-                            }
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 text-xs font-semibold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {editingLoadingId ===
-                            notice.id ? (
-                              <Loader2
-                                size={
-                                  14
-                                }
-                                className="animate-spin"
-                              />
-                            ) : (
-                              <Pencil
-                                size={
-                                  14
-                                }
-                              />
-                            )}
-
-                            수정
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDelete(
-                                notice,
-                              )
-                            }
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100 hover:text-red-900"
-                          >
-                            <Trash2
-                              size={14}
-                            />
-                            삭제
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ),
-                )}
               </tbody>
             </table>
           </div>
