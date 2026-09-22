@@ -2,6 +2,13 @@
 
 import Link from "next/link";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
   Search,
   Loader2,
   Flame,
@@ -15,23 +22,9 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 
-import {
-  useEffect,
-  useState,
-  useCallback,
-  useMemo,
-} from "react";
-
 import CommunityHeader from "@/components/community/CommunityHeader";
-import PostCard from "@/components/community/PostCard";
-
 import { fetchPosts } from "@/lib/communityApi";
 import { apiJson } from "@/lib/api/apiClient";
-
-
-/* ==========================================
-   카테고리
-========================================== */
 
 const categoryMap: Record<string, string> = {
   전체: "All",
@@ -41,10 +34,6 @@ const categoryMap: Record<string, string> = {
   "AI 도움": "AIHelp",
   "팀원 모집": "TeamRecruit",
 };
-
-const categories =
-  Object.keys(categoryMap);
-
 
 const categoryLabel: Record<string, string> = {
   Question: "질문",
@@ -56,1720 +45,690 @@ const categoryLabel: Record<string, string> = {
   NOTICE: "공지",
 };
 
-
 const categoryStyle: Record<string, string> = {
-  Question:
-    "bg-blue-50 text-blue-600",
-
-  Free:
-    "bg-violet-50 text-violet-600",
-
-  Info:
-    "bg-emerald-50 text-emerald-600",
-
-  AIHelp:
-    "bg-amber-50 text-amber-600",
-
-  TeamRecruit:
-    "bg-cyan-50 text-cyan-600",
-
-  Showcase:
-    "bg-pink-50 text-pink-600",
-
-  NOTICE:
-    "bg-red-50 text-red-600",
+  Question: "bg-blue-50 text-blue-600",
+  Free: "bg-violet-50 text-violet-600",
+  Info: "bg-emerald-50 text-emerald-600",
+  AIHelp: "bg-amber-50 text-amber-600",
+  TeamRecruit: "bg-cyan-50 text-cyan-600",
+  Showcase: "bg-pink-50 text-pink-600",
 };
 
+type SortOption = "latest" | "oldest" | "recommended";
 
-/* ==========================================
-   타입
-========================================== */
-
-type SortOption =
-  | "latest"
-  | "oldest"
-  | "recommended";
-
-
-interface NoticeItem {
+type PostItem = {
   id: number;
-
   title: string;
-
-  contentSnippet?: string;
-
   category?: string;
-
   postType?: string;
-
-  authorId?: number;
-
+  contentSnippet?: string;
+  content?: string;
   authorName?: string;
-
-  views?: number;
-
-  likeCount?: number;
-
-  scrapCount?: number;
-
   createdAt?: string;
-}
-
-
-interface PageResponse<T> {
-  content: T[];
-
-  totalElements: number;
-
-  totalPages: number;
-
-  number: number;
-
-  size: number;
-}
-
-
-/* ==========================================
-   공지 여부 확인
-========================================== */
-
-function isNotice(post: any) {
-  return (
-    post?.postType === "NOTICE" ||
-    post?.category === "NOTICE"
-  );
-}
-
-
-/* ==========================================
-   날짜
-========================================== */
-
-function formatNoticeDate(
-  value?: string | null,
-) {
-  if (!value) {
-    return "-";
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return value;
-  }
-
-  const year =
-    date.getFullYear();
-
-  const month =
-    String(
-      date.getMonth() + 1,
-    ).padStart(
-      2,
-      "0",
-    );
-
-  const day =
-    String(
-      date.getDate(),
-    ).padStart(
-      2,
-      "0",
-    );
-
-  return `${year}-${month}-${day}`;
-}
-
-
-/* ==========================================
-   페이지
-========================================== */
-
-export default function CommunityPage() {
-
-  /* ========================================
-     카테고리 / 검색
-  ======================================== */
-
-  const [
-    selectedCategory,
-    setSelectedCategory,
-  ] =
-    useState("전체");
-
-
-  const [
-    keyword,
-    setKeyword,
-  ] =
-    useState("");
-
-
-  const [
-    debouncedKeyword,
-    setDebouncedKeyword,
-  ] =
-    useState("");
-
-
-  /* ========================================
-     정렬
-  ======================================== */
-
-  const [
-    sortOption,
-    setSortOption,
-  ] =
-    useState<SortOption>(
-      "latest",
-    );
-
-
-  /* ========================================
-     일반 게시글
-  ======================================== */
-
-  const [
-    posts,
-    setPosts,
-  ] =
-    useState<any[]>([]);
-
-
-  /* ========================================
-     공지사항
-  ======================================== */
-
-  const [
-    notices,
-    setNotices,
-  ] =
-    useState<NoticeItem[]>(
-      [],
-    );
-
-
-  const [
-    isNoticeLoading,
-    setIsNoticeLoading,
-  ] =
-    useState(false);
-
-
-  /* ========================================
-     페이지네이션
-  ======================================== */
-
-  const [
-    currentPage,
-    setCurrentPage,
-  ] =
-    useState(0);
-
-
-  const [
-    totalPages,
-    setTotalPages,
-  ] =
-    useState(0);
-
-
-  const [
-    totalElements,
-    setTotalElements,
-  ] =
-    useState(0);
-
-
-  /* ========================================
-     로딩
-  ======================================== */
-
-  const [
-    isLoading,
-    setIsLoading,
-  ] =
-    useState(false);
-
-
-  /* ========================================
-     검색 debounce
-  ======================================== */
-
-  useEffect(() => {
-
-    const timer =
-      setTimeout(
-        () => {
-
-          setDebouncedKeyword(
-            keyword,
-          );
-
-          setCurrentPage(
-            0,
-          );
-
-        },
-        500,
-      );
-
-
-    return () => {
-
-      clearTimeout(
-        timer,
-      );
-
-    };
-
-  }, [
-    keyword,
-  ]);
-
-
-  /* ========================================
-     카테고리 변경
-  ======================================== */
-
-  const handleCategoryChange = (
-    category: string,
-  ) => {
-
-    setSelectedCategory(
-      category,
-    );
-
-    setCurrentPage(
-      0,
-    );
-
-  };
-
-
-  /* ========================================
-     정렬 변경
-  ======================================== */
-
-  const handleSortChange = (
-    e: React.ChangeEvent<HTMLSelectElement>,
-  ) => {
-
-    setSortOption(
-      e.target
-        .value as SortOption,
-    );
-
-    setCurrentPage(
-      0,
-    );
-
-  };
-
-
-  /* ========================================
-     관리자 공지 조회
-
-     GET /api/posts?category=NOTICE
-
-     관리자 전용 API를 호출하는 게 아니라
-     일반 사용자 게시판 API에서 NOTICE만 가져온다.
-  ======================================== */
-
-  const loadNotices =
-    useCallback(
-      async () => {
-
-        setIsNoticeLoading(
-          true,
-        );
-
-        try {
-
-          const data =
-            (await apiJson(
-              "/api/posts?category=NOTICE&page=0&size=10",
-            )) as PageResponse<NoticeItem>;
-
-
-          const loaded =
-            Array.isArray(
-              data?.content,
-            )
-              ? data.content
-              : [];
-
-
-          /*
-           * 백엔드에서 NOTICE만 다시 걸러준다.
-           *
-           * searchBoard 쿼리 구조상
-           * 안전하게 한 번 더 확인.
-           */
-          const noticePosts =
-            loaded
-              .filter(
-                (
-                  post,
-                ) =>
-                  isNotice(
-                    post,
-                  ),
-              )
-              .sort(
-                (
-                  a,
-                  b,
-                ) => {
-
-                  const aTime =
-                    a.createdAt
-                      ? new Date(
-                          a.createdAt,
-                        ).getTime()
-                      : 0;
-
-
-                  const bTime =
-                    b.createdAt
-                      ? new Date(
-                          b.createdAt,
-                        ).getTime()
-                      : 0;
-
-
-                  return (
-                    bTime -
-                    aTime
-                  );
-
-                },
-              );
-
-
-          console.log(
-            "[공지 API 응답]",
-            data,
-          );
-
-
-          console.log(
-            "[분리된 공지]",
-            noticePosts,
-          );
-
-
-          setNotices(
-            noticePosts,
-          );
-
-        } catch (
-          error
-        ) {
-
-          console.error(
-            "공지사항을 불러오는데 실패했습니다.",
-            error,
-          );
-
-          setNotices(
-            [],
-          );
-
-        } finally {
-
-          setIsNoticeLoading(
-            false,
-          );
-
-        }
-
-      },
-      [],
-    );
-
-
-  /* ========================================
-     일반 게시글 조회
-  ======================================== */
-
-  const loadPosts =
-    useCallback(
-      async () => {
-
-        setIsLoading(
-          true,
-        );
-
-        try {
-
-          const categoryValue =
-            categoryMap[
-              selectedCategory
-            ];
-
-
-          const data =
-            await fetchPosts(
-
-              categoryValue ===
-                "All"
-                ? undefined
-                : categoryValue,
-
-              debouncedKeyword ||
-                undefined,
-
-              currentPage,
-
-              10,
-
-            );
-
-
-          const loadedPosts =
-            Array.isArray(
-              data?.content,
-            )
-              ? data.content
-              : [];
-
-
-          /*
-           * 백엔드 /api/posts는
-           * NOTICE를 함께 반환할 수 있음.
-           *
-           * 일반 게시글 영역에서는 공지를 제거한다.
-           */
-          const normalPosts =
-            loadedPosts.filter(
-              (
-                post: any,
-              ) =>
-                !isNotice(
-                  post,
-                ),
-            );
-
-
-          console.log(
-            "[전체 게시글 API 응답]",
-            data,
-          );
-
-
-          console.log(
-            "[일반 게시글]",
-            normalPosts,
-          );
-
-
-          setPosts(
-            normalPosts,
-          );
-
-
-          setTotalPages(
-            data?.totalPages ??
-              0,
-          );
-
-
-          /*
-           * 현재 백엔드 전체 개수에는
-           * NOTICE가 포함될 수 있음.
-           *
-           * 첫 페이지에 포함된 공지만큼은
-           * 화면 숫자에서 제외한다.
-           */
-          const noticeCountInPage =
-            loadedPosts.filter(
-              (
-                post: any,
-              ) =>
-                isNotice(
-                  post,
-                ),
-            ).length;
-
-
-          const backendTotal =
-            Number(
-              data?.totalElements ??
-                loadedPosts.length,
-            ) || 0;
-
-
-          setTotalElements(
-            Math.max(
-              0,
-              backendTotal -
-                noticeCountInPage,
-            ),
-          );
-
-        } catch (
-          error
-        ) {
-
-          console.error(
-            "게시글을 불러오는데 실패했습니다.",
-            error,
-          );
-
-          setPosts(
-            [],
-          );
-
-          setTotalPages(
-            0,
-          );
-
-          setTotalElements(
-            0,
-          );
-
-        } finally {
-
-          setIsLoading(
-            false,
-          );
-
-        }
-
-      },
-      [
-        selectedCategory,
-        debouncedKeyword,
-        currentPage,
-      ],
-    );
-
-
-  /* ========================================
-     최초 조회
-  ======================================== */
-
-  useEffect(
-    () => {
-
-      loadPosts();
-
-    },
-    [
-      loadPosts,
-    ],
-  );
-
-
-  useEffect(
-    () => {
-
-      loadNotices();
-
-    },
-    [
-      loadNotices,
-    ],
-  );
-
-
-  /* ========================================
-     화면 다시 돌아왔을 때 새로고침
-
-     관리자가 다른 탭에서 공지를 만들거나
-     게시글 작성 후 돌아오는 경우 반영
-  ======================================== */
-
-  useEffect(
-    () => {
-
-      const refreshPosts =
-        () => {
-
-          loadPosts();
-
-          loadNotices();
-
-        };
-
-
-      window.addEventListener(
-        "pageshow",
-        refreshPosts,
-      );
-
-
-      window.addEventListener(
-        "focus",
-        refreshPosts,
-      );
-
-
-      return () => {
-
-        window.removeEventListener(
-          "pageshow",
-          refreshPosts,
-        );
-
-
-        window.removeEventListener(
-          "focus",
-          refreshPosts,
-        );
-
-      };
-
-    },
-    [
-      loadPosts,
-      loadNotices,
-    ],
-  );
-
-
-  /* ========================================
-     게시글 날짜값
-  ======================================== */
-
-  const getPostTime = (
-    post: any,
-  ) => {
-
-    const dateValue =
-      post.createdAt ??
+  createdDate?: string;
+  date?: string;
+  updatedAt?: string;
+  views?: number;
+  viewCount?: number;
+  likeCount?: number;
+  likes?: number;
+  recommendCount?: number;
+  scrapCount?: number;
+  scraps?: number;
+  previewImageUrl?: string;
+};
+
+const isNotice = (post: PostItem) =>
+  post.postType === "NOTICE" || post.category === "NOTICE";
+
+const viewsOf = (post: PostItem) =>
+  Number(post.viewCount ?? post.views ?? 0) || 0;
+
+const likesOf = (post: PostItem) =>
+  Number(post.likeCount ?? post.likes ?? post.recommendCount ?? 0) || 0;
+
+const scrapsOf = (post: PostItem) =>
+  Number(post.scrapCount ?? post.scraps ?? 0) || 0;
+
+const timeOf = (post: PostItem) =>
+  new Date(
+    post.createdAt ??
       post.createdDate ??
       post.date ??
-      post.updatedAt;
+      post.updatedAt ??
+      "",
+  ).getTime() || 0;
 
+const formatDate = (value?: string) =>
+  value ? value.replace("T", " ").slice(0, 10) : "-";
 
-    if (
-      !dateValue
-    ) {
-      return 0;
+function savePostInfo(post: PostItem) {
+  sessionStorage.setItem(
+    `community-view-${post.id}`,
+    String(viewsOf(post)),
+  );
+}
+
+export default function CommunityPage() {
+  const [selectedCategory, setSelectedCategory] = useState("전체");
+  const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  const [sortOption, setSortOption] = useState<SortOption>("latest");
+
+  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [notices, setNotices] = useState<PostItem[]>([]);
+  const [showAllNotices, setShowAllNotices] = useState(false);
+
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isNoticeLoading, setIsNoticeLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [noticeError, setNoticeError] = useState("");
+
+  const postsRequest = useRef(0);
+  const noticeRequest = useRef(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedKeyword(keyword);
+      setCurrentPage(0);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  const loadNotices = useCallback(async () => {
+    const request = ++noticeRequest.current;
+    setIsNoticeLoading(true);
+
+    try {
+      const data = await apiJson(
+        "/api/posts?category=NOTICE&page=0&size=10",
+      );
+
+      if (request !== noticeRequest.current) return;
+
+      const loaded: PostItem[] = Array.isArray(data?.content)
+        ? data.content
+        : [];
+
+      setNotices(
+        loaded.filter(isNotice).sort((a, b) => timeOf(b) - timeOf(a)),
+      );
+      setNoticeError("");
+    } catch {
+      if (request === noticeRequest.current) {
+        setNoticeError("공지를 불러오지 못했습니다.");
+      }
+    } finally {
+      if (request === noticeRequest.current) {
+        setIsNoticeLoading(false);
+      }
     }
-
-
-    const time =
-      new Date(
-        dateValue,
-      ).getTime();
-
-
-    return Number.isNaN(
-      time,
-    )
-      ? 0
-      : time;
-
-  };
-
-
-  /* ========================================
-     게시글 정렬
-  ======================================== */
-
-  const sortedPosts =
-    useMemo(
-      () => {
-
-        const copiedPosts = [
-          ...posts,
-        ];
-
-
-        return copiedPosts.sort(
-          (
-            a,
-            b,
-          ) => {
-
-            /* 최신순 */
-            if (
-              sortOption ===
-              "latest"
-            ) {
-
-              return (
-                getPostTime(
-                  b,
-                ) -
-                getPostTime(
-                  a,
-                )
-              );
-
-            }
-
-
-            /* 오래된순 */
-            if (
-              sortOption ===
-              "oldest"
-            ) {
-
-              return (
-                getPostTime(
-                  a,
-                ) -
-                getPostTime(
-                  b,
-                )
-              );
-
-            }
-
-
-            /* 추천순 */
-            if (
-              sortOption ===
-              "recommended"
-            ) {
-
-              const aLikes =
-                Number(
-                  a.likeCount ??
-                    a.likes ??
-                    a.recommendCount ??
-                    0,
-                ) || 0;
-
-
-              const bLikes =
-                Number(
-                  b.likeCount ??
-                    b.likes ??
-                    b.recommendCount ??
-                    0,
-                ) || 0;
-
-
-              /*
-               * 좋아요 같으면
-               * 조회수 높은 글 우선
-               */
-              if (
-                bLikes ===
-                aLikes
-              ) {
-
-                const aViews =
-                  Number(
-                    a.viewCount ??
-                      a.views ??
-                      0,
-                  ) || 0;
-
-
-                const bViews =
-                  Number(
-                    b.viewCount ??
-                      b.views ??
-                      0,
-                  ) || 0;
-
-
-                /*
-                 * 조회수까지 같으면 최신순
-                 */
-                if (
-                  bViews ===
-                  aViews
-                ) {
-
-                  return (
-                    getPostTime(
-                      b,
-                    ) -
-                    getPostTime(
-                      a,
-                    )
-                  );
-
-                }
-
-
-                return (
-                  bViews -
-                  aViews
-                );
-
-              }
-
-
-              return (
-                bLikes -
-                aLikes
-              );
-
-            }
-
-
-            return 0;
-
-          },
-        );
-
-      },
-      [
-        posts,
-        sortOption,
-      ],
-    );
-
-
-  /* ========================================
-     HOT 게시글
-
-     posts에는 NOTICE가 제거되어 있기 때문에
-     공지는 HOT에 포함되지 않는다.
-  ======================================== */
-
-  const hotPosts =
-    useMemo(
-      () => {
-
-        return [
-          ...posts,
-        ]
-          .sort(
-            (
-              a,
-              b,
-            ) => {
-
-              const aViews =
-                a.viewCount ??
-                a.views ??
-                0;
-
-
-              const bViews =
-                b.viewCount ??
-                b.views ??
-                0;
-
-
-              const aLikes =
-                a.likeCount ??
-                a.likes ??
-                0;
-
-
-              const bLikes =
-                b.likeCount ??
-                b.likes ??
-                0;
-
-
-              const aScraps =
-                a.scrapCount ??
-                a.scraps ??
-                0;
-
-
-              const bScraps =
-                b.scrapCount ??
-                b.scraps ??
-                0;
-
-
-              const aScore =
-                Number(
-                  aViews,
-                ) +
-                Number(
-                  aLikes,
-                ) *
-                  4 +
-                Number(
-                  aScraps,
-                ) *
-                  5;
-
-
-              const bScore =
-                Number(
-                  bViews,
-                ) +
-                Number(
-                  bLikes,
-                ) *
-                  4 +
-                Number(
-                  bScraps,
-                ) *
-                  5;
-
-
-              return (
-                bScore -
-                aScore
-              );
-
-            },
-          )
-          .slice(
-            0,
-            5,
+  }, []);
+
+  const loadPosts = useCallback(async () => {
+    const request = ++postsRequest.current;
+    setIsLoading(true);
+
+    try {
+      const category = categoryMap[selectedCategory];
+
+      const data = await fetchPosts(
+        category === "All" ? undefined : category,
+        debouncedKeyword || undefined,
+        currentPage,
+        10,
+      );
+
+      if (request !== postsRequest.current) return;
+
+      const loaded: PostItem[] = Array.isArray(data?.content)
+        ? data.content
+        : [];
+
+      setPosts(loaded.filter((post) => !isNotice(post)));
+      setTotalPages(data?.totalPages ?? 0);
+
+      const total =
+        Number(data?.totalElements ?? loaded.length) || 0;
+
+      setTotalElements(
+        Math.max(0, total - loaded.filter(isNotice).length),
+      );
+      setError("");
+    } catch {
+      if (request === postsRequest.current) {
+        setError("게시글을 불러오지 못했습니다.");
+      }
+    } finally {
+      if (request === postsRequest.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [selectedCategory, debouncedKeyword, currentPage]);
+
+  useEffect(() => {
+    void loadPosts();
+
+    return () => {
+      postsRequest.current++;
+    };
+  }, [loadPosts]);
+
+  useEffect(() => {
+    void loadNotices();
+
+    return () => {
+      noticeRequest.current++;
+    };
+  }, [loadNotices]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadPosts();
+      void loadNotices();
+    };
+
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
+  }, [loadPosts, loadNotices]);
+
+  // 기존과 동일하게 현재 조회한 페이지 안에서 정렬합니다.
+  const sortedPosts = useMemo(
+    () =>
+      [...posts].sort((a, b) => {
+        if (sortOption === "oldest") {
+          return timeOf(a) - timeOf(b);
+        }
+
+        if (sortOption === "recommended") {
+          return (
+            likesOf(b) - likesOf(a) ||
+            viewsOf(b) - viewsOf(a) ||
+            timeOf(b) - timeOf(a)
           );
+        }
 
-      },
-      [
-        posts,
-      ],
-    );
+        return timeOf(b) - timeOf(a);
+      }),
+    [posts, sortOption],
+  );
 
+  const hotPosts = useMemo(
+    () =>
+      [...posts]
+        .sort(
+          (a, b) =>
+            viewsOf(b) +
+            likesOf(b) * 4 +
+            scrapsOf(b) * 5 -
+            (viewsOf(a) + likesOf(a) * 4 + scrapsOf(a) * 5),
+        )
+        .slice(0, 5),
+    [posts],
+  );
 
-  /* ========================================
-     상세 페이지 이동 전 조회수 저장
-  ======================================== */
+  // 기본으로 최신 공지 1개만 표시
+  const visibleNotices = showAllNotices
+    ? notices
+    : notices.slice(0, 1);
 
-  const savePostInfo = (
-    post: any,
-  ) => {
-
-    const views =
-      post.viewCount ??
-      post.views ??
-      0;
-
-
-    sessionStorage.setItem(
-      `community-view-${post.id}`,
-      String(
-        views,
-      ),
-    );
-
-  };
-
-
-  /* ========================================
-     화면
-  ======================================== */
+  const pageStart = Math.max(
+    0,
+    Math.min(currentPage - 2, totalPages - 5),
+  );
 
   return (
-    <main className="min-h-screen bg-[#f5f6fa] px-5 pb-10 pt-6 text-slate-900 md:px-8">
-
+    <main className="flex-1 bg-[#f5f6fa] px-4 pb-8 pt-4 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-[1240px]">
+        {/* 게시판 헤더 */}
+        <div className="mb-4 [&>*]:!my-0 [&>*]:!py-0 [&_h1]:!text-2xl [&_p]:!mt-1 [&_p]:!text-xs">
+          <CommunityHeader />
+        </div>
 
-        <CommunityHeader />
-
-
-        {/* ====================================
-            카테고리 + 정렬 + 검색
-        ==================================== */}
-
-        <div className="mb-4 mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-
-          {/* 카테고리 */}
-
-          <div className="flex flex-wrap gap-2">
-
-            {categories.map(
-              (
-                item,
-              ) => {
-
-                const active =
-                  selectedCategory ===
-                  item;
-
-
-                return (
-                  <button
-                    key={
-                      item
-                    }
-                    type="button"
-                    onClick={() =>
-                      handleCategoryChange(
-                        item,
-                      )
-                    }
-                    className={`min-w-[68px] rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                      active
-                        ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200/60"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-600"
-                    }`}
-                  >
-                    {
-                      item
-                    }
-                  </button>
-                );
-
-              },
-            )}
-
+        {/* 카테고리 / 정렬 / 검색 */}
+        <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div
+            className="flex gap-1.5 overflow-x-auto pb-1 xl:pb-0"
+            aria-label="게시글 카테고리"
+          >
+            {Object.keys(categoryMap).map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={selectedCategory === item}
+                onClick={() => {
+                  setSelectedCategory(item);
+                  setCurrentPage(0);
+                }}
+                className={`shrink-0 rounded-xl border px-3.5 py-2 text-sm font-semibold transition ${
+                  selectedCategory === item
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-600"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
           </div>
 
-
-          {/* 정렬 + 검색 */}
-
-          <div className="flex w-full items-center gap-2 lg:w-auto">
-
-            {/* 정렬 */}
-
+          <div className="flex min-w-0 gap-2 xl:w-[390px]">
             <div className="relative shrink-0">
-
               <ArrowUpDown
-                size={15}
+                size={14}
                 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
 
-
               <select
-                value={
-                  sortOption
-                }
-                onChange={
-                  handleSortChange
-                }
-                className="h-[42px] appearance-none rounded-full border border-slate-200 bg-white py-0 pl-9 pr-9 text-sm font-medium text-slate-600 outline-none transition hover:border-slate-300 focus:border-blue-400 focus:ring-4 focus:ring-blue-100/60"
+                aria-label="게시글 정렬"
+                value={sortOption}
+                onChange={(event) => {
+                  setSortOption(event.target.value as SortOption);
+                  setCurrentPage(0);
+                }}
+                className="h-10 appearance-none rounded-xl border border-slate-200 bg-white pl-8 pr-8 text-sm text-slate-600 outline-none focus:border-blue-400"
               >
-
-                <option value="latest">
-                  최신순
-                </option>
-
-                <option value="oldest">
-                  오래된순
-                </option>
-
-                <option value="recommended">
-                  추천순
-                </option>
-
+                <option value="latest">최신순</option>
+                <option value="oldest">오래된순</option>
+                <option value="recommended">추천순</option>
               </select>
 
-
               <ChevronDown
-                size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={14}
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
               />
-
             </div>
 
-
-            {/* 검색 */}
-
-            <div className="relative min-w-0 flex-1 lg:w-[330px] lg:flex-none">
-
+            <div className="relative min-w-0 flex-1">
               <Search
-                size={17}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
-
 
               <input
-                value={
-                  keyword
-                }
-                onChange={(
-                  e,
-                ) =>
-                  setKeyword(
-                    e.target
-                      .value,
-                  )
-                }
+                aria-label="게시글 검색"
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
                 placeholder="제목, 내용 검색"
-                className="h-[42px] w-full rounded-full border border-slate-200 bg-white pl-10 pr-5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100/60"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none placeholder:text-slate-400 focus:border-blue-400"
               />
-
             </div>
-
           </div>
-
         </div>
 
+        {/* 독립된 공지사항 카드 */}
+        <section
+          aria-labelledby="community-notice-heading"
+          className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-stretch">
+            {/* 공지사항 라벨 */}
+            <div className="flex shrink-0 items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2.5 sm:w-[160px] sm:border-b-0 sm:border-r sm:px-5 sm:py-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                <Megaphone size={17} aria-hidden="true" />
+              </span>
 
-        {/* ====================================
-            공지사항
-        ==================================== */}
-
-        <section className="mb-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-
-          {/* 공지 헤더 */}
-
-          <div className="flex items-center justify-between px-6 pb-3 pt-4">
-
-            <div className="flex items-center gap-2">
-
-              <Megaphone
-                size={19}
-                className="text-blue-600"
-              />
-
-
-              <span className="text-[17px] font-bold text-gray-900">
+              <h2
+                id="community-notice-heading"
+                className="text-sm font-bold text-blue-950"
+              >
                 공지사항
-              </span>
-
+              </h2>
             </div>
 
-
-            {!isNoticeLoading &&
-              notices.length >
-                0 && (
-
-                <span className="text-xs font-medium text-gray-400">
-                  {
-                    notices.length
-                  }
-                  개
-                </span>
-
-              )}
-
-          </div>
-
-
-          {/* 공지 로딩 */}
-
-          {isNoticeLoading ? (
-
-            <div className="mx-5 mb-4 flex min-h-[54px] items-center justify-center rounded-xl border border-blue-100 bg-blue-50/40">
-
-              <Loader2
-                size={18}
-                className="animate-spin text-blue-500"
-              />
-
-              <span className="ml-2 text-sm text-gray-400">
-                공지사항을 불러오는 중입니다...
-              </span>
-
-            </div>
-
-          ) : notices.length >
-            0 ? (
-
-            /* 실제 공지 목록 */
-
-            <div className="mx-5 mb-4 overflow-hidden rounded-xl border border-blue-100 bg-blue-50/40">
-
-              {notices.map(
-                (
-                  notice,
-                  index,
-                ) => (
-
-                  <Link
-                    key={
-                      notice.id
-                    }
-                    href={`/community/${notice.id}`}
-                    onClick={() =>
-                      savePostInfo(
-                        notice,
-                      )
-                    }
-                    className={`flex items-center justify-between gap-5 px-5 py-3 transition hover:bg-blue-50 ${
-                      index !==
-                      notices.length -
-                        1
-                        ? "border-b border-blue-100"
-                        : ""
-                    }`}
-                  >
-
-                    {/* 왼쪽 */}
-
-                    <div className="flex min-w-0 items-center gap-3">
-
-                      <span className="shrink-0 rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-                        공지
-                      </span>
-
-
-                      <div className="min-w-0">
-
-                        <p className="truncate font-semibold text-gray-900">
-                          {
-                            notice.title
-                          }
-                        </p>
-
-                      </div>
-
-                    </div>
-
-
-                    {/* 오른쪽 */}
-
-                    <div className="flex shrink-0 items-center gap-4">
-
-                      <span className="text-sm font-medium text-gray-700">
-                        {notice.authorName ||
-                          "관리자"}
-                      </span>
-
-
-                      <span className="text-sm text-gray-400">
-                        {formatNoticeDate(
-                          notice.createdAt,
-                        )}
-                      </span>
-
-                    </div>
-
-                  </Link>
-
-                ),
-              )}
-
-            </div>
-
-          ) : (
-
-            /* 공지 없음 */
-
-            <div className="mx-5 mb-4 rounded-xl border border-gray-100 bg-gray-50 px-5 py-4 text-center text-sm text-gray-400">
-              등록된 공지사항이 없습니다.
-            </div>
-
-          )}
-
-        </section>
-
-
-        {/* ====================================
-            게시글 + HOT
-        ==================================== */}
-
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-
-          {/* ==================================
-              게시글 목록
-          ================================== */}
-
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-            {/* 목록 헤더 */}
-
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-
-              <div className="flex items-center gap-2">
-
-                <h2 className="text-[17px] font-bold">
-
-                  {selectedCategory ===
-                  "전체"
-                    ? "전체 게시글"
-                    : `${selectedCategory} 게시글`}
-
-                </h2>
-
-
-                {!isLoading && (
-
-                  <span className="text-sm font-bold text-blue-600">
-                    {
-                      totalElements
-                    }
-                    개
+            {/* 공지 목록 */}
+            <div
+              id="community-notice-list"
+              className="min-w-0 flex-1 divide-y divide-slate-100"
+            >
+              {visibleNotices.map((notice) => (
+                <Link
+                  key={notice.id}
+                  href={`/community/${notice.id}`}
+                  onClick={() => savePostInfo(notice)}
+                  className="group flex min-h-[64px] items-center gap-3 px-4 py-3 transition hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 sm:px-5"
+                >
+                  <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">
+                    관리자
                   </span>
 
-                )}
-
-              </div>
-
-            </div>
-
-
-            {/* 로딩 */}
-
-            {isLoading ? (
-
-              <div className="flex min-h-[220px] flex-col items-center justify-center">
-
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-
-
-                <p className="mt-3 text-sm text-slate-400">
-                  게시글을 불러오는 중입니다...
-                </p>
-
-              </div>
-
-            ) : sortedPosts.length >
-              0 ? (
-
-              /* 게시글 */
-
-              <div>
-
-                {sortedPosts.map(
-                  (
-                    post,
-                    index,
-                  ) => (
-
-                    <PostCard
-                      key={
-                        post.id
-                      }
-                      post={
-                        post
-                      }
-                      isLast={
-                        index ===
-                        sortedPosts.length -
-                          1
-                      }
-                    />
-
-                  ),
-                )}
-
-              </div>
-
-            ) : (
-
-              /* 게시글 없음 */
-
-              <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
-
-                <p className="font-semibold text-slate-600">
-                  게시글을 찾을 수 없습니다.
-                </p>
-
-
-                <p className="mt-1 text-sm text-slate-400">
-                  다른 검색어나 카테고리를 선택해보세요.
-                </p>
-
-              </div>
-
-            )}
-
-          </section>
-
-
-          {/* ==================================
-              HOT 게시글
-          ================================== */}
-
-          <aside className="hidden lg:block">
-
-            <div className="sticky top-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-              <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-
-                <Flame
-                  size={19}
-                  className="text-orange-500"
-                />
-
-
-                <h2 className="text-[17px] font-bold">
-                  HOT 게시글
-                </h2>
-
-              </div>
-
-
-              <div className="px-3 py-1">
-
-                {hotPosts.length >
-                0 ? (
-
-                  hotPosts.map(
-                    (
-                      post,
-                      index,
-                    ) => {
-
-                      const views =
-                        post.viewCount ??
-                        post.views ??
-                        0;
-
-
-                      const likes =
-                        post.likeCount ??
-                        post.likes ??
-                        0;
-
-
-                      const scraps =
-                        post.scrapCount ??
-                        post.scraps ??
-                        0;
-
-
-                      const rankStyle =
-                        index ===
-                        0
-                          ? "bg-orange-500 text-white"
-
-                          : index ===
-                              1
-                            ? "bg-blue-400 text-white"
-
-                            : index ===
-                                2
-                              ? "bg-violet-400 text-white"
-
-                              : "bg-slate-100 text-slate-500";
-
-
-                      return (
-
-                        <Link
-                          key={
-                            post.id
-                          }
-                          href={`/community/${post.id}`}
-                          onClick={() =>
-                            savePostInfo(
-                              post,
-                            )
-                          }
-                          className="group flex gap-3 rounded-xl px-2 py-3.5 transition hover:bg-slate-50"
-                        >
-
-                          <span
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${rankStyle}`}
-                          >
-                            {
-                              index +
-                              1
-                            }
-                          </span>
-
-
-                          <div className="min-w-0 flex-1">
-
-                            <p className="line-clamp-2 text-[13px] font-semibold leading-5 text-slate-800 group-hover:text-blue-600">
-                              {
-                                post.title
-                              }
-                            </p>
-
-
-                            <span
-                              className={`mt-1.5 inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ${
-                                categoryStyle[
-                                  post
-                                    .category
-                                ] ??
-                                "bg-slate-100 text-slate-500"
-                              }`}
-                            >
-
-                              {categoryLabel[
-                                post
-                                  .category
-                              ] ??
-                                post.category}
-
-                            </span>
-
-
-                            <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-400">
-
-                              <span className="flex items-center gap-1">
-
-                                <Eye
-                                  size={
-                                    12
-                                  }
-                                />
-
-                                {
-                                  views
-                                }
-
-                              </span>
-
-
-                              <span className="flex items-center gap-1">
-
-                                <Heart
-                                  size={
-                                    12
-                                  }
-                                />
-
-                                {
-                                  likes
-                                }
-
-                              </span>
-
-
-                              <span className="flex items-center gap-1">
-
-                                <Bookmark
-                                  size={
-                                    12
-                                  }
-                                />
-
-                                {
-                                  scraps
-                                }
-
-                              </span>
-
-                            </div>
-
-                          </div>
-
-                        </Link>
-
-                      );
-
-                    },
-                  )
-
-                ) : (
-
-                  <div className="flex min-h-[200px] items-center justify-center px-4 text-center text-xs text-slate-400">
-                    아직 인기 게시글이 없습니다.
-                  </div>
-
-                )}
-
-              </div>
-
-            </div>
-
-          </aside>
-
-        </div>
-
-
-        {/* ====================================
-            페이지네이션
-        ==================================== */}
-
-        {!isLoading &&
-          totalPages >
-            1 && (
-
-            <div className="mt-7 flex items-center justify-center gap-1.5 lg:pr-[300px]">
-
-              {/* 이전 */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  setCurrentPage(
-                    (
-                      page,
-                    ) =>
-                      Math.max(
-                        0,
-                        page -
-                          1,
-                      ),
-                  )
-                }
-                disabled={
-                  currentPage ===
-                  0
-                }
-                className="mr-2 flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-
-                <ChevronLeft
-                  size={16}
-                />
-
-                이전
-
-              </button>
-
-
-              {/* 페이지 번호 */}
-
-              {Array.from(
-                {
-                  length:
-                    totalPages,
-                },
-                (
-                  _,
-                  index,
-                ) => (
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 group-hover:text-blue-600">
+                    {notice.title}
+                  </span>
+
+                  <time className="hidden shrink-0 text-xs text-slate-400 md:block">
+                    {formatDate(notice.createdAt)}
+                  </time>
+
+                  <ChevronRight
+                    size={16}
+                    aria-hidden="true"
+                    className="shrink-0 text-slate-400 group-hover:text-blue-600"
+                  />
+                </Link>
+              ))}
+
+              {noticeError ? (
+                <div
+                  role="alert"
+                  className="flex min-h-[64px] flex-wrap items-center gap-2 px-4 py-3 text-xs text-red-500 sm:px-5"
+                >
+                  {noticeError}
 
                   <button
-                    key={
-                      index
-                    }
                     type="button"
-                    onClick={() =>
-                      setCurrentPage(
-                        index,
-                      )
-                    }
-                    className={`flex h-9 min-w-9 items-center justify-center rounded-lg text-sm font-semibold ${
-                      currentPage ===
-                      index
-                        ? "bg-blue-600 text-white"
-                        : "bg-white text-slate-500 hover:bg-blue-50"
-                    }`}
+                    onClick={() => void loadNotices()}
+                    className="font-semibold underline"
                   >
-                    {
-                      index +
-                      1
-                    }
+                    다시 조회
                   </button>
-
-                ),
-              )}
-
-
-              {/* 다음 */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  setCurrentPage(
-                    (
-                      page,
-                    ) =>
-                      Math.min(
-                        totalPages -
-                          1,
-                        page +
-                          1,
-                      ),
-                  )
-                }
-                disabled={
-                  currentPage ===
-                  totalPages -
-                    1
-                }
-                className="ml-2 flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-
-                다음
-
-                <ChevronRight
-                  size={16}
-                />
-
-              </button>
-
+                </div>
+              ) : isNoticeLoading && !notices.length ? (
+                <p
+                  role="status"
+                  className="flex min-h-[64px] items-center gap-2 px-4 py-3 text-xs text-slate-500 sm:px-5"
+                >
+                  <Loader2 size={14} className="animate-spin" />
+                  공지를 불러오는 중입니다.
+                </p>
+              ) : !notices.length ? (
+                <p className="flex min-h-[64px] items-center px-4 py-3 text-xs text-slate-400 sm:px-5">
+                  등록된 공지가 없습니다.
+                </p>
+              ) : null}
             </div>
 
-          )}
+            {/* 추가 공지 펼치기 */}
+            {notices.length > 1 && (
+              <div className="flex shrink-0 items-start justify-end border-t border-blue-100 px-3 py-2 sm:border-t-0 sm:py-3">
+                <button
+                  type="button"
+                  aria-expanded={showAllNotices}
+                  aria-controls="community-notice-list"
+                  onClick={() =>
+                    setShowAllNotices((value) => !value)
+                  }
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-500 transition hover:bg-blue-50 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  {showAllNotices
+                    ? "접기"
+                    : `더 보기 (${notices.length - 1})`}
 
+                  <ChevronDown
+                    size={14}
+                    aria-hidden="true"
+                    className={`transition-transform ${
+                      showAllNotices ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 전체 게시글 + HOT 게시글 */}
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_250px]">
+          <section
+            className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+            aria-label="게시글 목록"
+          >
+            <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
+              <h2 className="text-sm font-bold">
+                {selectedCategory === "전체"
+                  ? "전체 게시글"
+                  : `${selectedCategory} 게시글`}
+              </h2>
+
+              <span className="text-xs font-semibold text-blue-600">
+                {totalElements}개
+              </span>
+            </div>
+
+            {error ? (
+              <div
+                role="alert"
+                className="px-5 py-10 text-center text-sm text-red-500"
+              >
+                {error}{" "}
+                <button
+                  onClick={() => void loadPosts()}
+                  className="underline"
+                >
+                  다시 조회
+                </button>
+              </div>
+            ) : isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-14 text-sm text-slate-400">
+                <Loader2
+                  size={20}
+                  className="animate-spin text-blue-500"
+                />
+                게시글을 불러오는 중입니다.
+              </div>
+            ) : !sortedPosts.length ? (
+              <div className="px-5 py-14 text-center text-sm text-slate-500">
+                게시글을 찾을 수 없습니다.
+                <p className="mt-1 text-xs text-slate-400">
+                  다른 검색어나 카테고리를 선택해보세요.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {sortedPosts.map((post) => (
+                  <Link
+                    key={post.id}
+                    href={`/community/${post.id}`}
+                    onClick={() => savePostInfo(post)}
+                    className="group flex items-center gap-4 px-5 py-4 transition hover:bg-slate-50/80"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            categoryStyle[post.category ?? ""] ??
+                            "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {categoryLabel[post.category ?? ""] ??
+                            post.category ??
+                            "자유"}
+                        </span>
+
+                        <h3 className="min-w-0 truncate text-[15px] font-semibold text-slate-900 group-hover:text-blue-600">
+                          {post.title}
+                        </h3>
+                      </div>
+
+                      {(post.contentSnippet || post.content) && (
+                        <p className="mt-1.5 truncate text-sm text-slate-500">
+                          {post.contentSnippet || post.content}
+                        </p>
+                      )}
+
+                      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="max-w-[120px] truncate text-slate-500">
+                            {post.authorName || "사용자"}
+                          </span>
+                          <span>·</span>
+                          <time>
+                            {formatDate(
+                              post.createdAt ??
+                                post.createdDate ??
+                                post.date,
+                            )}
+                          </time>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="inline-flex items-center gap-1"
+                            aria-label={`조회 ${viewsOf(post)}`}
+                          >
+                            <Eye size={13} />
+                            {viewsOf(post)}
+                          </span>
+
+                          <span
+                            className="inline-flex items-center gap-1"
+                            aria-label={`좋아요 ${likesOf(post)}`}
+                          >
+                            <Heart size={13} />
+                            {likesOf(post)}
+                          </span>
+
+                          <span
+                            className="inline-flex items-center gap-1"
+                            aria-label={`스크랩 ${scrapsOf(post)}`}
+                          >
+                            <Bookmark size={13} />
+                            {scrapsOf(post)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {post.previewImageUrl && (
+                      <img
+                        src={post.previewImageUrl}
+                        alt=""
+                        className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 object-cover sm:h-[72px] sm:w-[72px]"
+                      />
+                    )}
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* 페이지네이션 */}
+            {!isLoading && totalPages > 1 && (
+              <nav
+                aria-label="게시글 페이지"
+                className="flex flex-wrap items-center justify-center gap-1 border-t border-slate-100 px-3 py-4"
+              >
+                <button
+                  type="button"
+                  aria-label="이전 페이지"
+                  disabled={currentPage === 0}
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(0, page - 1))
+                  }
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                {Array.from(
+                  { length: Math.min(5, totalPages) },
+                  (_, index) => pageStart + index,
+                ).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    aria-current={
+                      currentPage === page ? "page" : undefined
+                    }
+                    onClick={() => setCurrentPage(page)}
+                    className={`h--8 min-w-8 rounded-lg text-xs font-semibold ${
+                      currentPage === page
+                        ? "bg-blue-600 text-white"
+                        : "text-slate-500 hover:bg-blue-50"
+                    }`}
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  aria-label="다음 페이지"
+                  disabled={currentPage >= totalPages - 1}
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(totalPages - 1, page + 1),
+                    )
+                  }
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </nav>
+            )}
+          </section>
+
+          {/* HOT 게시글 */}
+          <aside className="hidden min-w-0 lg:block">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+                <Flame size={17} className="text-orange-500" />
+                <h2 className="text-sm font-bold">HOT 게시글</h2>
+              </div>
+
+              <div className="divide-y divide-slate-100 px-4">
+                {hotPosts.map((post, index) => (
+                  <Link
+                    key={post.id}
+                    href={`/community/${post.id}`}
+                    onClick={() => savePostInfo(post)}
+                    className="group flex gap-3 py-3.5"
+                  >
+                    <span
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                        index === 0
+                          ? "bg-orange-50 text-orange-500"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-700 group-hover:text-blue-600">
+                        {post.title}
+                      </p>
+
+                      <div className="mt-1.5 flex items-center gap-3 text-[11px] text-slate-400">
+                        <span>
+                          {categoryLabel[post.category ?? ""] ??
+                            post.category}
+                        </span>
+
+                        <span className="flex items-center gap-1">
+                          <Eye size={11} />
+                          {viewsOf(post)}
+                        </span>
+
+                        <span className="flex items-center gap-1">
+                          <Heart size={11} />
+                          {likesOf(post)}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+
+                {!hotPosts.length && (
+                  <p className="py-8 text-center text-xs text-slate-400">
+                    {isLoading
+                      ? "불러오는 중..."
+                      : "아직 인기 게시글이 없습니다."}
+                  </p>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
-
     </main>
   );
 }
