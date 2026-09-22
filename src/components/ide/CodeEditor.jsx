@@ -1422,9 +1422,15 @@ useEffect(() => {
    *
    * 파일을 여는 순간에는 잠깐 이 상태가 정상이므로, 몇 초 기다렸다가 그때도
    * 그대로면 그때 띄운다.
+   *
+   * 코드맵 탭("virtual:codemap")은 파일이 아니라서 내용이 원래 없다. 걸러 내지
+   * 않으면 코드맵 탭을 보는 동안 경고가 조용히 쌓였다가(그 탭에서는 모달을
+   * 그리지 않는다), 사이드바에서 파일을 만들거나 열어 에디터 화면으로 돌아오는
+   * 순간 "virtual:codemap — 내용을 받아오지 못해…"로 튀어나왔다.
    */
   useEffect(() => {
     if (!isTeamMode || !activeFileId || isContentLoaded) return undefined;
+    if (String(activeFileId).startsWith("virtual:")) return undefined;
 
     const timerId = window.setTimeout(() => {
       setEditorNotice({
