@@ -79,6 +79,59 @@ const buildRenamedPath = (oldPath = "", newName = "") => {
   return parentPath ? `${parentPath}/${newName}` : newName;
 };
 
+/**
+ * 새 파일에 넣을 언어별 기본 코드. 해당 확장자가 없으면 빈 문자열이다.
+ *
+ * "Java 클래스" 메뉴뿐 아니라 "새 파일"로 만들어도 확장자에 맞는 뼈대가
+ * 들어가게 한다. 예전에는 "새 파일 → Foo.java"면 빈 파일이 생겼다.
+ */
+const getFileTemplate = (fileName, parentId) => {
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex <= 0) return "";
+
+  const baseName = fileName.slice(0, dotIndex);
+  const ext = fileName.slice(dotIndex + 1).toLowerCase();
+
+  switch (ext) {
+    case "java": {
+      let packageName = "";
+      if (parentId && parentId.includes("src/main/java/")) {
+        packageName = parentId.split("src/main/java/")[1].replace(/\//g, ".");
+      } else if (parentId && parentId !== "root-folder") {
+        packageName = parentId.replace(/\//g, ".");
+      }
+
+      return packageName
+        ? `package ${packageName};\n\npublic class ${baseName} {\n    \n}\n`
+        : `public class ${baseName} {\n    \n}\n`;
+    }
+    case "jsx":
+    case "tsx": {
+      // 컴포넌트 이름은 대문자로 시작해야 JSX 태그로 쓸 수 있다.
+      const componentName =
+        baseName
+          .split(/[^A-Za-z0-9]+/)
+          .filter(Boolean)
+          .map((part) => part[0].toUpperCase() + part.slice(1))
+          .join("") || "Component";
+
+      return `export default function ${componentName}() {\n  return (\n    <div>\n      <h1>${componentName}</h1>\n    </div>\n  );\n}\n`;
+    }
+    case "js":
+    case "ts":
+      return `console.log("Hello, World!");\n`;
+    case "py":
+      return `def main():\n    print("Hello, World!")\n\n\nif __name__ == "__main__":\n    main()\n`;
+    case "c":
+      return `#include <stdio.h>\n\nint main(void) {\n    printf("Hello, World!\\n");\n    return 0;\n}\n`;
+    case "cpp":
+    case "cc":
+      return `#include <iostream>\n\nint main() {\n    std::cout << "Hello, World!" << std::endl;\n    return 0;\n}\n`;
+    default:
+      return "";
+  }
+};
+
 const getFileIcon = (name) => {
   if (!name) return <VscFile className="text-gray-400" />;
 
@@ -808,19 +861,10 @@ export default function Sidebar() {
       } else if (apiType === "java") {
         finalName = name.endsWith(".java") ? name : `${name}.java`;
         apiType = "file";
+      }
 
-        const className = finalName.replace(".java", "");
-
-        let packageName = "";
-        if (parentId && parentId.includes("src/main/java/")) {
-          packageName = parentId.split("src/main/java/")[1].replace(/\//g, ".");
-        } else if (parentId && parentId !== "root-folder") {
-          packageName = parentId.replace(/\//g, ".");
-        }
-
-        skeletonCode = packageName
-          ? `package ${packageName};\n\npublic class ${className} {\n    \n}\n`
-          : `public class ${className} {\n    \n}\n`;
+      if (apiType === "file") {
+        skeletonCode = getFileTemplate(finalName, parentId);
       }
 
       let path = finalName;
@@ -923,7 +967,16 @@ export default function Sidebar() {
 
     const targetProj = projectName || activeProject;
 
+    // 이름만 보면 "백엔드"처럼 이름을 붙인 스프링 프로젝트에서 "Java 클래스"
+    // 메뉴가 안 나와, 기본 코드 없는 "새 파일"로만 만들 수 있었다. 그래서
+    // 프로젝트 최상위에 빌드 파일이 있는지도 본다.
+    const projectNode = tree?.children?.find((p) => p.name === targetProj);
+    const hasJavaBuildFile = (projectNode?.children || []).some((child) =>
+      ["build.gradle", "build.gradle.kts", "pom.xml"].includes(child.name),
+    );
+
     const isJavaEnv =
+      hasJavaBuildFile ||
       targetProj?.toLowerCase().includes("스프링") ||
       targetProj?.toLowerCase().includes("java") ||
       targetProj?.toLowerCase().includes("demo");
