@@ -3935,7 +3935,7 @@ export default function ArchivePage() {
                           )
                         }
                         className={cn(
-                          "inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs font-black transition",
+                          "inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-sm font-black transition",
                           isActive
                             ? "bg-white text-[#5873F9] shadow-sm"
                             : "text-slate-500 hover:text-slate-800",
@@ -4252,42 +4252,30 @@ function ArchiveDesignContent({
       )}
 
       <div className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          {designSectionTabs.map(
-            (tab) => {
-              const Icon = tab.icon;
+        <div className="flex w-fit shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1">
+        {designSectionTabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeDesignSection === tab.key;
 
-              const isActive =
-                activeDesignSection ===
-                tab.key;
-
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() =>
-                    onActiveDesignSectionChange(
-                      tab.key,
-                    )
-                  }
-                  className={[
-                    "inline-flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-black transition",
-
-                    isActive
-                      ? "bg-[#5873F9] text-white"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800",
-                  ].join(" ")}
-                >
-                  <Icon
-                    size={14}
-                  />
-
-                  {tab.label}
-                </button>
-              );
-            },
-          )}
-        </div>
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onActiveDesignSectionChange(tab.key)}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "inline-flex h-7 shrink-0 items-center gap-2 rounded-lg px-4 text-xs font-black transition",
+                isActive
+                  ? "bg-white text-[#5873F9] shadow-sm"
+                  : "text-slate-500 hover:text-slate-800",
+              )}
+            >
+              <Icon size={14} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
       </div>
 
       {isLoading ? (

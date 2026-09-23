@@ -1454,7 +1454,7 @@ return (
                 나의 작업 공간
               </p>
             </div>
-
+            
             <nav className="flex-1 p-3">
               <div className="space-y-1.5">
                 {tabs.map((tab) => {
@@ -2536,6 +2536,15 @@ function ProjectArchiveSection({
   const [finalReportDraft, setFinalReportDraft] = useState("");
   const [finalReportLoading, setFinalReportLoading] = useState(false);
   const [finalReportError, setFinalReportError] = useState("");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  const [dateFilterMode, setDateFilterMode] =
+    useState<"single" | "range">("single");
+
+  const [selectedDate, setSelectedDate] = useState("");
+
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const [designRequirements, setDesignRequirements] = useState<
     DesignRequirementItem[]
@@ -3528,7 +3537,7 @@ function ProjectArchiveSection({
 
           {/* 자료 종류 + 검색/정렬 */}
           <div className="mt-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-fit shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1">
               {archiveTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeArchiveTab === tab.key;
@@ -3538,11 +3547,12 @@ function ProjectArchiveSection({
                     key={tab.key}
                     type="button"
                     onClick={() => onActiveArchiveTabChange(tab.key)}
+                    aria-current={isActive ? "page" : undefined}
                     className={[
-                      "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-xs font-black transition",
+                      "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[12px] font-black transition",
                       isActive
-                        ? "bg-[#5873F9] text-white"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800",
+                        ? "bg-white text-[#5873F9] shadow-sm"
+                        : "text-slate-500 hover:text-slate-800",
                     ].join(" ")}
                   >
                     <Icon size={14} />
@@ -3552,42 +3562,199 @@ function ProjectArchiveSection({
               })}
             </div>
 
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row xl:justify-end">
-              <div className="relative min-w-0 sm:w-[300px] xl:w-[360px]">
-                <Search
-                  size={16}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row xl:justify-end">
+          {/* 검색 */}
+          <div className="relative min-w-0 sm:w-[300px] xl:w-[360px]">
+            <Search
+              size={16}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+            />
 
-                <input
-                  value={keyword}
-                  onChange={(event) => onKeywordChange(event.target.value)}
-                  placeholder="자료실 검색"
-                  className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
-                />
-              </div>
+            <input
+              value={keyword}
+              onChange={(event) => onKeywordChange(event.target.value)}
+              placeholder="자료실 검색"
+              className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+            />
+          </div>
 
-              <div className="relative shrink-0">
-                <Filter
-                      size={13}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          {/* 정렬 */}
+          <div className="relative shrink-0">
+            <Filter
+              size={13}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+
+            <select
+              value={sortType}
+              onChange={(event) =>
+                setSortType(event.target.value as DevlogSortType)
+              }
+              className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white pl-7 pr-8 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
+            >
+              <option value="latest">최신순</option>
+              <option value="oldest">오래된순</option>
+            </select>
+          </div>
+
+          {/* 날짜 / 기간 선택 */}
+          <div className="relative shrink-0">
+            {/* 화면에 보이는 버튼 하나 */}
+            <button
+              type="button"
+              onClick={() => setDatePickerOpen((prev) => !prev)}
+              className="flex h-10 items-center gap-2 rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition hover:bg-slate-50 focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+            >
+              <CalendarDays size={15} />
+
+              <span>
+                {dateFilterMode === "single" && selectedDate
+                  ? selectedDate
+                  : dateFilterMode === "range" && startDate && endDate
+                    ? `${startDate} ~ ${endDate}`
+                    : "날짜/기간"}
+              </span>
+
+              <ChevronDown
+                size={14}
+                className={`transition-transform ${
+                  datePickerOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {/* 버튼 클릭 시 나오는 팝업 */}
+            {datePickerOpen && (
+              <div className="absolute right-0 top-12 z-50 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+
+                {/* 날짜 / 기간 탭 */}
+                <div className="mb-4 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateFilterMode("single");
+                      setStartDate("");
+                      setEndDate("");
+                    }}
+                    className={[
+                      "h-9 rounded-lg text-sm font-bold transition",
+                      dateFilterMode === "single"
+                        ? "bg-white text-[#5873F9] shadow-sm"
+                        : "text-slate-500 hover:text-slate-700",
+                    ].join(" ")}
+                  >
+                    날짜
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateFilterMode("range");
+                      setSelectedDate("");
+                    }}
+                    className={[
+                      "h-9 rounded-lg text-sm font-bold transition",
+                      dateFilterMode === "range"
+                        ? "bg-white text-[#5873F9] shadow-sm"
+                        : "text-slate-500 hover:text-slate-700",
+                    ].join(" ")}
+                  >
+                    기간
+                  </button>
+                </div>
+
+                {/* 날짜 모드 */}
+                {dateFilterMode === "single" && (
+                  <div>
+                    <p className="mb-2 text-xs font-bold text-slate-500">
+                      조회할 날짜
+                    </p>
+
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(event) =>
+                        setSelectedDate(event.target.value)
+                      }
+                      className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
                     />
+                  </div>
+                )}
 
-                <select
-                  value={sortType}
-                  onChange={(event) =>
-                    setSortType(event.target.value as DevlogSortType)
-                  }
-                  className="h-10 shrink-0 rounded-xl border border-[var(--waivs-border)] bg-white pl-7 text-sm font-bold text-slate-600 outline-none focus:border-[#5873F9]"
-                >
-                  <option value="latest">최신순</option>
-                  <option value="oldest">오래된순</option>
-                </select>
+                {/* 기간 모드 */}
+                {dateFilterMode === "range" && (
+                  <div>
+                    <p className="mb-2 text-xs font-bold text-slate-500">
+                      조회할 기간
+                    </p>
+
+                    <div className="flex flex-col gap-3">
+                      {/* 시작일 */}
+                      <div>
+                        <p className="mb-1 text-[11px] font-bold text-slate-400">
+                          시작일
+                        </p>
+
+                        <input
+                          type="date"
+                          value={startDate}
+                          max={endDate || undefined}
+                          onChange={(event) =>
+                            setStartDate(event.target.value)
+                          }
+                          className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                        />
+                      </div>
+
+                      {/* 종료일 */}
+                      <div>
+                        <p className="mb-1 text-[11px] font-bold text-slate-400">
+                          종료일
+                        </p>
+
+                        <input
+                          type="date"
+                          value={endDate}
+                          min={startDate || undefined}
+                          onChange={(event) =>
+                            setEndDate(event.target.value)
+                          }
+                          className="h-10 w-full rounded-xl border border-[var(--waivs-border)] bg-white px-3 text-sm font-bold text-slate-600 outline-none transition focus:border-[#5873F9] focus:ring-2 focus:ring-[#5873F9]/10"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 하단 */}
+                <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate("");
+                      setStartDate("");
+                      setEndDate("");
+                    }}
+                    className="text-xs font-bold text-slate-400 transition hover:text-slate-700"
+                  >
+                    초기화
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDatePickerOpen(false)}
+                    className="h-8 rounded-lg bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8]"
+                  >
+                    적용
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  </div>
 
     {/* 콘텐츠 */}
     <div className="border-t border-[var(--waivs-border-soft)] p-5">
@@ -3620,8 +3787,7 @@ function ProjectArchiveSection({
       )}
     </div>
   </section>
-);
-}
+);}
 
 function ArchiveDevlogContent({ devlogs }: { devlogs: Devlog[] }) {
   return (
@@ -3735,84 +3901,89 @@ function ArchiveDesignContent({
       )}
 
       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {designSectionTabs.map((tab) => {
-            const isActive = activeDesignSection === tab.key;
+      {/* 설계 문서 탭 */}
+      <div className="flex w-fit shrink-0 items-center gap-1 rounded-xl bg-slate-100 p-1">
+        {designSectionTabs.map((tab) => {
+          const isActive = activeDesignSection === tab.key;
 
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveDesignSection(tab.key)}
-                className={[
-                  "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition",
-                  isActive
-                    ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-100"
-                    : "border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100",
-                ].join(" ")}
-              >
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <span className="w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-black text-blue-700">
-          선택 프로젝트: {selectedProject?.name ?? "프로젝트 없음"}
-        </span>
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveDesignSection(tab.key)}
+              aria-current={isActive ? "page" : undefined}
+              className={[
+                "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12px] font-black transition",
+                isActive
+                  ? "bg-white text-[#5873F9] shadow-sm"
+                  : "text-slate-500 hover:text-slate-800",
+              ].join(" ")}
+            >
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {isLoading ? (
-        <div className="rounded-2xl border border-blue-100 bg-white px-4 py-10 text-center text-sm font-black text-slate-500">
-          설계 문서를 불러오는 중입니다.
-        </div>
-      ) : !hasAnyDesignData ? (
-        <EmptyState message="아직 문서화할 설계 데이터가 없습니다. 설계단계에서 요구사항, ERD 또는 화면 흐름을 먼저 작성해주세요." />
-      ) : (
-        <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex flex-col justify-between gap-2 border-b border-blue-50 pb-3 xl:flex-row xl:items-center">
-            <div className="flex min-w-0 items-center gap-2">
-              {ActiveDesignIcon && (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                  <ActiveDesignIcon size={16} />
-                </span>
-              )}
-              <div className="min-w-0">
-                <h4 className="truncate text-base font-black tracking-tight text-slate-950">
-                  {activeDesignTab?.label}
-                </h4>
-                <p className="truncate text-xs font-semibold text-slate-500">
-                  {activeDesignTab?.description}
-                </p>
-              </div>
+      {/* 선택 프로젝트 */}
+      <span className="w-fit rounded-full border border-blue-100 bg-white px-3 py-1 text-[11px] font-black text-blue-700">
+        선택 프로젝트: {selectedProject?.name ?? "프로젝트 없음"}
+      </span>
+    </div>
+
+    {isLoading ? (
+      <div className="rounded-2xl border border-blue-100 bg-white px-4 py-10 text-center text-sm font-black text-slate-500">
+        설계 문서를 불러오는 중입니다.
+      </div>
+    ) : !hasAnyDesignData ? (
+      <EmptyState message="아직 문서화할 설계 데이터가 없습니다. 설계단계에서 요구사항, ERD 또는 화면 흐름을 먼저 작성해주세요." />
+    ) : (
+      <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex flex-col justify-between gap-2 border-b border-blue-50 pb-3 xl:flex-row xl:items-center">
+          <div className="flex min-w-0 items-center gap-2">
+            {ActiveDesignIcon && (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <ActiveDesignIcon size={16} />
+              </span>
+            )}
+
+            <div className="min-w-0">
+              <h4 className="truncate text-base font-black tracking-tight text-slate-950">
+                {activeDesignTab?.label}
+              </h4>
+
+              <p className="truncate text-xs font-semibold text-slate-500">
+                {activeDesignTab?.description}
+              </p>
             </div>
           </div>
+        </div>
 
-          {activeDesignSection === "requirements" && (
-            <DesignRequirementsPage requirements={requirements} />
-          )}
+        {activeDesignSection === "requirements" && (
+          <DesignRequirementsPage requirements={requirements} />
+        )}
 
-          {activeDesignSection === "api" && (
-            <DesignApiSpecsPage apiSpecs={apiSpecs} />
-          )}
+        {activeDesignSection === "api" && (
+          <DesignApiSpecsPage apiSpecs={apiSpecs} />
+        )}
 
-          {activeDesignSection === "erd" && (
-            <DesignErdPage
-              tables={erdTables}
-              edges={erdRelations}
-              relationCount={erdRelations.length}
-            />
-          )}
+        {activeDesignSection === "erd" && (
+          <DesignErdPage
+            tables={erdTables}
+            edges={erdRelations}
+            relationCount={erdRelations.length}
+          />
+        )}
 
-          {activeDesignSection === "flow" && (
-            <DesignFlowPage
-              nodes={flowNodes}
-              edges={flowEdges}
-              edgeCount={flowEdges.length}
-            />
-          )}
-        </section>
-      )}
+        {activeDesignSection === "flow" && (
+          <DesignFlowPage
+            nodes={flowNodes}
+            edges={flowEdges}
+            edgeCount={flowEdges.length}
+          />
+        )}
+      </section>
+    )}
     </div>
   );
 }
