@@ -3,6 +3,7 @@ export type TabKey =
   | "progress"
   | "completed"
   | "devlogs"
+  | "community"
   | "github"
   | "account";
 

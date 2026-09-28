@@ -26,6 +26,11 @@ import {
   Users,
   X,
   Filter,
+  Newspaper,
+  MessageSquare,
+  Heart,
+  Bookmark,
+  PenLine,
 } from "lucide-react";
 
 import {
@@ -110,6 +115,37 @@ type ParsedDesignDocument = {
   erdEdges: Record<string, unknown>[];
   flowNodes: Record<string, unknown>[];
   flowEdges: Record<string, unknown>[];
+};
+
+type CommunityActivityTab =
+  | "posts"
+  | "comments"
+  | "likes"
+  | "scraps";
+
+type MyCommunityPost = {
+  id: number;
+  title: string;
+  category: string;
+  createdAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+};
+
+type MyCommunityComment = {
+  id: number;
+  content: string;
+  postId: number;
+  postTitle: string;
+  createdAt: string;
+};
+
+type CommunityActivityData = {
+  posts: MyCommunityPost[];
+  comments: MyCommunityComment[];
+  likes: MyCommunityPost[];
+  scraps: MyCommunityPost[];
 };
 
 const DEFAULT_HEATMAP_DAYS = 365;
@@ -235,6 +271,12 @@ const tabs: {
         icon: Sparkles,
       },
     ],
+  },
+  {
+  key: "community",
+  label: "게시판 활동",
+  description: "내 커뮤니티 활동",
+  icon: Newspaper,
   },
   {
     key: "github",
@@ -1265,16 +1307,24 @@ export default function MyPageDemo() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [devlogs, setDevlogs] = useState<Devlog[]>([]);
 
-const [heatmapValues, setHeatmapValues] = useState<HeatmapLevel[]>(
-  createEmptyHeatmapValues(),
-);
-const [activityHeatmap, setActivityHeatmap] =
-  useState<ActivityHeatmapResponse>(createEmptyActivityHeatmap());
-const [recentActivities, setRecentActivities] =
-  useState<RecentActivityResponse[]>([]);
+  const [heatmapValues, setHeatmapValues] = useState<HeatmapLevel[]>(
+    createEmptyHeatmapValues(),
+  );
+  const [activityHeatmap, setActivityHeatmap] =
+    useState<ActivityHeatmapResponse>(createEmptyActivityHeatmap());
+  const [recentActivities, setRecentActivities] =
+    useState<RecentActivityResponse[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [communityActivity, setCommunityActivity] =
+  useState<CommunityActivityData>({
+    posts: [],
+    comments: [],
+    likes: [],
+    scraps: [],
+  });
 
 const summary = useMemo(
   () =>
@@ -1620,6 +1670,10 @@ return (
 
           {activeTab === "github" && <GithubSection />}
 
+          {activeTab === "community" && (
+            <CommunityActivitySection data={communityActivity} />
+          )}
+
           {activeTab === "account" && (
             <AccountSection user={user} onUserChange={setUser} />
           )}
@@ -1628,6 +1682,247 @@ return (
     </div>
   </main>
 );
+}
+
+function CommunityActivitySection({
+  data,
+}: {
+  data: CommunityActivityData;
+}) {
+  const [activeCommunityTab, setActiveCommunityTab] =
+    useState<CommunityActivityTab>("posts");
+
+  const tabs = [
+    {
+      key: "posts" as const,
+      label: "내가 쓴 글",
+      icon: PenLine,
+      count: data.posts.length,
+    },
+    {
+      key: "comments" as const,
+      label: "내가 쓴 댓글",
+      icon: MessageSquare,
+      count: data.comments.length,
+    },
+    {
+      key: "likes" as const,
+      label: "좋아요",
+      icon: Heart,
+      count: data.likes.length,
+    },
+    {
+      key: "scraps" as const,
+      label: "스크랩",
+      icon: Bookmark,
+      count: data.scraps.length,
+    },
+  ];
+
+  const posts =
+    activeCommunityTab === "posts"
+      ? data.posts
+      : activeCommunityTab === "likes"
+        ? data.likes
+        : activeCommunityTab === "scraps"
+          ? data.scraps
+          : [];
+
+  return (
+    <div className="space-y-4">
+      <section className="waivs-panel overflow-hidden">
+        {/* HEADER */}
+        <div className="border-b border-[var(--waivs-border-soft)] px-5 py-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#5873F9]">
+            Community
+          </p>
+
+          <h2 className="mt-1 text-lg font-black tracking-tight text-slate-950">
+            게시판 활동
+          </h2>
+
+          <p className="mt-1 text-xs font-medium text-slate-400">
+            내가 작성하거나 저장한 게시판 활동을 확인합니다.
+          </p>
+        </div>
+
+        {/* TAB */}
+        <div className="px-5 pt-4">
+        <div className="inline-flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeCommunityTab === tab.key;
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveCommunityTab(tab.key)}
+                className={[
+                  "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-black transition-all",
+                  isActive
+                    ? "border border-slate-200 bg-white text-[#5873F9] shadow-sm"
+                    : "border border-transparent text-slate-500 hover:text-slate-700",
+                ].join(" ")}
+              >
+                <Icon
+                  size={15}
+                  strokeWidth={2}
+                  className={
+                    isActive
+                      ? "text-[#5873F9]"
+                      : "text-slate-500"
+                  }
+                />
+
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        </div>
+
+        {/* 내가 쓴 댓글 */}
+        {activeCommunityTab === "comments" ? (
+          <div className="divide-y divide-slate-100">
+            {data.comments.length === 0 ? (
+              <CommunityEmptyState
+                icon={MessageSquare}
+                text="작성한 댓글이 없습니다."
+              />
+            ) : (
+              data.comments.map((comment) => (
+                <button
+                  key={comment.id}
+                  type="button"
+                  onClick={() => {
+                    window.location.href =
+                      `/community/${comment.postId}`;
+                  }}
+                  className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
+                >
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF3FF] text-[#5873F9]">
+                    <MessageSquare size={15} />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-black text-slate-800">
+                      {comment.content}
+                    </p>
+
+                    <div className="mt-1 flex items-center gap-2 text-[10px] font-semibold text-slate-400">
+                      <span className="truncate">
+                        {comment.postTitle}
+                      </span>
+
+                      <span>·</span>
+
+                      <span>
+                        {formatDateLabel(comment.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <ArrowUpRight
+                    size={15}
+                    className="shrink-0 text-slate-300"
+                  />
+                </button>
+              ))
+            )}
+          </div>
+        ) : (
+          /* 게시글 목록 */
+          <div className="divide-y divide-slate-100">
+            {posts.length === 0 ? (
+              <CommunityEmptyState
+                icon={
+                  activeCommunityTab === "likes"
+                    ? Heart
+                    : activeCommunityTab === "scraps"
+                      ? Bookmark
+                      : PenLine
+                }
+                text={
+                  activeCommunityTab === "likes"
+                    ? "좋아요한 게시글이 없습니다."
+                    : activeCommunityTab === "scraps"
+                      ? "스크랩한 게시글이 없습니다."
+                      : "작성한 게시글이 없습니다."
+                }
+              />
+            ) : (
+              posts.map((post) => (
+                <button
+                  key={post.id}
+                  type="button"
+                  onClick={() => {
+                    window.location.href =
+                      `/community/${post.id}`;
+                  }}
+                  className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 rounded-md bg-[#EEF3FF] px-2 py-1 text-[9px] font-black text-[#5873F9]">
+                        {post.category}
+                      </span>
+
+                      <p className="truncate text-sm font-black text-slate-800">
+                        {post.title}
+                      </p>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] font-semibold text-slate-400">
+                      <span>
+                        {formatDateLabel(post.createdAt)}
+                      </span>
+
+                      {post.viewCount !== undefined && (
+                        <span>조회 {post.viewCount}</span>
+                      )}
+
+                      {post.likeCount !== undefined && (
+                        <span>좋아요 {post.likeCount}</span>
+                      )}
+
+                      {post.commentCount !== undefined && (
+                        <span>댓글 {post.commentCount}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <ArrowUpRight
+                    size={15}
+                    className="shrink-0 text-slate-300"
+                  />
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+function CommunityEmptyState({
+  icon: Icon,
+  text,
+}: {
+  icon: React.ElementType;
+  text: string;
+}) {
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-12">
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-50 text-slate-300">
+        <Icon size={20} />
+      </div>
+
+      <p className="mt-3 text-xs font-bold text-slate-400">
+        {text}
+      </p>
+    </div>
+  );
 }
 
 function OverviewSection({
