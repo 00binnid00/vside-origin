@@ -261,35 +261,35 @@ function Inbox() {
               : [];
 
           const teamWorkspaces: WorkspaceItem[] =
-            list
-              .map((item: any) => ({
-                id: String(
-                  item.id ??
-                    item.uuid ??
-                    "",
-                ),
+  list
+    .map(
+      (item: any): WorkspaceItem => ({
+        id: String(
+          item.id ??
+            item.uuid ??
+            "",
+        ),
 
-                name:
-                  item.name ||
-                  item.teamName ||
-                  "이름 없는 프로젝트",
+        name:
+          item.name ||
+          item.teamName ||
+          "이름 없는 프로젝트",
 
-                mode:
-                  item.mode === "team" ||
-                  item.type === "TEAM"
-                    ? "team"
-                    : "personal",
+        mode:
+          item.mode === "team" ||
+          item.type === "TEAM"
+            ? "team"
+            : "personal",
 
-                role:
-                  item.role,
-              }))
-              .filter(
-                (
-                  item: WorkspaceItem,
-                ) =>
-                  Boolean(item.id) &&
-                  item.mode === "team",
-              );
+        role:
+          item.role,
+      }),
+    )
+    .filter(
+      (item: WorkspaceItem) =>
+        Boolean(item.id) &&
+        item.mode === "team",
+    );
 
           setWorkspaces(
             teamWorkspaces,
