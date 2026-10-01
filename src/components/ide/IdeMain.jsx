@@ -21,16 +21,7 @@ import DevlogPanel from "@/components/ide/DevlogPanel";
 import CreateProjectModal from "@/components/ide/CreateProjectModal";
 import WebPreview from "@/components/ide/WebPreview";
 
-import { fetchWorkspaceProjectsApi } from "@/lib/ide/api";
-
-import {
-  setWorkspaceTree,
-  setWorkspaceId,
-  setProjectList,
-  setActiveProject,
-  setActiveBranch,
-  closeAllFiles,
-} from "@/store/slices/fileSystemSlice";
+import { useWorkspaceEntry } from "@/hooks/ide/useWorkspaceEntry";
 import MyPageShell from "../mypage/MyPageShell";
 import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
@@ -65,9 +56,6 @@ export default function IdeMain() {
     isDebugMode,
   } = useSelector((state) => state.ui);
 
-  const { workspaceId, activeProject, activeBranch } = useSelector(
-    (state) => state.fileSystem,
-  );
 
   const editorLayoutRef = useRef(null);
 
@@ -167,49 +155,7 @@ export default function IdeMain() {
     };
   }, [resizingPanel]);
 
-  useEffect(() => {
-    if (!id) return;
-
-    dispatch(closeAllFiles());
-    dispatch(setWorkspaceId(id));
-
-    fetchWorkspaceProjectsApi(id)
-      .then((root) => {
-        dispatch(setWorkspaceTree(root));
-
-        if (root && root.children && root.children.length > 0) {
-          dispatch(setProjectList(root.children));
-
-          const savedProject = localStorage.getItem(`lastProject_${id}`);
-          const savedBranch = localStorage.getItem(`lastBranch_${id}`);
-
-          const isValidProject = root.children.some(
-            (p) => p.name === savedProject,
-          );
-
-          const targetProject = isValidProject
-            ? savedProject
-            : root.children[0].name;
-          const targetBranch = savedBranch || "master";
-
-          dispatch(setActiveProject(targetProject));
-          dispatch(setActiveBranch(targetBranch));
-        }
-      })
-      .catch((error) => {
-        console.error("fetchWorkspaceProjectsApi error:", error);
-      });
-  }, [id, dispatch]);
-
-  useEffect(() => {
-    if (workspaceId && activeProject) {
-      localStorage.setItem(`lastProject_${workspaceId}`, activeProject);
-    }
-
-    if (workspaceId && activeBranch) {
-      localStorage.setItem(`lastBranch_${workspaceId}`, activeBranch);
-    }
-  }, [workspaceId, activeProject, activeBranch]);
+  useWorkspaceEntry(id);
 
   
 

@@ -103,6 +103,11 @@ const fileSystemSlice = createSlice({
       }
     },
 
+    // 펼친 폴더 목록을 통째로 바꾼다 (에디터 진입 시 시작 프로젝트를 전부 펼칠 때 쓴다).
+    setExpandedFolders: (state, action) => {
+      state.expandedFolders = action.payload;
+    },
+
     // 💡 [추가됨] 탐색기의 열려있는 모든 폴더를 접습니다.
     collapseAllFolders: (state) => {
       state.expandedFolders = [];
@@ -204,6 +209,7 @@ export const {
   closeAllFiles,
   updateFileContent,
   toggleFolder,
+  setExpandedFolders,
   collapseAllFolders, // 💡 export 추가
   mergeProjectFiles,
   openFile,

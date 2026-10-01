@@ -22,18 +22,15 @@ import CreateProjectModal from "@/components/ide/CreateProjectModal";
 import WebPreview from "@/components/ide/WebPreview";
 
 import {
-  fetchWorkspaceProjectsApi,
   fetchChatHistoryApi,
   getUserProfileApi,
   getWorkspaceMembersApi,
 } from "@/lib/ide/api";
 import { ChatSocket } from "@/lib/ide/chatSocket";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspaceEntry } from "@/hooks/ide/useWorkspaceEntry";
 
 import {
-  setWorkspaceTree,
-  setWorkspaceId,
-  setProjectList,
   closeAllFiles,
   clearVirtualTree,
 } from "@/store/slices/fileSystemSlice";
@@ -451,22 +448,7 @@ export default function TeamIdeMain() {
     };
   }, [resizingPanel]);
 
-  useEffect(() => {
-    if (!id) return;
-
-    dispatch(closeAllFiles());
-    dispatch(setWorkspaceId(id));
-
-    fetchWorkspaceProjectsApi(id)
-      .then((root) => {
-        dispatch(setWorkspaceTree(root));
-
-        if (root.children) {
-          dispatch(setProjectList(root.children));
-        }
-      })
-      .catch(console.error);
-  }, [id, dispatch]);
+  useWorkspaceEntry(id);
 
   const renderMainContent = () => {
     switch (activeActivity) {
