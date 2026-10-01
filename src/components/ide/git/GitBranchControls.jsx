@@ -271,6 +271,7 @@ export default function GitBranchControls({
   activeProject,
   activeBranch,
   currentNickname = "dev",
+  currentUserId,
   fileContents = {},
 }) {
   const dispatch = useDispatch();
@@ -336,6 +337,7 @@ export default function GitBranchControls({
     activeProject,
     activeBranch,
     currentNickname,
+    currentUserId,
     mode,
   });
 

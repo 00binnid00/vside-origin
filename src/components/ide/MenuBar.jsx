@@ -914,6 +914,7 @@ if (tree && tree.children) {
               activeProject={activeProject}
               activeBranch={activeBranch}
               currentNickname={currentNickname}
+              currentUserId={user?.id ?? user?.userId}
               fileContents={fileContents}
             />
 

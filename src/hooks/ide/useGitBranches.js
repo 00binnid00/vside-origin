@@ -121,6 +121,14 @@ export const isSandboxBranch = (branchName) => {
   return normalized.startsWith("focus-") || normalized.startsWith("focus/");
 };
 
+// 샌드박스 주인은 닉네임이 아니라 회원번호로 가린다.
+// 서버가 닉네임의 한글을 지워 전부 "dev" 로 만들던 탓에 본인 것도 숨겨졌었다.
+// 끝의 "-" 까지 비교해야 u1 이 u12 와 섞이지 않는다.
+export const isOwnSandboxBranch = (branchName, userId) => {
+  if (userId === undefined || userId === null || userId === "") return false;
+  return normalizeBranchValue(branchName).startsWith(`focus-u${userId}-`);
+};
+
 const normalizeBranchList = (branches) => {
   const uniqueBranches = Array.from(
     new Set(
@@ -276,6 +284,7 @@ export function useGitBranches({
   activeProject,
   activeBranch,
   currentNickname = "dev",
+  currentUserId,
   mode = "personal",
 }) {
   const dispatch = useDispatch();
@@ -312,14 +321,9 @@ export function useGitBranches({
         return false;
       }
 
-      const nickname = String(currentNickname || "dev");
-
-      return (
-        branch.startsWith(`focus-${nickname}-`) ||
-        branch.startsWith(`focus/${nickname}/`)
-      );
+      return isOwnSandboxBranch(branch, currentUserId);
     });
-  }, [branches, currentNickname, isTeamMode]);
+  }, [branches, currentUserId, isTeamMode]);
 
   const defaultMergeTarget = useMemo(
     () => resolveDefaultMergeTarget(branches),

@@ -2,7 +2,7 @@
 
 // 경로: src/components/ide/GitDashboard.jsx
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -63,6 +63,8 @@ import {
   updateGitUrlApi,
 } from "@/lib/ide/api";
 import { renderGraph } from "@/lib/ide/gitGraphHelper";
+import { useAuth } from "@/contexts/AuthContext";
+import { isOwnSandboxBranch } from "@/hooks/ide/useGitBranches";
 
 const DEFAULT_BRANCH = "master";
 const OAUTH_RESULT_MESSAGE = "WEVAIS_GITHUB_OAUTH_RESULT";
@@ -399,6 +401,20 @@ export default function GitDashboard() {
   const [isMerging, setIsMerging] = useState(false);
 
   const [branchList, setBranchList] = useState([]);
+
+  // 샌드박스는 만든 사람의 개인 공간이라 남의 것은 목록에 그리지 않는다.
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? user?.userId;
+  const visibleBranchList = useMemo(
+    () =>
+      branchList.filter(
+        (branch) =>
+          !isSandboxBranchName(branch) ||
+          isOwnSandboxBranch(branch, currentUserId),
+      ),
+    [branchList, currentUserId],
+  );
+
   const [historyLog, setHistoryLog] = useState([]);
 
   const [showOAuthModal, setShowOAuthModal] = useState(false);
@@ -2633,12 +2649,12 @@ export default function GitDashboard() {
             <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-gray-500">
               <span>Branches</span>
               <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600">
-                {branchList.length}
+                {visibleBranchList.length}
               </span>
             </div>
 
             <div className="mt-1 flex flex-col gap-0.5">
-              {branchList.map((branch) => {
+              {visibleBranchList.map((branch) => {
                 const isActiveBranch = branch === currentBranch;
                 const branchMeta = getDashboardBranchMeta(branch);
 
