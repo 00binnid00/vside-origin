@@ -14,6 +14,7 @@ import {
   Clock3,
   FilePenLine,
   Filter,
+  ArrowUpRight,
   GripVertical,
   ListTodo,
   Loader2,
@@ -50,6 +51,8 @@ import {
 import ProjectSidebar, {
   type WorkspaceSidebarItem,
 } from "@/components/layout/ProjectSidebar";
+
+import { getIdeHref } from "@/components/main-dashboard/dashboard.utils";
 
 /* =========================================================
    TYPES
@@ -2950,6 +2953,27 @@ export default function ScheduleManagementPage() {
                       size={15}
                     />
                   </button>
+
+                <button
+  type="button"
+  disabled={!workspaceId}
+  onClick={() => {
+    if (!workspaceId) {
+      return;
+    }
+
+    router.push(
+      getIdeHref(
+        workspaceId,
+        currentMode,
+      ),
+    );
+  }}
+  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF] disabled:cursor-not-allowed disabled:opacity-50"
+>
+  작업하러가기
+  <ArrowUpRight size={17} />
+</button>
 
                   <button
                     type="button"
