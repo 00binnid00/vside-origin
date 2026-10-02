@@ -197,6 +197,7 @@ function DevlogFormModal({
   form,
   schedules,
   selectedSchedule,
+  workspaceName,
   onChange,
   onClose,
   onSubmit,
@@ -226,13 +227,17 @@ function DevlogFormModal({
               </span>
             </div>
 
-            <h3 className="text-[20px] font-black tracking-[-0.02em] text-slate-950">
-              {mode === "edit" ? "개발일지 수정" : "개발일지 작성"}
-            </h3>
+           <h3 className="text-[20px] font-black tracking-[-0.02em] text-slate-950">
+  {workspaceName || "프로젝트"}
+</h3>
 
-            <p className="mt-1 text-[12px] font-medium text-slate-400">
-              프로젝트 작업 과정과 결과를 간단하게 기록합니다.
-            </p>
+<p className="mt-1 text-[12px] font-bold text-slate-500">
+  {mode === "edit" ? "개발일지 수정" : "개발일지 작성"}
+</p>
+
+<p className="mt-1 text-[12px] font-medium text-slate-400">
+  프로젝트 작업 과정과 결과를 간단하게 기록합니다.
+</p>
           </div>
 
           <button
@@ -1015,40 +1020,28 @@ export default function DevlogPanel() {
              ================================================= */}
           <div className="shrink-0 border-b border-slate-100 px-5 py-3">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowMissingSchedules((prev) => !prev)}
-                  className={`h-9 rounded-xl border px-3 text-[11px] font-black transition ${
-                    showMissingSchedules
-                      ? "border-amber-300 bg-amber-50 text-amber-700"
-                      : "border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
-                  }`}
-                >
-                  일지 미작성 {missingDevlogSchedules.length}
-                </button>
-
-                {[
-                  ["all", "전체"],
-                  ["linked", "일정 연결"],
-                  ["general", "일반 일지"],
-                  ["progress", "진행 중"],
-                  ["done", "완료"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setFilter(key)}
-                    className={`h-9 rounded-xl px-3 text-[11px] font-black transition ${
-                      filter === key
-                        ? "bg-[#5873F9] text-white shadow-sm"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200/70 hover:text-slate-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+             <div className="inline-flex items-center rounded-xl bg-slate-100 p-1">
+  {[
+    ["all", "전체"],
+    ["linked", "일정 연결"],
+    ["general", "일반 일지"],
+    ["progress", "진행 중"],
+    ["done", "완료"],
+  ].map(([key, label]) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setFilter(key)}
+      className={`h-8 rounded-lg px-3 text-[11px] font-black transition ${
+        filter === key
+          ? "bg-white text-[#5873F9] shadow-sm ring-1 ring-slate-200/70"
+          : "text-slate-500 hover:bg-white/70 hover:text-slate-700"
+      }`}
+    >
+      {label}
+    </button>
+  ))}
+</div>
 
               <div className="grid w-full gap-2 xl:w-auto xl:grid-cols-[320px_138px_138px_auto]">
                 <div className="relative">
@@ -1265,18 +1258,18 @@ export default function DevlogPanel() {
         onEdit={openEdit}
         onDelete={handleDelete}
       />
-
-      <DevlogFormModal
-        open={formOpen}
-        mode={formMode}
-        form={form}
-        schedules={schedules}
-        selectedSchedule={selectedSchedule}
-        onChange={updateForm}
-        onClose={closeForm}
-        onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
-      />
+<DevlogFormModal
+  open={formOpen}
+  mode={formMode}
+  form={form}
+  schedules={schedules}
+  selectedSchedule={selectedSchedule}
+  workspaceName={displayWorkspaceName}
+  onChange={updateForm}
+  onClose={closeForm}
+  onSubmit={handleSubmit}
+  isSubmitting={isSubmitting}
+/>
     </div>
   );
   
