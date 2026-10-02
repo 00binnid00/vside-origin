@@ -749,7 +749,7 @@ export default function DashboardProjectSelectPage() {
                     </p>
                   </div>
 
-                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-400">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] font-bold text-slate-400">
                     <SummaryChip label="전체" value={`${totalCount}`} />
                     <span className="text-slate-200">·</span>
                     <SummaryChip label="팀" value={`${teamCount}`} />
@@ -829,7 +829,7 @@ export default function DashboardProjectSelectPage() {
                           event.target.value as ProjectListSortType,
                         )
                       }
-                      className="h-10 w-[142px] appearance-none rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-[11px] font-bold text-slate-600 outline-none transition hover:border-slate-300 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
+                      className="h-10 w-[142px] appearance-none rounded-xl border border-slate-200 bg-white pl-8 pr-7 text-[13px] font-bold text-slate-600 outline-none transition hover:border-slate-300 focus:border-[#AAB8FF] focus:ring-2 focus:ring-[#5873F9]/10"
                     >
                       <option value="recent">최근 수정순</option>
                       <option value="name">이름순</option>
@@ -858,7 +858,7 @@ export default function DashboardProjectSelectPage() {
                       key={item.key}
                       type="button"
                       onClick={() => setFilter(item.key)}
-                      className={`h-8 rounded-lg px-3 text-[11px] font-black transition ${
+                      className={`h-8 rounded-lg px-3 text-[14px] font-black transition ${
                         filter === item.key
                           ? "bg-white text-[#5873F9] shadow-[0_1px_4px_rgba(15,23,42,0.08)]"
                           : "text-slate-400 hover:text-slate-700"
@@ -1582,7 +1582,7 @@ function ProjectDashboardCard({
         <div className="mt-4 min-w-0">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <h3
-              className={`min-w-0 flex-1 truncate text-[17px] font-black leading-6 tracking-tight transition ${
+              className={`min-w-0 flex-1 truncate text-[20px] font-black leading-6 tracking-tight transition ${
                 isCompleted
                   ? "text-violet-700"
                   : "text-slate-950 group-hover:text-[#4F68E8]"
@@ -1591,7 +1591,7 @@ function ProjectDashboardCard({
               {project.title}
             </h3>
 
-            <span className="shrink-0 text-[15px] font-black text-[#5873F9]">
+            <span className="shrink-0 text-[17px] font-black text-[#5873F9]">
               {project.progress}%
             </span>
           </div>
@@ -1613,7 +1613,7 @@ function ProjectDashboardCard({
             />
           </div>
 
-          <div className="mt-2.5 flex items-center justify-between gap-3 text-[10px] font-semibold text-slate-400">
+          <div className="mt-2.5 flex items-center justify-between gap-3 text-[13px] font-semibold text-slate-400">
             <span>최근 수정</span>
             <span className="font-bold text-slate-500">
               {formatDate(project.lastModified)}

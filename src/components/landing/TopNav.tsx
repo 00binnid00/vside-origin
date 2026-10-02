@@ -593,18 +593,19 @@ export default function TopNav() {
       label: "대시보드",
       requiresWorkspace: true,
     },
+       {
+      key: "schedules",
+      href: schedulesHref,
+      label: "일정관리",
+      requiresWorkspace: true,
+    },
     {
       key: "design",
       href: designHref,
       label: "설계관리",
       requiresWorkspace: true,
     },
-    {
-      key: "schedules",
-      href: schedulesHref,
-      label: "일정관리",
-      requiresWorkspace: true,
-    },
+ 
     {
       key: "aivs",
       href: aivsHref,
