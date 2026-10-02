@@ -20,6 +20,7 @@ import CodeMap from "@/components/ide/CodeMap";
 import DevlogPanel from "@/components/ide/DevlogPanel";
 import CreateProjectModal from "@/components/ide/CreateProjectModal";
 import WebPreview from "@/components/ide/WebPreview";
+import MyPageShell from "../mypage/MyPageShell";
 
 import {
   fetchChatHistoryApi,
@@ -36,11 +37,11 @@ import {
 } from "@/store/slices/fileSystemSlice";
 import { toggleSidebar, toggleRightPanel } from "@/store/slices/uiSlice";
 
-const MyPagePanel = () => (
-  <div className="flex-1 flex items-center justify-center text-gray-500 font-bold">
-    My Page Panel
-  </div>
-);
+// const MyPagePanel = () => (
+//   <div className="flex-1 flex items-center justify-center text-gray-500 font-bold">
+//     My Page Panel
+//   </div>
+// );
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 260;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -459,7 +460,9 @@ export default function TeamIdeMain() {
         return <ApiTesterPage />;
 
       case "mypage":
-        return <MyPagePanel />;
+        return  <div className="flex-1 min-w-0 h-full overflow-y-auto bg-white">
+                    <MyPageShell />
+                  </div>
 
       case "git":
         return <GitDashboard />;
