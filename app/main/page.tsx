@@ -749,7 +749,7 @@ export default function DashboardProjectSelectPage() {
                     </p>
                   </div>
 
-                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] font-bold text-slate-400">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] font-bold text-slate-400">
                     <SummaryChip label="전체" value={`${totalCount}`} />
                     <span className="text-slate-200">·</span>
                     <SummaryChip label="팀" value={`${teamCount}`} />
@@ -858,7 +858,7 @@ export default function DashboardProjectSelectPage() {
                       key={item.key}
                       type="button"
                       onClick={() => setFilter(item.key)}
-                      className={`h-8 rounded-lg px-3 text-[14px] font-black transition ${
+                      className={`h-8 rounded-lg px-3 text-[13px] font-black transition ${
                         filter === item.key
                           ? "bg-white text-[#5873F9] shadow-[0_1px_4px_rgba(15,23,42,0.08)]"
                           : "text-slate-400 hover:text-slate-700"
@@ -2349,7 +2349,7 @@ function CardActionLink({
   return (
     <Link
       href={href}
-      className={`flex items-center justify-center gap-1.5 rounded-xl text-[11px] font-black transition ${className} ${
+      className={`flex items-center justify-center gap-1.5 rounded-xl text-[12px] font-black transition ${className} ${
         primary
           ? "h-10 bg-[#5873F9] text-white shadow-sm hover:bg-[#4863E8]"
           : "h-10 border border-slate-200 bg-white text-slate-600 hover:border-[#C8D2FF] hover:bg-[#F7F9FF] hover:text-[#5873F9]"
