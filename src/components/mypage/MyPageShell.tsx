@@ -60,6 +60,10 @@ import {
 } from "@/components/mypage/api";
 
 import {
+  fetchMyCommunityActivityApi,
+} from "@/components/mypage/communityApi";
+
+import {
   getAivsHref,
   getDevlogHref,
   getScheduleHref,
@@ -1349,6 +1353,7 @@ const summary = useMemo(
         workspaceDtos,
         heatmapResult,
         recentActivityResult,
+        communityActivityResult,
       ] = await Promise.all([
         fetchMyProfile(),
         fetchMyWorkspaces(),
@@ -1359,6 +1364,15 @@ const summary = useMemo(
         fetchMyRecentActivitiesApi(6).catch((error) => {
           console.warn("[mypage recent activity] 최근 활동 요청 실패:", error);
           return [] as RecentActivityResponse[];
+        }),
+        fetchMyCommunityActivityApi().catch((error) => {
+          console.warn("[mypage community] 게시판 활동 요청 실패:", error);
+          return {
+            posts: [],
+            comments: [],
+            likes: [],
+            scraps: [],
+          };
         }),
       ]);
 
@@ -1447,6 +1461,7 @@ const summary = useMemo(
       setActivityHeatmap(heatmapResult);
       setHeatmapValues(mapHeatmapValuesFromResponse(heatmapResult));
       setRecentActivities(recentActivityResult);
+      setCommunityActivity(communityActivityResult);
     } catch (error) {
       if (!mounted) return;
 
