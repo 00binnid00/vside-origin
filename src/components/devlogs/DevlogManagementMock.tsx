@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
+  ArrowUpRight,
   CalendarDays,
   Download,
   FilePenLine,
@@ -28,6 +29,8 @@ import {
   getMyWorkspacesByTokenApi,
   updateDevlogApi,
 } from "@/lib/ide/api";
+
+import { getIdeHref } from "@/components/main-dashboard/dashboard.utils";
 
 import {
   fetchWorkspaceSchedulesApi,
@@ -1727,28 +1730,47 @@ export default function DevlogManagementMock() {
 
                   {/* RIGHT ACTION */}
 
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePrintDevlogsPdf}
-                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF]"
-                    >
-                      <Download size={15} />
+                 <div className="flex shrink-0 items-center gap-2">
+  <button
+    type="button"
+    onClick={handlePrintDevlogsPdf}
+    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF]"
+  >
+    <Download size={15} />
+    PDF 저장
+  </button>
 
-                      PDF 저장
-                    </button>
+  <button
+    type="button"
+    disabled={!workspaceId}
+    onClick={() => {
+      if (!workspaceId) {
+        return;
+      }
 
-                    <button
-                      type="button"
-                      onClick={openCreateModal}
-                      disabled={!workspaceId}
-                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Plus size={15} />
+      router.push(
+        getIdeHref(
+          workspaceId,
+          currentWorkspaceMode,
+        ),
+      );
+    }}
+    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#D9E1FF] bg-white px-4 text-xs font-black text-[#5873F9] transition hover:bg-[#F7F9FF] disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    작업하러가기
+    <ArrowUpRight size={17} />
+  </button>
 
-                      새 개발일지
-                    </button>
-                  </div>
+  <button
+    type="button"
+    onClick={openCreateModal}
+    disabled={!workspaceId}
+    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#5873F9] px-4 text-xs font-black text-white transition hover:bg-[#4863E8] disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    <Plus size={15} />
+    새 개발일지
+  </button>
+</div>
                 </div>
 
                 {/* =============================================
