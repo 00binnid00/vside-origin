@@ -10,7 +10,7 @@
 // 모일 수 있다.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Loader2, PencilLine, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -23,19 +23,26 @@ import { useDesignModel } from "../realtime/useY";
 import { createDesignMutations } from "../realtime/mutations";
 import { useDesignUndo } from "../realtime/useUndo";
 import { useDesignUiStore } from "../store/designUiStore";
+
 import { ConfirmDialogProvider } from "./ConfirmDialog";
 import { ConnectionNotice, DesignHeader } from "./DesignHeader";
 import { DoctorPanel } from "./DoctorPanel";
 import { HistoryDialog } from "./HistoryDialog";
+
 import { AiDraftDialog } from "../ai/AiDraftDialog";
 import { CodegenDialog } from "../codegen/CodegenDialog";
 import { DesignPrintCapture } from "../export/DesignPrintCapture";
-import { buildPrintDocument, type PrintImages } from "../export/buildPrintDocument";
+import {
+  buildPrintDocument,
+  type PrintImages,
+} from "../export/buildPrintDocument";
 import { printHtmlDocument } from "../export/printDesign";
 import { isEmptyModel } from "../model/schema";
+
 import ProjectSidebar, {
   type WorkspaceSidebarItem,
 } from "@/components/layout/ProjectSidebar";
+
 import { RequirementsTab } from "../tabs/requirements/RequirementsTab";
 import { ScreenFlowTab } from "../tabs/screens/ScreenFlowTab";
 import { ErdTab } from "../tabs/erd/ErdTab";
@@ -43,14 +50,23 @@ import { ApiTab } from "../tabs/apis/ApiTab";
 
 /** 접속자 이름을 색과 함께 알린다. 누가 함께 보고 있는지 표시하는 데 쓴다. */
 const PRESENCE_COLORS = [
-  "#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6",
+  "#6366f1",
+  "#0ea5e9",
+  "#10b981",
+  "#f59e0b",
+  "#ec4899",
+  "#8b5cf6",
 ];
 
 export function DesignWorkspace() {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const workspaceId = searchParams.get("workspaceId");
+  const params = useParams<{
+    workspaceId?: string | string[];
+  }>();
+
+  const workspaceId = Array.isArray(params?.workspaceId)
+    ? params.workspaceId[0] ?? null
+    : params?.workspaceId ?? null;
 
   const [workspaces, setWorkspaces] = useState<WorkspaceSidebarItem[]>([]);
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
@@ -62,7 +78,10 @@ export function DesignWorkspace() {
     (async () => {
       try {
         const list = await getMyWorkspacesByTokenApi();
-        if (cancelled) return;
+
+        if (cancelled) {
+          return;
+        }
 
         setWorkspaces(
           (list ?? []).map(
@@ -77,17 +96,26 @@ export function DesignWorkspace() {
               name: item.name,
               mode: item.mode === "team" ? "team" : "personal",
               role: item.role,
-              childCount: Array.isArray(item.projects) ? item.projects.length : 0,
+              childCount: Array.isArray(item.projects)
+                ? item.projects.length
+                : 0,
             }),
           ),
         );
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
+
         setWorkspaceError(
-          error instanceof Error ? error.message : "워크스페이스를 불러오지 못했습니다.",
+          error instanceof Error
+            ? error.message
+            : "워크스페이스를 불러오지 못했습니다.",
         );
       } finally {
-        if (!cancelled) setLoadingWorkspaces(false);
+        if (!cancelled) {
+          setLoadingWorkspaces(false);
+        }
       }
     })();
 
@@ -105,20 +133,21 @@ export function DesignWorkspace() {
   const activeTab = useDesignUiStore((s) => s.activeTab);
   const doctorOpen = useDesignUiStore((s) => s.doctorOpen);
 
-  // 문서를 열지 못한 상태에서는 점검하지 않는다. 빈 문서를 검사해 봐야
-  // 없는 문제를 잔뜩 보고할 뿐이다.
-  const report = useDesignDoctor(workspaceId, model, state.status !== "loading" && state.status !== "error");
+  // 문서를 열지 못한 상태에서는 점검하지 않는다.
+  const report = useDesignDoctor(
+    workspaceId,
+    model,
+    state.status !== "loading" && state.status !== "error",
+  );
 
   const [aiOpen, setAiOpen] = useState(false);
   const [codegenOpen, setCodegenOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState("");
+
   const documentEmpty = isEmptyModel(model);
 
-  // 헤더 탭에 붙는 숫자. ERD 를 relations 가 아니라 tables 로 세는 것은
-  // isEmptyModel 이 "비었다" 를 판정할 때 쓰는 기준과 같게 맞추기 위해서다.
-  // 기준이 어긋나면 개수가 0 인데 안내가 안 뜨는 상태가 생긴다.
   const tabCounts = useMemo(
     () => ({
       requirements: model.requirements.length,
@@ -129,32 +158,34 @@ export function DesignWorkspace() {
     [model],
   );
 
-  // 빈 문서에서 "직접 작성하기" 를 고르면 안내를 접는다. 문서에는 아무것도
-  // 쓰지 않으므로 새로고침하면 다시 뜨지만, 한 줄이라도 적었으면 문서가
-  // 비지 않아 뜨지 않는다.
   const [blankStarted, setBlankStarted] = useState(false);
 
-  const mutations = useMemo(() => (doc ? createDesignMutations(doc) : null), [doc]);
+  const mutations = useMemo(
+    () => (doc ? createDesignMutations(doc) : null),
+    [doc],
+  );
 
   const awareness = session?.provider?.awareness ?? null;
 
-  // 접속자 표시에 쓸 내 정보를 알린다.
   useEffect(() => {
-    if (!awareness) return;
+    if (!awareness) {
+      return;
+    }
 
     const user = getAuthUser();
-    const colorIndex = Math.abs(Number(user?.userId ?? 0)) % PRESENCE_COLORS.length;
+
+    const colorIndex =
+      Math.abs(Number(user?.userId ?? 0)) % PRESENCE_COLORS.length;
 
     awareness.setLocalStateField("user", {
-      // 접속자 수를 사람 단위로 세려면 누구인지 알아야 한다.
-      // 한 사람이 탭을 두 개 열어도 한 명으로 보여야 한다.
       id: user?.userId ?? null,
       name: user?.nickname ?? "익명",
       color: PRESENCE_COLORS[colorIndex],
     });
   }, [awareness]);
 
-  const currentWorkspace = workspaces.find((item) => item.id === workspaceId) ?? null;
+  const currentWorkspace =
+    workspaces.find((item) => item.id === workspaceId) ?? null;
 
   const handleSelectWorkspace = useCallback(
     (workspace: WorkspaceSidebarItem) => {
@@ -162,25 +193,28 @@ export function DesignWorkspace() {
         return;
       }
 
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("workspaceId", workspace.id);
-
-      router.push(`${pathname}?${params.toString()}`);
+      router.push(
+        `/design/${encodeURIComponent(workspace.id)}?mode=${workspace.mode}`,
+      );
     },
-    [pathname, router, searchParams, workspaceId],
+    [router, workspaceId],
   );
 
-  // 캡처가 끝나면 그림을 끼워 넣어 인쇄 창을 띄운다. 인쇄 대화상자가 뜬
-  // 뒤에는 화면 밖 캔버스를 더 둘 이유가 없으므로 곧바로 걷는다.
   const handlePrintReady = useCallback(
     async (images: PrintImages) => {
       try {
         await printHtmlDocument(
-          buildPrintDocument(model, currentWorkspace?.name ?? "설계 문서", images),
+          buildPrintDocument(
+            model,
+            currentWorkspace?.name ?? "설계 문서",
+            images,
+          ),
         );
       } catch (error) {
         setPrintError(
-          error instanceof Error ? error.message : "인쇄 창을 열지 못했습니다.",
+          error instanceof Error
+            ? error.message
+            : "인쇄 창을 열지 못했습니다.",
         );
       } finally {
         setPrinting(false);
@@ -196,14 +230,6 @@ export function DesignWorkspace() {
 
   return (
     <ConfirmDialogProvider>
-      {/*
-        다른 화면(자료실·마이페이지)과 같은 껍데기다. 연한 바탕 위에 흰
-        패널을 얹고 20px 간격을 둔다.
-
-        다만 높이는 min-h 가 아니라 고정이다. 자료실은 위에서 아래로 읽는
-        문서라 늘어나도 되지만, 여기 화면 흐름도와 ERD 는 주어진 높이를
-        채워야 하는 캔버스라 min-h 로 두면 찌그러진다.
-      */}
       <div className="waivs-page flex min-h-0 flex-1 gap-4 p-5 text-[var(--waivs-text)]">
         <ProjectSidebar
           workspaces={workspaces}
@@ -235,7 +261,10 @@ export function DesignWorkspace() {
                 onOpenHistory={() => setHistoryOpen(true)}
               />
 
-              <ConnectionNotice status={state.status} message={state.errorMessage} />
+              <ConnectionNotice
+                status={state.status}
+                message={state.errorMessage}
+              />
 
               {printError ? (
                 <p className="mx-6 mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -250,12 +279,6 @@ export function DesignWorkspace() {
                 </div>
               ) : state.status === "error" || !mutations ? null : (
                 <div className="flex min-h-0 flex-1">
-                  {/*
-                    시작 방법을 고르기 전에는 설계 화면을 아예 렌더하지 않는다.
-                    예전에는 둘을 형제로 두고 안내를 bg-white/95 오버레이로
-                    덮었는데, 5% 가 비쳐 아직 아무것도 없는 화면이 어렴풋이
-                    보였다. 그건 정보가 아니라 잡음이다.
-                  */}
                   <div className="min-w-0 flex-1">
                     {documentEmpty && !blankStarted ? (
                       <EmptyDesign
@@ -263,18 +286,38 @@ export function DesignWorkspace() {
                         onStartBlank={() => setBlankStarted(true)}
                       />
                     ) : activeTab === "requirements" ? (
-                      <RequirementsTab model={model} mutations={mutations} findings={report.findings} />
+                      <RequirementsTab
+                        model={model}
+                        mutations={mutations}
+                        findings={report.findings}
+                      />
                     ) : activeTab === "screens" ? (
-                      <ScreenFlowTab model={model} mutations={mutations} findings={report.findings} />
+                      <ScreenFlowTab
+                        model={model}
+                        mutations={mutations}
+                        findings={report.findings}
+                      />
                     ) : activeTab === "erd" ? (
-                      <ErdTab model={model} mutations={mutations} awareness={awareness} findings={report.findings} />
+                      <ErdTab
+                        model={model}
+                        mutations={mutations}
+                        awareness={awareness}
+                        findings={report.findings}
+                      />
                     ) : (
-                      <ApiTab model={model} mutations={mutations} findings={report.findings} />
+                      <ApiTab
+                        model={model}
+                        mutations={mutations}
+                        findings={report.findings}
+                      />
                     )}
                   </div>
 
                   {doctorOpen ? (
-                    <DoctorPanel report={report} mutations={mutations} />
+                    <DoctorPanel
+                      report={report}
+                      mutations={mutations}
+                    />
                   ) : null}
                 </div>
               )}
@@ -329,8 +372,8 @@ export function DesignWorkspace() {
 /**
  * 문서가 비었을 때 첫 화면.
  *
- * 예전 설계 화면은 여기서 "요구사항 추가" 버튼 하나만 보여 줬다. 학생 팀은
- * 무엇을 써야 할지 몰라서 설계를 못 하는데 칸만 하나 더 주는 셈이었다.
+ * 예전 설계 화면은 여기서 "요구사항 추가" 버튼 하나만 보여 줬다.
+ * 학생 팀은 무엇을 써야 할지 몰라서 설계를 못 하는데 칸만 하나 더 주는 셈이었다.
  * 이제는 한 줄만 적으면 시작할 수 있다는 것을 가장 먼저 보여 준다.
  */
 function EmptyDesign({
@@ -343,7 +386,10 @@ function EmptyDesign({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-5 px-8">
       <div className="text-center">
-        <p className="text-lg font-black text-[var(--waivs-text)]">어떻게 시작할까요?</p>
+        <p className="text-lg font-black text-[var(--waivs-text)]">
+          어떻게 시작할까요?
+        </p>
+
         <p className="mt-1 text-sm text-[var(--waivs-text-muted)]">
           둘 중 아무거나 골라도 됩니다. 나중에 바꿔도 됩니다.
         </p>
@@ -409,14 +455,20 @@ function StartChoice({
         {icon}
       </span>
 
-      <span className="text-sm font-black text-[var(--waivs-text)]">{title}</span>
+      <span className="text-sm font-black text-[var(--waivs-text)]">
+        {title}
+      </span>
 
-      <span className="text-xs leading-5 text-[var(--waivs-text-muted)]">{description}</span>
+      <span className="text-xs leading-5 text-[var(--waivs-text-muted)]">
+        {description}
+      </span>
 
       <span
         className={cn(
           "mt-1 text-xs font-black",
-          primary ? "text-[#5873F9]" : "text-[var(--waivs-text-sub)]",
+          primary
+            ? "text-[#5873F9]"
+            : "text-[var(--waivs-text-sub)]",
         )}
       >
         {actionLabel} →
@@ -425,10 +477,17 @@ function StartChoice({
   );
 }
 
-function NoWorkspace({ hasWorkspaces }: { hasWorkspaces: boolean }) {
+function NoWorkspace({
+  hasWorkspaces,
+}: {
+  hasWorkspaces: boolean;
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
-      <p className="text-sm font-medium text-[var(--waivs-text-sub)]">워크스페이스를 먼저 선택해 주세요.</p>
+      <p className="text-sm font-medium text-[var(--waivs-text-sub)]">
+        워크스페이스를 먼저 선택해 주세요.
+      </p>
+
       <p className="max-w-sm text-xs text-[var(--waivs-text-muted)]">
         {hasWorkspaces
           ? "왼쪽 목록에서 설계를 작성할 워크스페이스를 고르면 시작됩니다."

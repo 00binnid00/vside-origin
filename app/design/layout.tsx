@@ -1,9 +1,9 @@
-import RearrangeProviders from "./providers";
+import DesignProviders from "./providers";
 
-export default function RearrangeLayout({
+export default function DesignLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <RearrangeProviders>{children}</RearrangeProviders>;
+  return <DesignProviders>{children}</DesignProviders>;
 }

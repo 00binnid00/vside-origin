@@ -3,7 +3,11 @@
 // 경로: src/components/design/components/DesignHeader.tsx
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import {
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -40,10 +44,16 @@ const TABS: { id: DesignTab; label: string }[] = [
   { id: "apis", label: "API 명세" },
 ];
 
-function relativeTime(savedAt: number | null, now: number): string {
+function relativeTime(
+  savedAt: number | null,
+  now: number,
+): string {
   if (!savedAt) return "";
 
-  const seconds = Math.max(0, Math.round((now - savedAt) / 1000));
+  const seconds = Math.max(
+    0,
+    Math.round((now - savedAt) / 1000),
+  );
 
   if (seconds < 10) return "방금 저장됨";
   if (seconds < 60) return `${seconds}초 전 저장됨`;
@@ -55,11 +65,19 @@ function relativeTime(savedAt: number | null, now: number): string {
   return `${Math.round(minutes / 60)}시간 전 저장됨`;
 }
 
-function SaveIndicator({ state }: { state: DesignDocState }) {
+function SaveIndicator({
+  state,
+}: {
+  state: DesignDocState;
+}) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15000);
+    const timer = setInterval(
+      () => setNow(Date.now()),
+      15000,
+    );
+
     return () => clearInterval(timer);
   }, []);
 
@@ -136,16 +154,34 @@ export function DesignHeader({
   onOpenHistory,
 }: DesignHeaderProps) {
   const router = useRouter();
+  const params = useParams<{
+    workspaceId?: string | string[];
+  }>();
   const searchParams = useSearchParams();
 
-  const activeTab = useDesignUiStore((s) => s.activeTab);
-  const setActiveTab = useDesignUiStore((s) => s.setActiveTab);
-  const doctorOpen = useDesignUiStore((s) => s.doctorOpen);
-  const toggleDoctor = useDesignUiStore((s) => s.toggleDoctor);
+  const activeTab = useDesignUiStore(
+    (s) => s.activeTab,
+  );
+  const setActiveTab = useDesignUiStore(
+    (s) => s.setActiveTab,
+  );
+  const doctorOpen = useDesignUiStore(
+    (s) => s.doctorOpen,
+  );
+  const toggleDoctor = useDesignUiStore(
+    (s) => s.toggleDoctor,
+  );
 
-  const workspaceId = searchParams.get("workspaceId") ?? "";
+  const workspaceId = Array.isArray(
+    params?.workspaceId,
+  )
+    ? params.workspaceId[0] ?? ""
+    : params?.workspaceId ?? "";
+
   const currentMode =
-    searchParams.get("mode") === "team" ? "team" : "personal";
+    searchParams.get("mode") === "team"
+      ? "team"
+      : "personal";
 
   return (
     <header className="shrink-0 border-b border-[var(--waivs-border-soft)] px-5 py-3">
@@ -217,13 +253,14 @@ export function DesignHeader({
           </Button>
 
           <Button
-            variant={doctorOpen ? "default" : "outline"}
+            variant={
+              doctorOpen ? "default" : "outline"
+            }
             size="sm"
             onClick={() => toggleDoctor()}
             className="gap-1.5"
           >
             <Stethoscope className="h-4 w-4" />
-
             설계 현황
 
             <span
@@ -275,8 +312,14 @@ export function DesignHeader({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
-              aria-current={activeTab === tab.id ? "page" : undefined}
+              onClick={() =>
+                setActiveTab(tab.id)
+              }
+              aria-current={
+                activeTab === tab.id
+                  ? "page"
+                  : undefined
+              }
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-black transition",
                 activeTab === tab.id
@@ -313,7 +356,9 @@ export function ConnectionNotice({
   status: ConnectionStatus;
   message: string;
 }) {
-  if (status !== "error") return null;
+  if (status !== "error") {
+    return null;
+  }
 
   return (
     <div className="m-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
