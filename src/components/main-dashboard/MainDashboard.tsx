@@ -809,11 +809,11 @@ function ProjectWorkStatusSection({
                   일정 관리에서 상태 확인
                 </p>
               </Link>
-
-              <Link
-                href={getDevlogHref(
-                  workspaceId,
-                )}
+<Link
+  href={getDevlogHref(
+    workspaceId,
+    mode,
+  )}
                 className="rounded-xl border border-gray-200 bg-white px-3.5 py-3 transition hover:border-[#AAB8FF] hover:bg-[#F7F9FF]"
               >
                 <p className="text-[10px] font-bold text-gray-400">
@@ -922,6 +922,7 @@ function ProjectWorkStatusSection({
               <Link
                 href={getDevlogHref(
                   workspaceId,
+                  mode
                 )}
                 className="flex h-10 items-center justify-between rounded-xl border border-gray-200 bg-white px-3 text-[11px] font-bold text-gray-600 transition hover:border-[#AAB8FF] hover:bg-[#F7F9FF] hover:text-[#5873F9]"
               >
@@ -935,6 +936,7 @@ function ProjectWorkStatusSection({
               <Link
                 href={getArchiveHref(
                   workspaceId,
+                  mode
                 )}
                 className="col-span-2 flex h-10 items-center justify-between rounded-xl border border-gray-200 bg-white px-3 text-[11px] font-bold text-gray-600 transition hover:border-[#AAB8FF] hover:bg-[#F7F9FF] hover:text-[#5873F9]"
               >

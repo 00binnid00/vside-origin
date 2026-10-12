@@ -512,7 +512,7 @@ function SubProjectCard({
 
   const scheduleHref = getScheduleHref(project.workspaceId, mode);
 
-  const devlogHref = getDevlogHref(project.workspaceId);
+  const devlogHref = getDevlogHref(project.workspaceId, mode);
 
   return (
 

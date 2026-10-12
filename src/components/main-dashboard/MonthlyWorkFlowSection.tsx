@@ -105,7 +105,7 @@ export default function MonthlyWorkFlowSection({
           </Link>
 
           <Link
-            href={workspaceId ? getDevlogHref(workspaceId) : "/devlog"}
+            href={workspaceId ? getDevlogHref(workspaceId, mode) : "/devlog"}
             className="inline-flex h-8 items-center justify-center rounded-lg bg-[#5873F9] px-3 text-[11px] font-bold text-white transition-colors hover:bg-[#4863E8]"
           >
             개발일지

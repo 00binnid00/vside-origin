@@ -217,7 +217,7 @@ export function getScheduleHref(
 }
 export function getDevlogHref(
   workspaceId: string,
-  mode: WorkspaceMode,
+  mode: WorkspaceMode, 
 ) {
   return `/devlogs/${encodeURIComponent(
     workspaceId,

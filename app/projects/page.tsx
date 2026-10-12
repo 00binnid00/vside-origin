@@ -3285,15 +3285,10 @@ function ProjectDashboardCard({
 
 
             <CardActionLink
-
-              href={getDevlogHref(project.id)}
-
-              icon={<BookOpenText size={13} />}
-
-              label="개발일지"
-
-            />
-
+  href={getDevlogHref(project.id, project.type)}
+  icon={<BookOpenText size={13} />}
+  label="개발일지"
+/>
 
 
             <CardActionLink
