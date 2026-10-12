@@ -39,6 +39,12 @@ const initialState = {
   isPreviewVisible: false,
   previewUrl: "",
 
+  // Swing 같은 창 프로그램의 화면 주소. 서버가 화면 중계를 켰을 때만 값이 있다.
+  // previewUrl(API 서버 주소)과 따로 둔다. 둘이 동시에 살아 있고 탭으로 오간다.
+  guiPreviewUrl: "",
+  // 앱이 다 켜졌는지. 켜지기 전의 빈 화면을 고장으로 오해하지 않게 안내를 덮어 둔다.
+  isGuiAppReady: false,
+
   conflictNavigationTarget: null,
 };
 
@@ -197,6 +203,15 @@ export const uiSlice = createSlice({
       state.previewUrl = action.payload;
     },
 
+    setGuiPreviewUrl: (state, action) => {
+      state.guiPreviewUrl = action.payload;
+      state.isGuiAppReady = false;
+    },
+
+    setGuiAppReady: (state, action) => {
+      state.isGuiAppReady = action.payload;
+    },
+
     requestConflictNavigation: (state, action) => {
       const payload = action.payload || {};
       state.conflictNavigationTarget = {
@@ -254,6 +269,8 @@ export const {
 
   setIsPreviewVisible,
   setPreviewUrl,
+  setGuiPreviewUrl,
+  setGuiAppReady,
 
   requestConflictNavigation,
   clearConflictNavigation,

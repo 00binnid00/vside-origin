@@ -56,9 +56,13 @@ const normalizePreviewUrl = (rawUrl) => {
 export default function WebPreview() {
   const dispatch = useDispatch();
 
-  const { isPreviewVisible, previewUrl: reduxPreviewUrl } = useSelector(
-    (state) => state.ui,
-  );
+  const {
+    isPreviewVisible,
+    previewUrl: reduxPreviewUrl,
+    guiPreviewUrl,
+    isGuiAppReady,
+    isRunning,
+  } = useSelector((state) => state.ui);
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -66,6 +70,17 @@ export default function WebPreview() {
 
   const [inputUrl, setInputUrl] = useState("");
   const [activeUrl, setActiveUrl] = useState("");
+
+  // 창(Swing)을 쓰는 프로그램을 실행했을 때만 탭이 생긴다. "app" = 앱 화면, "api" = API 서버.
+  // 창을 안 쓰는 실행에서는 guiPreviewUrl 이 비어 있어 예전 화면과 똑같다.
+  //
+  // "API 서버 탭을 골랐다"를 어느 실행의 앱 화면에서 골랐는지와 함께 기억한다. 실행마다
+  // 주소(포트)가 달라지므로, 새로 실행하면 따로 되돌리지 않아도 앱 화면 탭부터 보인다.
+  const [apiTabChosenFor, setApiTabChosenFor] = useState("");
+  const appScreenUrl = guiPreviewUrl ? normalizePreviewUrl(guiPreviewUrl) : "";
+  const hasAppScreen = Boolean(appScreenUrl);
+  const activeTab = apiTabChosenFor === guiPreviewUrl ? "api" : "app";
+  const isAppTab = hasAppScreen && activeTab === "app";
 
   const [rndState, setRndState] = useState({
     width: 600,
@@ -256,17 +271,73 @@ export default function WebPreview() {
                 <VscRefresh size={16} />
               </button>
 
-              <input
-                type="text"
-                value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
-                onKeyDown={handleUrlSubmit}
-                placeholder="http://IP:포트 입력 후 엔터"
-                className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-1.5 text-[12px] text-gray-700 font-mono shadow-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
-              />
+              {hasAppScreen && (
+                <div className="flex shrink-0 rounded-md border border-gray-300 bg-white p-0.5 text-[12px] font-bold">
+                  {[
+                    { id: "app", label: "앱 화면" },
+                    { id: "api", label: "API 서버" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() =>
+                        setApiTabChosenFor(tab.id === "api" ? guiPreviewUrl : "")
+                      }
+                      className={`px-2.5 py-1 rounded transition-colors ${
+                        activeTab === tab.id
+                          ? "bg-blue-500 text-white"
+                          : "text-gray-500 hover:bg-gray-100"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* 앱 화면에는 사용자가 칠 주소가 없다. 주소창은 API 서버 탭에서만 보인다. */}
+              {isAppTab ? (
+                <span className="flex-1 truncate text-[12px] text-gray-500">
+                  내 프로그램이 띄운 창이에요. 클릭하고 입력할 수 있어요.
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  onKeyDown={handleUrlSubmit}
+                  placeholder="http://IP:포트 입력 후 엔터"
+                  className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-1.5 text-[12px] text-gray-700 font-mono shadow-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200"
+                />
+              )}
             </div>
 
             <div className="flex-1 bg-white relative">
+              {/* 탭을 오가도 화면이 다시 연결되지 않게 둘 다 붙여 두고 가리기만 한다. */}
+              {hasAppScreen && (
+                <div
+                  className={`absolute inset-0 z-10 bg-[#1f2937] ${
+                    isAppTab ? "block" : "hidden"
+                  }`}
+                >
+                  <iframe
+                    key={`app-${appScreenUrl}-${refreshKey}`}
+                    src={appScreenUrl}
+                    className="absolute inset-0 w-full h-full border-none"
+                    title="App Screen"
+                  />
+
+                  {/* 앱이 켜지기 전에는 빈 화면만 보인다. 고장으로 오해하지 않게 덮어 둔다. */}
+                  {!isGuiAppReady && isRunning && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 text-gray-500">
+                      <p className="text-[13px] font-bold">앱이 켜지는 중이에요…</p>
+                      <p className="mt-1 text-[11px] text-gray-400">
+                        다 켜지면 여기에 창이 나타나요.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeUrl ? (
                 <iframe
                   key={refreshKey}

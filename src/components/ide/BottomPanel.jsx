@@ -11,6 +11,8 @@ import {
   writeToTerminal,
   setIsPreviewVisible,
   setPreviewUrl,
+  setGuiPreviewUrl,
+  setGuiAppReady,
 } from "@/store/slices/uiSlice";
 import { RunSocket } from "@/lib/ide/runSocket";
 import { DebugSocket } from "@/lib/ide/debugSocket";
@@ -53,6 +55,22 @@ useEffect(() => {
     }
   }
 
+  // 창(Swing)을 쓰는 프로그램이면 서버가 화면 중계 포트를 따로 알려 준다.
+  // 화면 중계는 앱보다 먼저 켜지므로 기다리지 않고 바로 연다. 앱이 켜지는 동안은
+  // 미리보기가 "켜지는 중" 안내를 덮어 둔다.
+  if (text.includes("[GUI_STARTED_PORT:")) {
+    const match = text.match(/\[GUI_STARTED_PORT:(\d+)\]/);
+
+    if (match && match[1]) {
+      dispatch(
+        setGuiPreviewUrl(
+          `http://localhost:${match[1]}/vnc.html?autoconnect=true&resize=scale`,
+        ),
+      );
+      dispatch(setIsPreviewVisible(true));
+    }
+  }
+
   // 2. 실제 개발 서버가 준비된 뒤 미리보기를 연다.
   const isServerReady =
     text.includes("ready in") ||
@@ -63,6 +81,10 @@ useEffect(() => {
     text.includes("compiled") ||
     text.includes("Tomcat started on port") ||
     text.includes("Started");
+
+  if (isServerReady) {
+    dispatch(setGuiAppReady(true));
+  }
 
   if (pendingPreviewUrlRef.current && isServerReady) {
     dispatch(setPreviewUrl(pendingPreviewUrlRef.current));

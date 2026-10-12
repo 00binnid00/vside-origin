@@ -18,6 +18,7 @@ import {
   setCurrentDebugLine,
   updateDebugVariables,
   setActiveActivity,
+  setGuiPreviewUrl,
 } from "@/store/slices/uiSlice";
 import { DebugSocket } from "@/lib/ide/debugSocket";
 import { RunSocket } from "@/lib/ide/runSocket";
@@ -265,6 +266,9 @@ if (tree && tree.children) {
 }
 
     dispatch(writeToTerminal(`[System] ${language} 환경에서 [${templateType}] 모드로 실행을 준비합니다...\r\n`));
+    // 앞선 실행의 앱 화면은 컨테이너와 함께 사라졌다. 비우지 않으면 창을 안 쓰는
+    // 실행에도 미리보기에 "앱 화면" 탭이 남는다.
+    dispatch(setGuiPreviewUrl(""));
     dispatch(setRunning(true));
 
     const runPayload = {
