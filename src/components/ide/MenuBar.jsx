@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
@@ -45,10 +44,8 @@ import { readActiveEditorContent } from "@/lib/ide/activeEditorContent";
 import { useWorkspacePresence } from "@/hooks/useWorkspacePresence";
 import GitBranchControls from "@/components/ide/git/GitBranchControls";
 import { useGitRemoteActions } from "@/hooks/ide/useGitRemoteActions";
-
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8080";
-
 const getLanguageFromPath = (path) => {
   if (!path) return "UNKNOWN";
   const ext = path.split(".").pop().toLowerCase();
@@ -68,18 +65,14 @@ case "jsx":
     default: return "UNKNOWN";
   }
 };
-
 const avatarColors = [
   "bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500", "bg-teal-500",
 ];
-
 export default function MenuBar({ mode = "personal" }) {
   const pathname = usePathname();
   const dispatch = useDispatch();
   const { user } = useAuth();
-
   const [myProfile, setMyProfile] = useState(null);
-
   const {
     workspaceId,
     activeProject,
@@ -88,7 +81,6 @@ export default function MenuBar({ mode = "personal" }) {
     activeFileId,
     tree,
   } = useSelector((state) => state.fileSystem);
-
   const {
     isTerminalVisible,
     breakpoints,
@@ -97,8 +89,8 @@ export default function MenuBar({ mode = "personal" }) {
     isRunning,
     isDebugMode,
   } = useSelector((state) => state.ui);
-
   const [activeMenu, setActiveMenu] = useState(null);
+  const [compactSubMenu, setCompactSubMenu] = useState(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [isVoiceChatModalOpen, setIsVoiceChatModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -106,15 +98,12 @@ export default function MenuBar({ mode = "personal" }) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [isInviting, setIsInviting] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
-
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
-
   const isRelocationPage = pathname?.includes("/relocation") || pathname?.includes("/rearrange");
   const currentNickname = myProfile?.nickname || user?.nickname || "dev";
   const { pullFromRemote, pushToRemote } = useGitRemoteActions();
-
   useEffect(() => {
     if (user && user.id) {
       getUserProfileApi(user.id)
@@ -122,19 +111,21 @@ export default function MenuBar({ mode = "personal" }) {
         .catch((err) => console.error("프로필 정보 로드 실패", err));
     }
   }, [user]);
-
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target))
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
         setActiveMenu(null);
+        setCompactSubMenu(null);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
   useEffect(() => {
     const handleEsc = (e) => {
       if (e.key === "Escape") {
+        setActiveMenu(null);
+        setCompactSubMenu(null);
         setIsTeamModalOpen(false);
         setIsVoiceChatModalOpen(false);
         setIsInviteModalOpen(false);
@@ -143,23 +134,18 @@ export default function MenuBar({ mode = "personal" }) {
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, []);
-
-
   useEffect(() => {
     if (mode === "team" && workspaceId)
       getWorkspaceMembersApi(workspaceId)
         .then(setTeamMembers)
         .catch(console.error);
   }, [mode, workspaceId, isTeamModalOpen]);
-
-
   const handleCopyCode = () => {
     if (!workspaceId) return alert("워크스페이스 ID를 찾을 수 없습니다.");
     navigator.clipboard.writeText(workspaceId);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
-
   const handleSendInvite = async () => {
     if (!inviteEmail.trim()) return alert("초대할 이메일 주소를 입력해주세요.");
     try {
@@ -174,7 +160,6 @@ export default function MenuBar({ mode = "personal" }) {
       setIsInviting(false);
     }
   };
-
   const handleQuickStop = () => {
     dispatch(setRunning(false));
     dispatch(setDebugMode(false));
@@ -183,12 +168,10 @@ export default function MenuBar({ mode = "personal" }) {
     if (!isTerminalVisible) dispatch(toggleTerminal());
     dispatch(writeToTerminal("\r\n[System] 🛑 서버 및 실행을 강제 중지했습니다.\r\n"));
   };
-
   const handleQuickRun = async () => {
     if (!activeFileId || !workspaceId || !activeProject) return alert("실행할 파일을 에디터에 열어주세요!");
     if (!isTerminalVisible) dispatch(toggleTerminal());
     dispatch(setActiveBottomTab("output"));
-
     try {
       // 화면의 지금 내용을 직접 읽는다.
       //
@@ -202,26 +185,20 @@ export default function MenuBar({ mode = "personal" }) {
     } catch (error) {
       return dispatch(writeToTerminal(`\r\n[Error] 실행 전 자동 저장에 실패했습니다: ${error.message}\r\n`));
     }
-
     const language = getLanguageFromPath(activeFileId);
     let templateType = "CONSOLE";
-
 if (tree && tree.children) {
   const projectNode = tree.children.find((p) => p.name === activeProject);
-
   if (projectNode && projectNode.children) {
     const rootFiles = projectNode.children.map((c) => c.name);
-
     const hasNextConfig =
       rootFiles.includes("next.config.js") ||
       rootFiles.includes("next.config.mjs") ||
       rootFiles.includes("next.config.ts");
-
     const hasNextAppDir = rootFiles.includes("app");
     const hasPackageJson = rootFiles.includes("package.json");
     const hasBuildGradle = rootFiles.includes("build.gradle");
     const hasIndexHtml = rootFiles.includes("index.html");
-
     if (hasBuildGradle) {
       templateType = "SPRING_BOOT";
     } else if (hasPackageJson && (hasNextConfig || hasNextAppDir)) {
@@ -233,10 +210,8 @@ if (tree && tree.children) {
     }
   }
 }
-
     dispatch(writeToTerminal(`[System] ${language} 환경에서 [${templateType}] 모드로 실행을 준비합니다...\r\n`));
     dispatch(setRunning(true));
-
     const runPayload = {
       type: "RUN",
       workspaceId,
@@ -246,7 +221,6 @@ if (tree && tree.children) {
       language,
       templateType,
     };
-
     RunSocket.connectAndRun(
       `${WS_BASE}/ws/run`,
       runPayload,
@@ -261,7 +235,6 @@ if (tree && tree.children) {
       }
     );
   };
-
   const startDebugSession = async () => {
     if (!activeFileId || !workspaceId || !activeProject) return alert("디버깅할 파일을 에디터에 열어주세요!");
     if (!isTerminalVisible) dispatch(toggleTerminal());
@@ -282,7 +255,6 @@ if (tree && tree.children) {
     }
     dispatch(writeToTerminal("[System] 백엔드 디버거와 연결을 시도합니다...\n"));
     const currentFileBreakpoints = breakpoints.filter((bp) => bp.path === activeFileId).map((bp) => ({ line: bp.line }));
-
     DebugSocket.connect(
       `${WS_BASE}/ws/debug`,
       () => {
@@ -314,11 +286,9 @@ if (tree && tree.children) {
       }
     );
   };
-
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !workspaceId || !activeProject) return;
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       const content = event.target.result;
@@ -334,13 +304,10 @@ if (tree && tree.children) {
     reader.readAsText(file);
     e.target.value = "";
   };
-
   const handleFolderUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0 || !workspaceId || !activeProject) return;
-
     dispatch(writeToTerminal(`\r\n[System] 📂 ${files.length}개 파일 업로드 시작...\r\n`));
-
     try {
       const uploadPromises = files.map((file) => {
         return new Promise((resolve, reject) => {
@@ -358,7 +325,6 @@ if (tree && tree.children) {
           reader.readAsText(file);
         });
       });
-
       await Promise.all(uploadPromises);
       dispatch(writeToTerminal(`[System] ✅ 폴더 업로드 완료.\r\n`));
       const treeData = await fetchProjectFilesApi(workspaceId, activeProject, activeBranch || "master");
@@ -368,10 +334,9 @@ if (tree && tree.children) {
     }
     e.target.value = "";
   };
-
   const handleMenuItemClick = async (menuName, itemName) => {
     setActiveMenu(null);
-
+    setCompactSubMenu(null);
     switch (itemName) {
       case "새 파일":
         if (!workspaceId || !activeProject) return alert("프로젝트를 선택해주세요.");
@@ -397,7 +362,6 @@ if (tree && tree.children) {
         break;
       case "저장":
         if (!activeFileId || !workspaceId || !activeProject) return alert("에디터에 파일이 없습니다.");
-
         // 저장은 에디터에 맡긴다.
         //
         // 여기서 직접 저장하면 Redux 스냅샷을 쓰게 되는데, 그것은 에디터가
@@ -424,7 +388,6 @@ if (tree && tree.children) {
         break;
       case "모두 저장":
         if (!workspaceId || !activeProject) return alert("저장할 내용이 없습니다.");
-
         // 팀 모드에서는 지금 보고 있는 파일만 저장한다.
         //
         // 아래에서 쓰는 Redux 스냅샷에는 이번에 한 번이라도 연 파일이 전부
@@ -433,17 +396,14 @@ if (tree && tree.children) {
         // 다른 파일은 그 파일을 열고 있는 사람이 자동 저장으로 남긴다.
         if (mode === "team") {
           if (!isTerminalVisible) dispatch(toggleTerminal());
-
           dispatch(
             writeToTerminal(
               "[System] 팀 모드에서는 지금 열려 있는 파일만 저장합니다. 다른 파일은 각자 화면에서 저장됩니다.\n",
             ),
           );
-
           dispatch(triggerEditorCmd("save"));
           break;
         }
-
         dispatch(writeToTerminal("[System] 모든 파일을 저장합니다...\n"));
         try {
           const savePromises = Object.entries(fileContents || {}).map(([path, content]) =>
@@ -635,7 +595,6 @@ if (tree && tree.children) {
         break;
     }
   };
-
   useEffect(() => {
     const handleKeyDown = (e) => {
       // 💡 오른쪽 패널 토글 단축키 추가
@@ -643,12 +602,11 @@ if (tree && tree.children) {
         e.preventDefault();
         dispatch(toggleRightPanel());
       }
-
       if (e.ctrlKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (e.shiftKey) handleMenuItemClick(null, "모두 저장");
         else handleMenuItemClick(null, "저장");
-      } else if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "~")) {
+      } else if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "\~")) {
         e.preventDefault();
         handleMenuItemClick(null, "새 터미널");
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "e") {
@@ -659,7 +617,6 @@ if (tree && tree.children) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeFileId, workspaceId, activeProject, activeBranch, fileContents, isTerminalVisible, codeMapMode]);
-
   const subMenus = [
     {
       name: "파일",
@@ -754,8 +711,118 @@ if (tree && tree.children) {
       ],
     },
   ];
-
-
+  // 전체 화면에서는 기존 메뉴바를 그대로 유지하고, 화면이 좁아질 때만 단계적으로 축약한다.
+  const mediumVisibleMenus = subMenus.slice(0, 4);
+  const mediumOverflowMenus = subMenus.slice(4);
+  const compactVisibleMenus = subMenus.slice(0, 3);
+  const compactOverflowMenus = subMenus.slice(3);
+  const getMenuTriggerClass = (isActive) =>
+    `shrink-0 whitespace-nowrap cursor-pointer rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors min-[1320px]:px-3 ${
+      isActive
+        ? "bg-gray-100 text-gray-900"
+        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+    }`;
+  const renderMenuItems = (menu) => (
+    <div className="absolute left-0 top-full z-[99999] mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.1)] animate-fade-in-up">
+      {menu.items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          onClick={() => handleMenuItemClick(menu.name, item.label)}
+          className="flex w-full items-center justify-between gap-4 whitespace-nowrap px-4 py-1.5 text-left text-[13px] font-medium text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-700"
+        >
+          <span>{item.label}</span>
+          {item.shortcut && (
+            <span className="shrink-0 text-[10px] font-bold text-gray-400">
+              {item.shortcut}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+  const renderDirectMenu = (menu) => (
+    <div key={menu.name} className="relative shrink-0">
+      <button
+        type="button"
+        className={getMenuTriggerClass(activeMenu === menu.name)}
+        onClick={() => {
+          setCompactSubMenu(null);
+          setActiveMenu(activeMenu === menu.name ? null : menu.name);
+        }}
+      >
+        {menu.name}
+      </button>
+      {activeMenu === menu.name && renderMenuItems(menu)}
+    </div>
+  );
+  const renderGroupedMenu = (menus, menuKey, label, hamburger = false) => (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        className={getMenuTriggerClass(activeMenu === menuKey)}
+        onClick={() => {
+          const nextOpen = activeMenu !== menuKey;
+          setActiveMenu(nextOpen ? menuKey : null);
+          setCompactSubMenu(null);
+        }}
+        aria-label={hamburger ? "IDE 메뉴 열기" : undefined}
+      >
+        <span className="flex items-center gap-1.5">
+          {hamburger && <span className="text-[16px] leading-none">☰</span>}
+          <span>{label}</span>
+          {!hamburger && <span className="text-[14px] leading-none text-gray-400">···</span>}
+        </span>
+      </button>
+      {activeMenu === menuKey && (
+        <div className="absolute left-0 top-full z-[99999] mt-1 w-44 rounded-lg border border-gray-200 bg-white py-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.12)] animate-fade-in-up">
+          {menus.map((menu) => (
+            <div
+              key={menu.name}
+              className="relative"
+              onMouseEnter={() => setCompactSubMenu(menu.name)}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setCompactSubMenu(
+                    compactSubMenu === menu.name ? null : menu.name,
+                  )
+                }
+                className={`flex w-full items-center justify-between whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium transition-colors ${
+                  compactSubMenu === menu.name
+                    ? "bg-blue-50 text-blue-700"
+                    : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                <span>{menu.name}</span>
+                <span className="ml-5 text-gray-400">›</span>
+              </button>
+              {compactSubMenu === menu.name && (
+                <div className="absolute left-full top-0 z-[100000] ml-1 w-56 rounded-lg border border-gray-200 bg-white py-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.12)]">
+                  {menu.items.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => handleMenuItemClick(menu.name, item.label)}
+                      className="flex w-full items-center justify-between gap-4 whitespace-nowrap px-4 py-1.5 text-left text-[13px] font-medium text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      <span>{item.label}</span>
+                      {item.shortcut && (
+                        <span className="shrink-0 text-[10px] font-bold text-gray-400">
+                          {item.shortcut}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
   const {
     onlineMembers,
     onlineUserIdSet,
@@ -765,28 +832,23 @@ if (tree && tree.children) {
     enabled: mode === "team" && Boolean(workspaceId && user?.id),
     user,
   });
-
   const normalizeUserId = (value) => {
     if (value === null || value === undefined) return "";
     return String(value);
   };
-
   const isMemberOnline = (member) => {
     return onlineUserIdSet.has(normalizeUserId(member?.userId ?? member?.id));
   };
-
   const onlineTeamMembers = useMemo(() => {
     if (!Array.isArray(onlineMembers) || onlineMembers.length === 0) {
       return [];
     }
-
     return onlineMembers.map((onlineMember) => {
       const matchedMember = teamMembers.find(
         (member) =>
           normalizeUserId(member.userId ?? member.id) ===
           normalizeUserId(onlineMember.userId ?? onlineMember.id),
       );
-
       return {
         ...matchedMember,
         ...onlineMember,
@@ -802,20 +864,16 @@ if (tree && tree.children) {
       };
     });
   }, [onlineMembers, teamMembers]);
-
   const sortedTeamMembers = useMemo(() => {
     return [...teamMembers].sort((a, b) => {
       const aOnline = isMemberOnline(a) ? 1 : 0;
       const bOnline = isMemberOnline(b) ? 1 : 0;
-
       if (aOnline !== bOnline) {
         return bOnline - aOnline;
       }
-
       return String(a.nickname || "").localeCompare(String(b.nickname || ""));
     });
   }, [teamMembers, onlineUserIdSet]);
-
   return (
     <>
       <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
@@ -827,67 +885,65 @@ if (tree && tree.children) {
         style={{ display: "none" }}
         onChange={handleFolderUpload}
       />
-
-      {/* 💡 최신 IDE 트렌드를 반영한 세련되고 깔끔한 메뉴바 헤더 UI */}
+      {/* IDE 메뉴바: 전체 화면은 기존 UI 유지, 좁은 화면에서만 단계적으로 축약 */}
       {!isRelocationPage && (
-        <div className="flex items-center justify-between px-4 h-[48px] border-b border-gray-200 bg-white relative z-[2000] shadow-sm select-none">
-          
-          {/* 1. 왼쪽: 드롭다운 메뉴 영역 */}
-          <div className="flex items-center gap-0.5" ref={menuRef}>
-            {subMenus.map((menu) => (
-              <div key={menu.name} className="relative">
-                <div
-                  className={`cursor-pointer px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors ${
-                    activeMenu === menu.name
-                      ? "bg-gray-100 text-gray-900"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
-                  onClick={() => setActiveMenu(activeMenu === menu.name ? null : menu.name)}
-                >
-                  {menu.name}
-                </div>
-                {activeMenu === menu.name && (
-                  <div className="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 shadow-[0_10px_40px_rgba(0,0,0,0.1)] rounded-lg py-1.5 z-[99999] animate-fade-in-up">
-                    {menu.items.map((item) => (
-                      <div
-                        key={item.label}
-                        onClick={() => handleMenuItemClick(menu.name, item.label)}
-                        className="px-4 py-1.5 hover:bg-blue-50 hover:text-blue-700 cursor-pointer text-[13px] font-medium text-gray-700 transition-colors flex justify-between items-center"
-                      >
-                        <span>{item.label}</span>
-                        {item.shortcut && <span className="text-[10px] font-bold text-gray-400">{item.shortcut}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+        <div className="relative z-[2000] box-border flex h-[48px] w-full min-w-0 max-w-full items-center justify-between gap-2 border-b border-gray-200 bg-white px-2 shadow-sm select-none min-[1120px]:px-3 min-[1320px]:px-4">
+          {/* 1. 왼쪽 메뉴 영역 - 절대 줄바꿈하지 않는다. */}
+          <div
+            className="flex min-w-0 flex-1 items-center overflow-visible whitespace-nowrap"
+            ref={menuRef}
+          >
+            {/* 1320px 이상: 기존 메뉴바 그대로 전체 표시 */}
+            <div className="hidden items-center gap-0.5 min-[1320px]:flex">
+              {subMenus.map((menu) => renderDirectMenu(menu))}
+            </div>
+            {/* 1120 ~ 1319px: 파일/편집/보기/이동 + 더보기 */}
+            <div className="hidden items-center gap-0.5 min-[1120px]:flex min-[1320px]:hidden">
+              {mediumVisibleMenus.map((menu) => renderDirectMenu(menu))}
+              {renderGroupedMenu(
+                mediumOverflowMenus,
+                "__medium_more__",
+                "더보기",
+              )}
+            </div>
+            {/* 920 ~ 1119px: 파일/편집/보기 + 더보기 */}
+            <div className="hidden items-center gap-0.5 min-[920px]:flex min-[1120px]:hidden">
+              {compactVisibleMenus.map((menu) => renderDirectMenu(menu))}
+              {renderGroupedMenu(
+                compactOverflowMenus,
+                "__compact_more__",
+                "더보기",
+              )}
+            </div>
+            {/* 920px 미만: 전체 메뉴를 햄버거 하나로 통합 */}
+            <div className="flex items-center min-[920px]:hidden">
+              {renderGroupedMenu(subMenus, "__mobile_all__", "메뉴", true)}
+            </div>
           </div>
-
-          {/* 2. 중앙 및 오른쪽: 액션 버튼 그룹 */}
-          <div className="flex items-center gap-3">
-            
-            {/* Run / Stop 컨트롤 */}
-            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg p-0.5">
+          {/* 2. 오른쪽 액션 영역 - 폭이 줄수록 텍스트를 먼저 접는다. */}
+          <div className="flex min-w-0 shrink-0 items-center whitespace-nowrap gap-1 min-[1120px]:gap-1.5 min-[1320px]:gap-3">
+            {/* Run / Stop: 좁은 화면에서는 Run 글자만 숨기고 아이콘은 유지 */}
+            <div className="flex shrink-0 items-center rounded-lg border border-gray-200 bg-gray-50 p-0.5">
               <button
                 onClick={handleQuickRun}
                 disabled={isRunning || isDebugMode}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-bold transition-all h-7 ${
+                className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] font-bold transition-all min-[1000px]:px-3 ${
                   isRunning || isDebugMode
-                    ? "text-gray-400 cursor-not-allowed"
+                    ? "cursor-not-allowed text-gray-400"
                     : "text-emerald-600 hover:bg-white hover:shadow-sm active:scale-95"
                 }`}
                 title="빠른 실행"
               >
-                <VscPlay size={14} /> Run
+                <VscPlay size={14} />
+                <span className="hidden min-[1000px]:inline">Run</span>
               </button>
-              <div className="w-px h-3 bg-gray-300 mx-0.5"></div>
+              <div className="mx-0.5 h-3 w-px bg-gray-300"></div>
               <button
                 onClick={handleQuickStop}
                 disabled={!isRunning && !isDebugMode}
-                className={`flex items-center justify-center px-2.5 py-1 rounded-md transition-all h-7 ${
+                className={`flex h-7 shrink-0 items-center justify-center rounded-md px-2 transition-all ${
                   !isRunning && !isDebugMode
-                    ? "text-gray-400 cursor-not-allowed"
+                    ? "cursor-not-allowed text-gray-400"
                     : "text-rose-500 hover:bg-white hover:shadow-sm active:scale-95"
                 }`}
                 title="강제 중지"
@@ -895,37 +951,45 @@ if (tree && tree.children) {
                 <VscDebugStop size={14} />
               </button>
             </div>
-
-            <div className="w-px h-4 bg-gray-200"></div>
-
-            {/* 새 프로젝트 버튼 */}
+            <div className="hidden h-4 w-px bg-gray-200 min-[1120px]:block"></div>
+            {/* 새 작업폴더: 중간 폭에서는 + 아이콘만 표시 */}
             <button
               onClick={() => dispatch(openProjectModal())}
-              className="flex items-center gap-1.5 px-3 py-1.5 h-8 bg-gray-800 text-white hover:bg-black active:scale-95 rounded-lg text-[12px] font-bold shadow-sm transition-all"
+              className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gray-800 px-2 text-[12px] font-bold text-white shadow-sm transition-all hover:bg-black active:scale-95 min-[1320px]:px-3"
+              title="새 작업폴더"
             >
-              <VscAdd size={14} /> 새 작업폴더
+              <VscAdd size={14} />
+              <span className="hidden min-[1320px]:inline">새 작업폴더</span>
             </button>
-
-            <div className="w-px h-4 bg-gray-200"></div>
-
-            <GitBranchControls
-              mode={mode}
-              workspaceId={workspaceId}
-              activeProject={activeProject}
-              activeBranch={activeBranch}
-              currentNickname={currentNickname}
-              currentUserId={user?.id ?? user?.userId}
-              fileContents={fileContents}
-            />
-
-            {mode === "team" && <div className="w-px h-4 bg-gray-200 mx-1"></div>}
-
-            {/* Team 및 VoiceChat 그룹 */}
+            <div className="hidden h-4 w-px bg-gray-200 min-[1120px]:block"></div>
+            {/* Git 브랜치는 작업 맥락상 가능한 오래 유지 */}
+            <div className="hidden shrink-0 min-[920px]:block">
+              <GitBranchControls
+                mode={mode}
+                workspaceId={workspaceId}
+                activeProject={activeProject}
+                activeBranch={activeBranch}
+                currentNickname={currentNickname}
+                currentUserId={user?.id ?? user?.userId}
+                fileContents={fileContents}
+              />
+            </div>
+            {/* 900px 미만에서는 브랜치명만 최소 표시. Git 기능은 왼쪽 메뉴에서도 접근 가능 */}
+            <div
+              className="flex h-8 max-w-[88px] shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-bold text-gray-700 min-[920px]:hidden"
+              title={`현재 브랜치: ${activeBranch || "master"}`}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500"></span>
+              <span className="truncate">{activeBranch || "master"}</span>
+            </div>
             {mode === "team" && (
-              <div className="flex items-center gap-2">
-                {/* 팀원 아바타: 서버 presence 기준 접속 중인 팀원만 표시 */}
+              <div className="hidden h-4 w-px bg-gray-200 min-[1320px]:block"></div>
+            )}
+            {/* Team / VoiceChat: 화면이 좁아지면 아바타와 라벨부터 숨긴다. */}
+            {mode === "team" && (
+              <div className="flex shrink-0 items-center gap-1 min-[1320px]:gap-2">
                 <div
-                  className="flex -space-x-1.5 mr-1 cursor-pointer hover:opacity-80 transition-opacity"
+                  className="mr-1 hidden -space-x-1.5 cursor-pointer transition-opacity hover:opacity-80 min-[1320px]:flex"
                   onClick={() => setIsTeamModalOpen(true)}
                   title={
                     isPresenceConnected
@@ -936,53 +1000,59 @@ if (tree && tree.children) {
                   {onlineTeamMembers.slice(0, 3).map((member, idx) => (
                     <div
                       key={member.userId}
-                      className={`w-7 h-7 rounded-full ${
+                      className={`relative flex h-7 w-7 items-center justify-center rounded-full ${
                         avatarColors[idx % avatarColors.length]
-                      } ring-2 ring-white flex items-center justify-center text-[10px] text-white font-bold shadow-sm relative`}
+                      } text-[10px] font-bold text-white shadow-sm ring-2 ring-white`}
                       title={`${member.nickname || member.email || "User"} 접속 중`}
                     >
                       {(member.nickname || member.email || "U")?.[0]?.toUpperCase()}
-                      <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 ring-2 ring-white rounded-full"></div>
+                      <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 ring-2 ring-white"></div>
                     </div>
                   ))}
-
                   {onlineTeamMembers.length > 3 && (
-                    <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 ring-2 ring-white flex items-center justify-center text-[10px] font-bold shadow-sm">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-[10px] font-bold text-gray-600 shadow-sm ring-2 ring-white">
                       +{onlineTeamMembers.length - 3}
                     </div>
                   )}
                 </div>
-
                 <button
                   onClick={() => setIsTeamModalOpen(true)}
-                  className="px-3 py-1.5 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-[12px] font-bold transition-all active:scale-95"
+                  className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-bold text-blue-600 transition-all hover:bg-blue-100 active:scale-95 min-[1120px]:px-3 min-[1120px]:text-[12px]"
+                  title="팀원 관리"
                 >
-                  TEAM
+                  <span className="min-[1000px]:hidden">T</span>
+                  <span className="hidden min-[1000px]:inline">TEAM</span>
                 </button>
-
                 <button
-                  onClick={() => {
-                    setIsVoiceChatModalOpen(true);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 h-8 rounded-lg text-[12px] font-bold transition-all active:scale-95 ${
-                    isVoiceConnected 
-                      ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100" 
-                      : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+                  onClick={() => setIsVoiceChatModalOpen(true)}
+                  className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-[12px] font-bold transition-all active:scale-95 min-[1320px]:px-3 ${
+                    isVoiceConnected
+                      ? "border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
                   }`}
+                  title="VoiceChat"
                 >
-                  <div className="relative flex h-2 w-2">
-                    <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isVoiceConnected ? "animate-ping bg-emerald-400" : "bg-gray-400"}`}></span>
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${isVoiceConnected ? "bg-emerald-500" : "bg-gray-500"}`}></span>
+                  <div className="relative flex h-2 w-2 shrink-0">
+                    <span
+                      className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        isVoiceConnected
+                          ? "animate-ping bg-emerald-400"
+                          : "bg-gray-400"
+                      }`}
+                    ></span>
+                    <span
+                      className={`relative inline-flex h-2 w-2 rounded-full ${
+                        isVoiceConnected ? "bg-emerald-500" : "bg-gray-500"
+                      }`}
+                    ></span>
                   </div>
-                  VoiceChat
+                  <span className="hidden min-[1320px]:inline">VoiceChat</span>
                 </button>
               </div>
             )}
           </div>
         </div>
       )}
-
-
       {isTeamModalOpen && mode === "team" && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[9998] flex items-center justify-center animate-fade-in" onClick={() => setIsTeamModalOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[400px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
@@ -1001,7 +1071,6 @@ if (tree && tree.children) {
               {sortedTeamMembers.map((member, idx) => {
                 const isMe = normalizeUserId(user?.id ?? user?.userId) === normalizeUserId(member.userId ?? member.id);
                 const online = isMemberOnline(member);
-
                 return (
                   <div
                     key={member.userId}
@@ -1016,7 +1085,6 @@ if (tree && tree.children) {
                         >
                           {(member.nickname || member.email || "U")?.[0]?.toUpperCase()}
                         </div>
-
                         <div
                           className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${
                             online ? "bg-green-500" : "bg-gray-300"
@@ -1024,13 +1092,11 @@ if (tree && tree.children) {
                           title={online ? "접속 중" : "오프라인"}
                         ></div>
                       </div>
-
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <span className="font-extrabold text-[13px] text-gray-900">
                             {member.nickname}
                           </span>
-
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${
                               member.role === "OWNER"
@@ -1047,7 +1113,6 @@ if (tree && tree.children) {
                                 : "Member"}{" "}
                             {isMe && "(나)"}
                           </span>
-
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                               online
@@ -1058,7 +1123,6 @@ if (tree && tree.children) {
                             {online ? "접속 중" : "오프라인"}
                           </span>
                         </div>
-
                         <span className="text-[11px] text-gray-500 mt-0.5">
                           {member.email}
                         </span>
@@ -1076,7 +1140,6 @@ if (tree && tree.children) {
           </div>
         </div>
       )}
-
       {isInviteModalOpen && mode === "team" && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in" onClick={() => setIsInviteModalOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[420px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
@@ -1094,7 +1157,7 @@ if (tree && tree.children) {
                 <div className="space-y-1.5">
                   <label className="text-[13px] font-extrabold text-gray-800 flex items-center gap-1.5"><VscMail className="text-blue-500" /> 이메일로 초대장 발송</label>
                   <div className="flex gap-2">
-                    <input type="text" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendInvite(); }} placeholder="teammate@example.com" className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white transition-all shadow-sm" />
+                    <input type="text" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendInvite(); }} placeholder="teammate\@example.com" className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white transition-all shadow-sm" />
                     <button onClick={handleSendInvite} disabled={isInviting || !inviteEmail.trim()} className="px-5 bg-[#2d333b] hover:bg-black text-white rounded-xl text-[13px] font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center shrink-0">
                       {isInviting ? <VscRefresh className="animate-spin" size={16} /> : "발송"}
                     </button>
@@ -1120,7 +1183,6 @@ if (tree && tree.children) {
           </div>
         </div>
       )}
-
       {mode === "team" && (
         <VoiceChatManager
           teamMembers={teamMembers}

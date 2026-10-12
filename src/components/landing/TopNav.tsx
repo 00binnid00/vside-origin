@@ -1,5 +1,4 @@
 "use client";
-
 import Link from "next/link";
 import {
   useCallback,
@@ -9,36 +8,31 @@ import {
   useState,
 } from "react";
 import {
-  useRouter,
   usePathname,
+  useRouter,
   useSearchParams,
 } from "next/navigation";
 import {
   Bell,
-  Menu,
-  X,
   LogOut,
+  Menu,
   User,
+  X,
 } from "lucide-react";
-
 import { useAuth } from "@/contexts/AuthContext";
 import MessageButton from "@/components/messages/MessageButton";
-
 import {
   getNotifications,
   getUnreadNotificationCount,
   markNotificationAsRead,
   NotificationResponse,
 } from "@/lib/notification/notificationApi";
-
 function cn(
   ...classes: Array<string | false | null | undefined>
 ) {
   return classes.filter(Boolean).join(" ");
 }
-
 type WorkspaceMode = "personal" | "team";
-
 type NavItemKey =
   | "projects"
   | "dashboard"
@@ -49,25 +43,21 @@ type NavItemKey =
   | "archive"
   | "community"
   | "my";
-
 function normalizeMode(
   value: string | null,
 ): WorkspaceMode {
   return value === "team" ? "team" : "personal";
 }
-
 function withModeQuery(
   href: string,
   mode: WorkspaceMode,
 ) {
   return `${href}?mode=${mode}`;
 }
-
 function getDisplayName(user: any) {
   if (!user) {
     return "사용자";
   }
-
   return (
     user.nickname ||
     user.name ||
@@ -76,75 +66,57 @@ function getDisplayName(user: any) {
     "사용자"
   );
 }
-
 function getDisplayEmail(user: any) {
   if (!user) {
     return "";
   }
-
   return user.email || "";
 }
-
 function getInitial(user: any) {
   const displayName = getDisplayName(user);
-
   return (
     displayName.trim().charAt(0).toUpperCase() ||
     "U"
   );
 }
-
 function formatRelativeTime(value: string) {
   if (!value) {
     return "";
   }
-
   const created = new Date(value);
   const now = new Date();
-
   if (Number.isNaN(created.getTime())) {
     return value;
   }
-
   const diffMs =
     now.getTime() - created.getTime();
-
   const diffMinutes =
     Math.floor(diffMs / 60000);
-
   const diffHours =
     Math.floor(diffMinutes / 60);
-
   const diffDays =
     Math.floor(diffHours / 24);
-
   if (diffMinutes < 1) {
     return "방금 전";
   }
-
   if (diffMinutes < 60) {
     return `${diffMinutes}분 전`;
   }
-
   if (diffHours < 24) {
     return `${diffHours}시간 전`;
   }
-
   if (diffDays < 7) {
     return `${diffDays}일 전`;
   }
-
   return created.toLocaleDateString("ko-KR", {
     month: "2-digit",
     day: "2-digit",
   });
 }
-
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-
   const {
     user,
     isAuthenticated,
@@ -152,135 +124,118 @@ export default function TopNav() {
     loading,
     logout,
   } = useAuth();
-
   const [openUserMenu, setOpenUserMenu] =
     useState(false);
-
   const [openMobileNav, setOpenMobileNav] =
     useState(false);
-
   const [openNotif, setOpenNotif] =
     useState(false);
-
   const [
     latestNotifications,
     setLatestNotifications,
   ] = useState<NotificationResponse[]>([]);
-
   const [unreadCount, setUnreadCount] =
     useState(0);
-
   const [
     notificationLoading,
     setNotificationLoading,
   ] = useState(false);
-
   const [
     rememberedWorkspaceId,
     setRememberedWorkspaceId,
   ] = useState<string | null>(null);
-
   const [
     rememberedWorkspaceMode,
     setRememberedWorkspaceMode,
   ] = useState<WorkspaceMode>("personal");
-
   const userMenuRef =
     useRef<HTMLDivElement | null>(null);
-
   const notifRef =
     useRef<HTMLDivElement | null>(null);
-
   const workspaceIdFromPath = useMemo(() => {
     const parts =
       pathname?.split("/").filter(Boolean) ?? [];
-
     const workspaceSections = [
-      "projects",
       "dashboard",
       "aivs",
-      "schedules",
-      "schedule",
-      "devlogs",
-      "devlog",
-      "relocation",
-      "rearrange",
-      "archive",
       "design",
+      "schedules",
+      "devlogs",
+      "archive",
     ];
-
     if (
       workspaceSections.includes(parts[0]) &&
       parts[1]
     ) {
-      return parts[1];
+      try {
+        return decodeURIComponent(parts[1]);
+      } catch {
+        return parts[1];
+      }
     }
-
     return null;
   }, [pathname]);
-
   const workspaceIdFromQuery =
     searchParams.get("workspaceId") ??
     searchParams.get("workspaceid") ??
     searchParams.get("workspace");
-
   const workspaceIdFromUrl =
-    workspaceIdFromQuery || workspaceIdFromPath;
-
+    workspaceIdFromPath ||
+    workspaceIdFromQuery;
   const modeFromUrl = normalizeMode(
-    searchParams.get("mode") ??
-      searchParams.get("view"),
+    searchParams.get("mode"),
   );
-
   const currentWorkspaceId =
-    workspaceIdFromUrl || rememberedWorkspaceId;
-
+    workspaceIdFromUrl ||
+    rememberedWorkspaceId;
   const currentMode = workspaceIdFromUrl
     ? modeFromUrl
     : rememberedWorkspaceMode;
-
   const hasSelectedWorkspace =
     Boolean(currentWorkspaceId);
-
   useEffect(() => {
     const savedWorkspaceId =
-      localStorage.getItem("currentWorkspaceId");
-
-    const savedWorkspaceMode = normalizeMode(
-      localStorage.getItem("currentWorkspaceMode"),
-    );
-
+      localStorage.getItem(
+        "currentWorkspaceId",
+      );
+    const savedWorkspaceMode =
+      normalizeMode(
+        localStorage.getItem(
+          "currentWorkspaceMode",
+        ),
+      );
     if (savedWorkspaceId) {
-      setRememberedWorkspaceId(savedWorkspaceId);
+      setRememberedWorkspaceId(
+        savedWorkspaceId,
+      );
     }
-
-    setRememberedWorkspaceMode(savedWorkspaceMode);
+    setRememberedWorkspaceMode(
+      savedWorkspaceMode,
+    );
   }, []);
-
   useEffect(() => {
     if (!workspaceIdFromUrl) {
       return;
     }
-
     localStorage.setItem(
       "currentWorkspaceId",
       workspaceIdFromUrl,
     );
-
     localStorage.setItem(
       "currentWorkspaceMode",
       modeFromUrl,
     );
-
-    setRememberedWorkspaceId(workspaceIdFromUrl);
-    setRememberedWorkspaceMode(modeFromUrl);
+    setRememberedWorkspaceId(
+      workspaceIdFromUrl,
+    );
+    setRememberedWorkspaceMode(
+      modeFromUrl,
+    );
   }, [
     workspaceIdFromUrl,
     modeFromUrl,
   ]);
-
   const projectsHref = "/projects";
-
   const dashboardHref = hasSelectedWorkspace
     ? withModeQuery(
         `/dashboard/${encodeURIComponent(
@@ -289,7 +244,6 @@ export default function TopNav() {
         currentMode,
       )
     : projectsHref;
-
   const aivsHref = hasSelectedWorkspace
     ? withModeQuery(
         `/aivs/${encodeURIComponent(
@@ -298,34 +252,40 @@ export default function TopNav() {
         currentMode,
       )
     : projectsHref;
-
   const designHref = hasSelectedWorkspace
-    ? `/design?workspaceId=${encodeURIComponent(
-        String(currentWorkspaceId),
-      )}&mode=${currentMode}`
+    ? withModeQuery(
+        `/design/${encodeURIComponent(
+          String(currentWorkspaceId),
+        )}`,
+        currentMode,
+      )
     : projectsHref;
-
   const schedulesHref = hasSelectedWorkspace
-    ? `/schedules?view=${currentMode}&workspaceId=${encodeURIComponent(
-        String(currentWorkspaceId),
-      )}`
+    ? withModeQuery(
+        `/schedules/${encodeURIComponent(
+          String(currentWorkspaceId),
+        )}`,
+        currentMode,
+      )
     : projectsHref;
-
   const devlogsHref = hasSelectedWorkspace
-    ? `/devlogs?workspaceId=${encodeURIComponent(
-        String(currentWorkspaceId),
-      )}&mode=${currentMode}`
+    ? withModeQuery(
+        `/devlogs/${encodeURIComponent(
+          String(currentWorkspaceId),
+        )}`,
+        currentMode,
+      )
     : projectsHref;
-
   const archiveHref = hasSelectedWorkspace
-    ? `/archive?workspaceId=${encodeURIComponent(
-        String(currentWorkspaceId),
-      )}&mode=${currentMode}`
+    ? withModeQuery(
+        `/archive/${encodeURIComponent(
+          String(currentWorkspaceId),
+        )}`,
+        currentMode,
+      )
     : projectsHref;
-
   const communityHref = "/community";
   const myPageHref = "/my";
-
   const fetchHeaderNotifications =
     useCallback(async () => {
       if (
@@ -338,10 +298,8 @@ export default function TopNav() {
         setNotificationLoading(false);
         return;
       }
-
       try {
         setNotificationLoading(true);
-
         const [
           pageResponse,
           unreadResponse,
@@ -352,11 +310,9 @@ export default function TopNav() {
           }),
           getUnreadNotificationCount(),
         ]);
-
         setLatestNotifications(
           pageResponse.content ?? [],
         );
-
         setUnreadCount(
           unreadResponse.unreadCount ?? 0,
         );
@@ -365,7 +321,6 @@ export default function TopNav() {
           "헤더 알림 조회 실패:",
           error,
         );
-
         setLatestNotifications([]);
         setUnreadCount(0);
       } finally {
@@ -376,7 +331,6 @@ export default function TopNav() {
       isAuthenticated,
       accessToken,
     ]);
-
   useEffect(() => {
     if (
       loading ||
@@ -388,7 +342,6 @@ export default function TopNav() {
       setNotificationLoading(false);
       return;
     }
-
     fetchHeaderNotifications();
   }, [
     loading,
@@ -397,7 +350,6 @@ export default function TopNav() {
     pathname,
     fetchHeaderNotifications,
   ]);
-
   useEffect(() => {
     if (
       loading ||
@@ -406,30 +358,30 @@ export default function TopNav() {
     ) {
       return;
     }
-
     const timer = window.setInterval(() => {
       fetchHeaderNotifications();
     }, 30000);
-
-    return () => window.clearInterval(timer);
+    return () =>
+      window.clearInterval(timer);
   }, [
     loading,
     isAuthenticated,
     accessToken,
     fetchHeaderNotifications,
   ]);
-
   useEffect(() => {
-    function onClickOutside(event: MouseEvent) {
+    function onClickOutside(
+      event: MouseEvent,
+    ) {
       const target = event.target as Node;
-
       if (
         userMenuRef.current &&
-        !userMenuRef.current.contains(target)
+        !userMenuRef.current.contains(
+          target,
+        )
       ) {
         setOpenUserMenu(false);
       }
-
       if (
         notifRef.current &&
         !notifRef.current.contains(target)
@@ -437,12 +389,10 @@ export default function TopNav() {
         setOpenNotif(false);
       }
     }
-
     document.addEventListener(
       "mousedown",
       onClickOutside,
     );
-
     return () => {
       document.removeEventListener(
         "mousedown",
@@ -450,77 +400,76 @@ export default function TopNav() {
       );
     };
   }, []);
-
   useEffect(() => {
     setOpenMobileNav(false);
     setOpenUserMenu(false);
     setOpenNotif(false);
   }, [pathname]);
-
   const onLogout = async () => {
     await logout();
-
-    localStorage.removeItem("currentWorkspaceId");
-    localStorage.removeItem("currentWorkspaceMode");
-
+    localStorage.removeItem(
+      "currentWorkspaceId",
+    );
+    localStorage.removeItem(
+      "currentWorkspaceMode",
+    );
     setRememberedWorkspaceId(null);
-    setRememberedWorkspaceMode("personal");
+    setRememberedWorkspaceMode(
+      "personal",
+    );
     setLatestNotifications([]);
     setUnreadCount(0);
-
     router.replace("/");
   };
-
   const onToggleBell = () => {
     setOpenUserMenu(false);
-    setOpenNotif((value) => !value);
-
+    setOpenNotif(
+      (value) => !value,
+    );
     if (!openNotif) {
       fetchHeaderNotifications();
     }
   };
-
-  const handleNotificationClick = async (
-    notification: NotificationResponse,
-  ) => {
-    setOpenNotif(false);
-
-    if (!notification.read) {
-      try {
-        await markNotificationAsRead(
-          notification.id,
-        );
-
-        setLatestNotifications((prev) =>
-          prev.map((item) =>
-            item.id === notification.id
-              ? {
-                  ...item,
-                  read: true,
-                }
-              : item,
-          ),
-        );
-
-        setUnreadCount((prev) =>
-          Math.max(prev - 1, 0),
-        );
-      } catch (error) {
-        console.error(
-          "알림 읽음 처리 실패:",
-          error,
-        );
+  const handleNotificationClick =
+    async (
+      notification: NotificationResponse,
+    ) => {
+      setOpenNotif(false);
+      if (!notification.read) {
+        try {
+          await markNotificationAsRead(
+            notification.id,
+          );
+          setLatestNotifications(
+            (prev) =>
+              prev.map((item) =>
+                item.id ===
+                notification.id
+                  ? {
+                      ...item,
+                      read: true,
+                    }
+                  : item,
+              ),
+          );
+          setUnreadCount((prev) =>
+            Math.max(prev - 1, 0),
+          );
+        } catch (error) {
+          console.error(
+            "알림 읽음 처리 실패:",
+            error,
+          );
+        }
       }
-    }
-
-    if (notification.targetUrl) {
-      router.push(notification.targetUrl);
-      return;
-    }
-
-    router.push("/notifications");
-  };
-
+      if (notification.targetUrl) {
+        router.push(
+          notification.targetUrl,
+        );
+        return;
+      }
+      router.push("/notifications");
+    };
   const NAV_ITEMS: Array<{
     key: NavItemKey;
     href: string;
@@ -539,16 +488,16 @@ export default function TopNav() {
       label: "대시보드",
       requiresWorkspace: true,
     },
+       {
+      key: "schedules",
+      href: schedulesHref,
+      label: "일정관리",
+      requiresWorkspace: true,
+    },
     {
       key: "design",
       href: designHref,
       label: "설계관리",
-      requiresWorkspace: true,
-    },
-    {
-      key: "schedules",
-      href: schedulesHref,
-      label: "일정관리",
       requiresWorkspace: true,
     },
     {
@@ -582,47 +531,51 @@ export default function TopNav() {
       requiresWorkspace: false,
     },
   ];
-
   const isNavItemActive = (
     item: (typeof NAV_ITEMS)[number],
   ) => {
     if (!pathname) {
       return false;
     }
-
     switch (item.key) {
       case "projects":
         return pathname === "/projects";
-
       case "dashboard":
-        return /^\/dashboard\/[^/]+/.test(pathname);
-
+        return pathname.startsWith(
+          "/dashboard/",
+        );
       case "aivs":
-        return /^\/aivs\/[^/]+/.test(pathname);
-
+        return pathname.startsWith(
+          "/aivs/",
+        );
       case "design":
-        return pathname.startsWith("/design");
-
+        return pathname.startsWith(
+          "/design/",
+        );
       case "schedules":
-        return pathname.startsWith("/schedules");
-
+        return pathname.startsWith(
+          "/schedules/",
+        );
       case "devlogs":
-        return pathname.startsWith("/devlogs");
-
+        return pathname.startsWith(
+          "/devlogs/",
+        );
       case "archive":
-        return pathname.startsWith("/archive");
-
+        return pathname.startsWith(
+          "/archive/",
+        );
       case "community":
-        return pathname.startsWith("/community");
-
+        return pathname.startsWith(
+          "/community",
+        );
       case "my":
-        return pathname.startsWith("/my");
-
+        return pathname.startsWith(
+          "/my",
+        );
       default:
         return false;
     }
   };
-
   const handleGuardedNavClick = (
     event: React.MouseEvent<HTMLAnchorElement>,
     item: (typeof NAV_ITEMS)[number],
@@ -630,38 +583,37 @@ export default function TopNav() {
     if (!item.requiresWorkspace) {
       return;
     }
-
     if (hasSelectedWorkspace) {
       return;
     }
-
     event.preventDefault();
     router.push("/projects");
   };
-
   return (
     <header className="sticky top-0 z-[2000] border-b border-gray-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1650px] items-center justify-between px-6 py-2 text-xl 2xl:px-12 3xl:max-w-[1920px]">
+      <div className="mx-auto flex min-h-[64px] w-full max-w-[1720px] items-center gap-2 px-4 py-2 sm:px-5 min-[1180px]:px-6 min-[1500px]:px-8 2xl:px-10 3xl:max-w-[1920px]">
         <Link
           href="/"
-          className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-2 text-[22px] font-extrabold text-transparent"
+          className="shrink-0 bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text px-1 text-[20px] font-extrabold text-transparent min-[1180px]:px-1.5 min-[1450px]:px-2 min-[1450px]:text-[22px]"
         >
           WAIVS
         </Link>
-
-        <nav className="hidden items-center gap-7 text-sm text-gray-600 md:flex">
+        <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 text-[12px] text-gray-600 min-[1024px]:flex min-[1120px]:gap-1 min-[1180px]:text-[13px] min-[1260px]:gap-2 min-[1380px]:gap-3 min-[1500px]:gap-5 min-[1500px]:text-sm 2xl:gap-6">
           {NAV_ITEMS.map((item) => {
-            const active = isNavItemActive(item);
-
+            const active =
+              isNavItemActive(item);
             return (
               <Link
                 key={item.key}
                 href={item.href}
                 onClick={(event) =>
-                  handleGuardedNavClick(event, item)
+                  handleGuardedNavClick(
+                    event,
+                    item,
+                  )
                 }
                 className={cn(
-                  "transition hover:text-gray-900",
+                  "shrink-0 whitespace-nowrap px-0.5 py-2 transition hover:text-gray-900 min-[1180px]:px-1 min-[1380px]:px-1.5",
                   active &&
                     "font-semibold text-gray-900",
                 )}
@@ -671,13 +623,14 @@ export default function TopNav() {
             );
           })}
         </nav>
-
-        <div className="flex items-center gap-3">
+        <div className="ml-auto flex shrink-0 items-center gap-1 min-[1024px]:ml-0 min-[1180px]:gap-1.5 min-[1450px]:gap-2">
           <button
             type="button"
-            className="rounded-xl p-2 text-gray-700 hover:bg-gray-100 md:hidden"
+            className="order-last rounded-xl p-2 text-gray-700 transition hover:bg-gray-100 min-[1024px]:hidden"
             onClick={() =>
-              setOpenMobileNav((value) => !value)
+              setOpenMobileNav(
+                (value) => !value,
+              )
             }
             aria-label="메뉴 열기"
           >
@@ -687,21 +640,19 @@ export default function TopNav() {
               <Menu className="h-5 w-5" />
             )}
           </button>
-
           {loading ? (
-            <div className="hidden h-8 w-36 animate-pulse rounded-xl bg-gray-100 md:block" />
+            <div className="hidden h-8 w-24 animate-pulse rounded-xl bg-gray-100 min-[1024px]:block min-[1450px]:w-32" />
           ) : !isAuthenticated ? (
-            <div className="hidden items-center gap-4 text-sm font-semibold md:flex">
+            <div className="hidden items-center gap-2 text-[13px] font-semibold min-[1024px]:flex min-[1380px]:gap-3 min-[1500px]:gap-4 min-[1500px]:text-sm">
               <Link
                 href="/auth/login"
                 className="text-gray-600 hover:text-gray-900"
               >
                 로그인
               </Link>
-
               <Link
                 href="/auth/signup"
-                className="rounded-xl bg-gray-900 px-3 py-2 text-white transition hover:bg-black"
+                className="whitespace-nowrap rounded-xl bg-gray-900 px-2.5 py-2 text-white transition hover:bg-black min-[1380px]:px-3"
               >
                 회원가입
               </Link>
@@ -715,7 +666,6 @@ export default function TopNav() {
                   setOpenMobileNav(false);
                 }}
               />
-
               <div
                 className="relative"
                 ref={notifRef}
@@ -726,13 +676,14 @@ export default function TopNav() {
                   className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                   aria-label="알림"
                 >
-                  <Bell className="h-[18px] w-[18px]" strokeWidth={2} />
-
+                  <Bell
+                    className="h-[18px] w-[18px]"
+                    strokeWidth={2}
+                  />
                   {unreadCount > 0 ? (
                     <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
                   ) : null}
                 </button>
-
                 {openNotif ? (
                   <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
                     <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
@@ -740,39 +691,47 @@ export default function TopNav() {
                         <p className="text-sm font-semibold text-gray-900">
                           알림
                         </p>
-
-                        {unreadCount > 0 ? (
+                        {unreadCount >
+                        0 ? (
                           <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
-                            {unreadCount}개 읽지 않음
+                            {
+                              unreadCount
+                            }
+                            개 읽지 않음
                           </span>
                         ) : null}
                       </div>
-
                       <Link
                         href="/notifications"
                         className="text-xs font-semibold text-gray-600 hover:text-gray-900"
                         onClick={() =>
-                          setOpenNotif(false)
+                          setOpenNotif(
+                            false,
+                          )
                         }
                       >
                         더보기
                       </Link>
                     </div>
-
                     <div className="max-h-80 overflow-auto">
                       {notificationLoading ? (
                         <div className="px-4 py-6 text-sm text-gray-500">
                           알림을 불러오는 중...
                         </div>
-                      ) : latestNotifications.length === 0 ? (
+                      ) : latestNotifications.length ===
+                        0 ? (
                         <div className="px-4 py-6 text-sm text-gray-500">
                           새 알림이 없어요.
                         </div>
                       ) : (
                         latestNotifications.map(
-                          (notification) => (
+                          (
+                            notification,
+                          ) => (
                             <button
-                              key={notification.id}
+                              key={
+                                notification.id
+                              }
                               type="button"
                               className="w-full border-b border-gray-50 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50"
                               onClick={() =>
@@ -785,19 +744,20 @@ export default function TopNav() {
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
                                     <p className="text-sm font-semibold text-gray-900">
-                                      {notification.title}
+                                      {
+                                        notification.title
+                                      }
                                     </p>
-
                                     {!notification.read ? (
                                       <span className="h-2 w-2 rounded-full bg-blue-500" />
                                     ) : null}
                                   </div>
-
                                   <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">
-                                    {notification.body}
+                                    {
+                                      notification.body
+                                    }
                                   </p>
                                 </div>
-
                                 <span className="shrink-0 text-[11px] text-gray-400">
                                   {formatRelativeTime(
                                     notification.createdAt,
@@ -809,13 +769,14 @@ export default function TopNav() {
                         )
                       )}
                     </div>
-
                     <div className="border-t border-gray-100 px-4 py-3">
                       <Link
                         href="/notifications"
                         className="block w-full rounded-xl bg-gray-900 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-black"
                         onClick={() =>
-                          setOpenNotif(false)
+                          setOpenNotif(
+                            false,
+                          )
                         }
                       >
                         전체 알림 보기
@@ -824,56 +785,63 @@ export default function TopNav() {
                   </div>
                 ) : null}
               </div>
-
               <div
-                className="relative ml-2"
+                className="relative min-[1380px]:ml-0.5 min-[1500px]:ml-1 2xl:ml-2"
                 ref={userMenuRef}
               >
                 <button
                   type="button"
                   onClick={() => {
                     setOpenNotif(false);
-                    setOpenUserMenu((value) => !value);
+                    setOpenUserMenu(
+                      (value) =>
+                        !value,
+                    );
                   }}
-                  className="flex items-center gap-2 rounded-2xl px-2 py-1.5 transition hover:bg-gray-100"
+                  className="flex items-center gap-1 rounded-2xl px-1 py-1.5 transition hover:bg-gray-100 min-[1180px]:gap-1.5 min-[1380px]:px-1.5 min-[1500px]:gap-2 min-[1500px]:px-2"
                   aria-label="유저 메뉴"
                 >
                   <div className="grid h-8 w-8 place-items-center rounded-full bg-gray-200 text-sm font-bold text-gray-600">
                     {getInitial(user)}
                   </div>
-
-                  <span className="hidden max-w-[160px] truncate text-sm font-semibold text-gray-800 sm:inline">
-                    {getDisplayName(user)}
+                  <span className="hidden max-w-[130px] truncate whitespace-nowrap text-sm font-semibold text-gray-800 min-[1500px]:inline 2xl:max-w-[160px]">
+                    {getDisplayName(
+                      user,
+                    )}
                   </span>
                 </button>
-
                 {openUserMenu ? (
                   <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
                     <div className="border-b border-gray-100 px-4 py-3">
                       <p className="text-sm font-semibold text-gray-900">
-                        {getDisplayName(user)}
+                        {getDisplayName(
+                          user,
+                        )}
                       </p>
-
                       <p className="truncate text-xs text-gray-500">
-                        {getDisplayEmail(user)}
+                        {getDisplayEmail(
+                          user,
+                        )}
                       </p>
                     </div>
-
                     <div className="p-2">
                       <Link
                         href={myPageHref}
                         className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         onClick={() =>
-                          setOpenUserMenu(false)
+                          setOpenUserMenu(
+                            false,
+                          )
                         }
                       >
                         <User className="h-4 w-4" />
                         마이페이지
                       </Link>
-
                       <button
                         type="button"
-                        onClick={onLogout}
+                        onClick={
+                          onLogout
+                        }
                         className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
                       >
                         <LogOut className="h-4 w-4" />
@@ -887,19 +855,23 @@ export default function TopNav() {
           )}
         </div>
       </div>
-
       {openMobileNav ? (
-        <div className="border-t border-gray-200 bg-white md:hidden">
-          <div className="flex flex-col gap-2 px-6 py-4">
+        <div className="border-t border-gray-200 bg-white min-[1024px]:hidden">
+          <div className="flex flex-col gap-2 px-4 py-4 sm:px-5">
             {NAV_ITEMS.map((item) => {
-              const active = isNavItemActive(item);
-
+              const active =
+                isNavItemActive(
+                  item,
+                );
               return (
                 <Link
                   key={item.key}
                   href={item.href}
                   onClick={(event) =>
-                    handleGuardedNavClick(event, item)
+                    handleGuardedNavClick(
+                      event,
+                      item,
+                    )
                   }
                   className={cn(
                     "rounded-xl px-3 py-2 text-sm transition",
@@ -912,7 +884,6 @@ export default function TopNav() {
                 </Link>
               );
             })}
-
             {loading ? (
               <div className="mt-2 h-10 animate-pulse rounded-xl bg-gray-100" />
             ) : !isAuthenticated ? (
@@ -923,7 +894,6 @@ export default function TopNav() {
                 >
                   로그인
                 </Link>
-
                 <Link
                   href="/auth/signup"
                   className="flex-1 rounded-xl bg-gray-900 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-black"
