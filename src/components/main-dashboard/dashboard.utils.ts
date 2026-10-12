@@ -8,7 +8,6 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-
 import type {
   MonthDay,
   RawDevlog,
@@ -20,7 +19,6 @@ import type {
   WorkspaceListResponse,
   WorkspaceMode,
 } from "./dashboard.types";
-
 export const SummaryIcons: SummaryIconMap = {
   user: UserRound,
   users: UsersRound,
@@ -31,7 +29,6 @@ export const SummaryIcons: SummaryIconMap = {
   check: CheckCircle2,
   book: BookOpenText,
 };
-
 export const SUMMARY_STATS_BASE: SummaryStat[] = [
   {
     id: 1,
@@ -60,83 +57,65 @@ export const SUMMARY_STATS_BASE: SummaryStat[] = [
     icon: "bell",
   },
 ];
-
 export function normalizeWorkspaceId(value?: string | null) {
   if (!value) return "";
   if (value === "undefined" || value === "null") return "";
   return value;
 }
-
 export function pad(value: number) {
   return String(value).padStart(2, "0");
 }
-
 export function formatDateKey(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
     date.getDate(),
   )}`;
 }
-
 export function normalizeDateKey(value?: string | null) {
   if (!value) return "";
-
   const trimmed = String(value).trim();
-
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
     return trimmed.slice(0, 10);
   }
-
   if (/^\d{4}\.\d{2}\.\d{2}/.test(trimmed)) {
     return trimmed.replace(/\./g, "-").slice(0, 10);
   }
-
   const parsed = new Date(trimmed);
-
   if (Number.isNaN(parsed.getTime())) {
     return "";
   }
-
   return formatDateKey(parsed);
 }
-
-export function getSortTime(...values: Array<string | null | undefined>) {
+export function getSortTime(
+  ...values: Array<string | null | undefined>
+) {
   for (const value of values) {
     if (!value) continue;
-
     const normalized = String(value).replace(/\./g, "-");
     const parsed = new Date(normalized).getTime();
-
     if (!Number.isNaN(parsed)) {
       return parsed;
     }
   }
-
   return 0;
 }
-
 export function getMonthDays(baseDate: Date): MonthDay[] {
   const year = baseDate.getFullYear();
   const month = baseDate.getMonth();
-
   const firstDate = new Date(year, month, 1);
   const lastDate = new Date(year, month + 1, 0);
-
   const start = new Date(firstDate);
   const firstDay = start.getDay();
   const diffToMonday = firstDay === 0 ? -6 : 1 - firstDay;
   start.setDate(start.getDate() + diffToMonday);
   start.setHours(0, 0, 0, 0);
-
   const end = new Date(lastDate);
   const lastDay = end.getDay();
   const diffToSunday = lastDay === 0 ? 0 : 7 - lastDay;
   end.setDate(end.getDate() + diffToSunday);
   end.setHours(0, 0, 0, 0);
-
   const result: MonthDay[] = [];
   const cursor = new Date(start);
   const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
-
   while (cursor <= end) {
     result.push({
       key: formatDateKey(cursor),
@@ -146,203 +125,297 @@ export function getMonthDays(baseDate: Date): MonthDay[] {
       isCurrentMonth: cursor.getMonth() === month,
       isToday: formatDateKey(cursor) === formatDateKey(new Date()),
     });
-
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return result;
 }
-
-export function getDateKeysBetween(startKey: string, endKey: string) {
+export function getDateKeysBetween(
+  startKey: string,
+  endKey: string,
+) {
   if (!startKey) return [];
-
   const start = new Date(startKey);
-  const end = endKey ? new Date(endKey) : new Date(startKey);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+  const end = endKey
+    ? new Date(endKey)
+    : new Date(startKey);
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime())
+  ) {
     return [];
   }
-
   const result: string[] = [];
   const cursor = new Date(start);
-
   while (cursor <= end) {
     result.push(formatDateKey(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return result;
 }
-
 export function parseLastModified(value: string) {
   if (!value) return 0;
-
   const normalized = value.replace(/\./g, "-");
   const parsed = new Date(normalized).getTime();
-
   return Number.isNaN(parsed) ? 0 : parsed;
 }
-
-export function getProjectTitle(workspace: WorkspaceListResponse) {
+export function getProjectTitle(
+  workspace: WorkspaceListResponse,
+) {
   const latestProject = workspace.projects?.[0];
-
-  return latestProject?.name || workspace.name || "이름 없는 프로젝트";
+  return (
+    latestProject?.name ||
+    workspace.name ||
+    "이름 없는 프로젝트"
+  );
 }
-
-export function getProjectTech(workspace: WorkspaceListResponse) {
+export function getProjectTech(
+  workspace: WorkspaceListResponse,
+) {
   const latestProject = workspace.projects?.[0];
-
   return latestProject?.language || workspace.mode;
 }
-
-export function getProjectMainHref(project: RecentProject) {
-  return `/main/${project.workspaceId}?mode=${project.type}`;
+export function getProjectMainHref(
+  project: RecentProject,
+) {
+  return `/dashboard/${encodeURIComponent(
+    project.workspaceId,
+  )}?mode=${project.type}`;
 }
-
 /*
   IDE 작업 화면 경로를 만드는 공통 함수.
-
   변경 전에는 RecentProject 객체를 넘겨서 IDE 경로를 만들거나,
   각 위치에서 직접 /ide/team, /ide/personal 경로를 만들 수 있었다.
-
   변경 후에는 workspaceId와 mode만 넘기면 IDE 경로가 생성되도록 정리했다.
-  그래서 MainDashboard, ProjectManagerList, CreateProjectModal 등에서
+  그래서 MainDashboard, AIVS, CreateProjectModal 등에서
   프로젝트 객체 전체가 없어도 현재 선택된 워크스페이스 기준으로 IDE 이동이 가능하다.
 */
-export function getIdeHref(workspaceId: string, mode: WorkspaceMode) {
+export function getIdeHref(
+  workspaceId: string,
+  mode: WorkspaceMode,
+) {
   return mode === "team"
     ? `/ide/team/${workspaceId}`
     : `/ide/personal/${workspaceId}`;
 }
-
 /*
-  AIVS와 IDE를 같은 작업 화면 의미로 통일한 함수.
-
-  현재 서비스에서는 "AIVS에서 작업하기", "작업하러 가기", "작업 화면 열기"가
-  모두 같은 IDE 화면으로 이동해야 하므로 getAivsHref는 getIdeHref를 그대로 사용한다.
-
-  하위 프로젝트 생성 후 자동 이동할 때도 이 함수를 사용하면
-  team/personal 경로 분기를 한 곳에서만 관리할 수 있다.
+  기존 프로젝트 작업 화면으로 이동하는 공통 함수.
+  실제 IDE 경로는 getIdeHref에서만 관리한다.
 */
-export function getAivsHref(workspaceId: string, mode: WorkspaceMode) {
+export function getAivsHref(
+  workspaceId: string,
+  mode: WorkspaceMode,
+) {
   return getIdeHref(workspaceId, mode);
 }
-
-export function getScheduleHref(workspaceId: string, mode: WorkspaceMode) {
-  return `/schedules?view=${mode}&workspaceId=${workspaceId}`;
+export function getScheduleHref(
+  workspaceId: string,
+  mode: WorkspaceMode,
+) {
+  return `/schedules/${encodeURIComponent(
+    workspaceId,
+  )}?mode=${mode}`;
 }
-
-export function getDevlogHref(workspaceId: string) {
-  return `/devlogs?workspaceId=${workspaceId}`;
+export function getDevlogHref(
+  workspaceId: string,
+  mode: WorkspaceMode,
+) {
+  return `/devlogs/${encodeURIComponent(
+    workspaceId,
+  )}?mode=${mode}`;
 }
-
-export function getArchiveHref(workspaceId: string) {
-  return `/archive?workspaceId=${workspaceId}`;
+export function getArchiveHref(
+  workspaceId: string,
+  mode: WorkspaceMode,
+) {
+  return `/archive/${encodeURIComponent(
+    workspaceId,
+  )}?mode=${mode}`;
 }
-
-
-export function getScheduleTitle(schedule: RawSchedule) {
-  return schedule.title?.trim() || "제목 없는 일정";
+export function getScheduleTitle(
+  schedule: RawSchedule,
+) {
+  return (
+    schedule.title?.trim() ||
+    "제목 없는 일정"
+  );
 }
-
-export function getDevlogTitle(devlog: RawDevlog) {
-  return devlog.title?.trim() || "제목 없는 개발일지";
+export function getDevlogTitle(
+  devlog: RawDevlog,
+) {
+  return (
+    devlog.title?.trim() ||
+    "제목 없는 개발일지"
+  );
 }
-
-export function extractDevlogs(response: unknown): RawDevlog[] {
+export function extractDevlogs(
+  response: unknown,
+): RawDevlog[] {
   const data = response as any;
-
-  if (Array.isArray(data)) return data;
-
-  if (Array.isArray(data?.devlogs)) return data.devlogs;
-  if (Array.isArray(data?.posts)) return data.posts;
-  if (Array.isArray(data?.logs)) return data.logs;
-  if (Array.isArray(data?.devlogPosts)) return data.devlogPosts;
-
-  if (Array.isArray(data?.projects)) {
-    return data.projects.flatMap((project: any) => {
-      if (Array.isArray(project?.devlogs)) return project.devlogs;
-      if (Array.isArray(project?.posts)) return project.posts;
-      if (Array.isArray(project?.logs)) return project.logs;
-      return [];
-    });
+  if (Array.isArray(data)) {
+    return data;
   }
-
+  if (Array.isArray(data?.devlogs)) {
+    return data.devlogs;
+  }
+  if (Array.isArray(data?.posts)) {
+    return data.posts;
+  }
+  if (Array.isArray(data?.logs)) {
+    return data.logs;
+  }
+  if (Array.isArray(data?.devlogPosts)) {
+    return data.devlogPosts;
+  }
+  if (Array.isArray(data?.projects)) {
+    return data.projects.flatMap(
+      (project: any) => {
+        if (
+          Array.isArray(
+            project?.devlogs,
+          )
+        ) {
+          return project.devlogs;
+        }
+        if (
+          Array.isArray(
+            project?.posts,
+          )
+        ) {
+          return project.posts;
+        }
+        if (
+          Array.isArray(
+            project?.logs,
+          )
+        ) {
+          return project.logs;
+        }
+        return [];
+      },
+    );
+  }
   return [];
 }
-
 export function buildScheduleItems(
   workspace: WorkspaceListResponse,
   schedules: RawSchedule[],
   dateKeys: string[],
 ): WorkFlowItem[] {
   const dateKeySet = new Set(dateKeys);
-
-  return schedules.flatMap((schedule, index) => {
-    const startKey = normalizeDateKey(schedule.startDate || schedule.date);
-    const endKey = normalizeDateKey(schedule.endDate || schedule.startDate);
-
-    const matchedDateKeys = getDateKeysBetween(startKey, endKey).filter(
-      (dateKey) => dateKeySet.has(dateKey),
-    );
-
-    return matchedDateKeys.map((dateKey) => ({
-      id: `schedule-${workspace.id}-${schedule.id ?? index}-${dateKey}`,
-      type: "schedule" as const,
-      title: getScheduleTitle(schedule),
-      dateKey,
-      workspaceId: workspace.id,
-      workspaceName: getProjectTitle(workspace),
-      workspaceMode: workspace.mode,
-      stage: schedule.stage ?? schedule.category ?? null,
-      status: schedule.status ?? null,
-      href: getScheduleHref(workspace.id, workspace.mode),
-      sortTime: getSortTime(
-        schedule.updatedAt,
-        schedule.createdAt,
-        schedule.startDate,
-        schedule.date,
-        dateKey,
-      ),
-    }));
-  });
+  return schedules.flatMap(
+    (schedule, index) => {
+      const startKey =
+        normalizeDateKey(
+          schedule.startDate ||
+            schedule.date,
+        );
+      const endKey =
+        normalizeDateKey(
+          schedule.endDate ||
+            schedule.startDate,
+        );
+      const matchedDateKeys =
+        getDateKeysBetween(
+          startKey,
+          endKey,
+        ).filter((dateKey) =>
+          dateKeySet.has(dateKey),
+        );
+      return matchedDateKeys.map(
+        (dateKey) => ({
+          id: `schedule-${workspace.id}-${schedule.id ?? index}-${dateKey}`,
+          type: "schedule" as const,
+          title:
+            getScheduleTitle(
+              schedule,
+            ),
+          dateKey,
+          workspaceId:
+            workspace.id,
+          workspaceName:
+            getProjectTitle(
+              workspace,
+            ),
+          workspaceMode:
+            workspace.mode,
+          stage:
+            schedule.stage ??
+            schedule.category ??
+            null,
+          status:
+            schedule.status ??
+            null,
+          href:
+            getScheduleHref(
+              workspace.id,
+              workspace.mode,
+            ),
+          sortTime:
+            getSortTime(
+              schedule.updatedAt,
+              schedule.createdAt,
+              schedule.startDate,
+              schedule.date,
+              dateKey,
+            ),
+        }),
+      );
+    },
+  );
 }
-
 export function buildDevlogItems(
   workspace: WorkspaceListResponse,
   devlogs: RawDevlog[],
   dateKeys: string[],
 ): WorkFlowItem[] {
   const dateKeySet = new Set(dateKeys);
-
   return devlogs
     .map((devlog, index) => {
-      const dateKey = normalizeDateKey(
-        devlog.date || devlog.createdAt || devlog.updatedAt,
-      );
-
-      if (!dateKey || !dateKeySet.has(dateKey)) {
+      const dateKey =
+        normalizeDateKey(
+          devlog.date ||
+            devlog.createdAt ||
+            devlog.updatedAt,
+        );
+      if (
+        !dateKey ||
+        !dateKeySet.has(dateKey)
+      ) {
         return null;
       }
-
       return {
         id: `devlog-${workspace.id}-${devlog.id ?? index}`,
         type: "devlog" as const,
-        title: getDevlogTitle(devlog),
+        title:
+          getDevlogTitle(devlog),
         dateKey,
-        workspaceId: workspace.id,
-        workspaceName: getProjectTitle(workspace),
-        workspaceMode: workspace.mode,
-        stage: devlog.stage ?? null,
+        workspaceId:
+          workspace.id,
+        workspaceName:
+          getProjectTitle(
+            workspace,
+          ),
+        workspaceMode:
+          workspace.mode,
+        stage:
+          devlog.stage ?? null,
         status:
-          typeof devlog.progress === "number" ? `${devlog.progress}%` : null,
-        href: getDevlogHref(workspace.id),
-        sortTime: getSortTime(
-          devlog.updatedAt,
-          devlog.createdAt,
-          devlog.date,
-          dateKey,
-        ),
+          typeof devlog.progress ===
+          "number"
+            ? `${devlog.progress}%`
+            : null,
+        href:
+          getDevlogHref(
+            workspace.id,
+            workspace.mode,
+          ),
+        sortTime:
+          getSortTime(
+            devlog.updatedAt,
+            devlog.createdAt,
+            devlog.date,
+            dateKey,
+          ),
       };
     })
     .filter(Boolean) as WorkFlowItem[];
