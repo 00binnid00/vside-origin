@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   ArrowUpRight,
@@ -259,12 +259,14 @@ export default function DevlogManagementMock() {
   const router = useRouter();
 
   const pathname = usePathname();
-
+  const params = useParams<{ workspaceId?: string | string[] }>();
   const searchParams = useSearchParams();
 
-  const workspaceId = normalizeWorkspaceId(
-    searchParams.get("workspaceId") ?? searchParams.get("id"),
-  );
+  const routeWorkspaceId = Array.isArray(params?.workspaceId)
+    ? params.workspaceId[0]
+    : params?.workspaceId;
+
+  const workspaceId = normalizeWorkspaceId(routeWorkspaceId ?? null);
 
   /* =====================================================
      WORKSPACE
@@ -394,14 +396,6 @@ export default function DevlogManagementMock() {
       if (!workspaceId) {
         const firstWorkspace = mapped[0];
 
-        const params = new URLSearchParams(
-          searchParams.toString(),
-        );
-
-        params.set("workspaceId", firstWorkspace.id);
-
-        params.set("mode", firstWorkspace.mode);
-
         if (typeof window !== "undefined") {
           localStorage.setItem(
             "currentWorkspaceId",
@@ -416,7 +410,9 @@ export default function DevlogManagementMock() {
 
         setWorkspaceName(firstWorkspace.name);
 
-        router.replace(`${pathname}?${params.toString()}`);
+        router.replace(
+          `/devlogs/${encodeURIComponent(firstWorkspace.id)}?mode=${firstWorkspace.mode}`,
+        );
 
         return;
       }
@@ -451,21 +447,15 @@ export default function DevlogManagementMock() {
 
       const firstWorkspace = mapped[0];
 
-      const params = new URLSearchParams(
-        searchParams.toString(),
-      );
-
-      params.set("workspaceId", firstWorkspace.id);
-
-      params.set("mode", firstWorkspace.mode);
-
       setWorkspaceName(firstWorkspace.name);
 
       setWorkspaceErrorMessage(
         "접근 권한이 없는 프로젝트입니다. 접근 가능한 프로젝트로 이동합니다.",
       );
 
-      router.replace(`${pathname}?${params.toString()}`);
+      router.replace(
+        `/devlogs/${encodeURIComponent(firstWorkspace.id)}?mode=${firstWorkspace.mode}`,
+      );
     } catch {
       setWorkspaceErrorMessage(
         "프로젝트 목록을 불러오지 못했습니다.",
@@ -836,13 +826,9 @@ export default function DevlogManagementMock() {
   const handleSelectWorkspace = (
     workspace: SharedWorkspaceSidebarItem,
   ) => {
-    const params = new URLSearchParams(
-      searchParams.toString(),
-    );
-
-    params.set("workspaceId", workspace.id);
-
-    params.set("mode", workspace.mode);
+    if (workspace.id === workspaceId) {
+      return;
+    }
 
     if (typeof window !== "undefined") {
       localStorage.setItem(
@@ -856,7 +842,9 @@ export default function DevlogManagementMock() {
       );
     }
 
-    router.push(`${pathname}?${params.toString()}`);
+    router.push(
+      `/devlogs/${encodeURIComponent(workspace.id)}?mode=${workspace.mode}`,
+    );
   };
 
   /* =====================================================
@@ -904,7 +892,7 @@ export default function DevlogManagementMock() {
   /* =====================================================
      일정관리 -> 개발일지 자동 연결
 
-     /devlogs?workspaceId=...&create=1&scheduleId=...
+     /devlogs/[workspaceId]?mode=...&create=1&scheduleId=...
   ===================================================== */
 
   useEffect(() => {
