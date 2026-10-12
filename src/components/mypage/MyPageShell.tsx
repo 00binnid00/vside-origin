@@ -1287,7 +1287,7 @@ function getProjectDestinationHref(
   }
 
   if (destination === "devlog") {
-    return getDevlogHref(project.workspaceId || project.id);
+    return getDevlogHref(project.workspaceId || project.id, mode);
   }
 
   return getAivsHref(project.workspaceId || project.id, mode);

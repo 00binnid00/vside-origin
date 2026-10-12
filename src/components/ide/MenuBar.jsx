@@ -590,7 +590,6 @@ if (tree && tree.children) {
       case "Push to Remote":
         await pushToRemote();
         break;
-        break;
       default:
         break;
     }
@@ -606,7 +605,7 @@ if (tree && tree.children) {
         e.preventDefault();
         if (e.shiftKey) handleMenuItemClick(null, "모두 저장");
         else handleMenuItemClick(null, "저장");
-      } else if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "\~")) {
+      } else if (e.ctrlKey && e.shiftKey && (e.key === "`" || e.key === "~")) {
         e.preventDefault();
         handleMenuItemClick(null, "새 터미널");
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "e") {
@@ -1157,7 +1156,7 @@ if (tree && tree.children) {
                 <div className="space-y-1.5">
                   <label className="text-[13px] font-extrabold text-gray-800 flex items-center gap-1.5"><VscMail className="text-blue-500" /> 이메일로 초대장 발송</label>
                   <div className="flex gap-2">
-                    <input type="text" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendInvite(); }} placeholder="teammate\@example.com" className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white transition-all shadow-sm" />
+                    <input type="text" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendInvite(); }} placeholder="teammate@example.com" className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-[13px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white transition-all shadow-sm" />
                     <button onClick={handleSendInvite} disabled={isInviting || !inviteEmail.trim()} className="px-5 bg-[#2d333b] hover:bg-black text-white rounded-xl text-[13px] font-bold transition-all shadow-sm disabled:opacity-50 flex items-center justify-center shrink-0">
                       {isInviting ? <VscRefresh className="animate-spin" size={16} /> : "발송"}
                     </button>
