@@ -28,6 +28,7 @@ import { ConnectionNotice, DesignHeader } from "./DesignHeader";
 import { DoctorPanel } from "./DoctorPanel";
 import { HistoryDialog } from "./HistoryDialog";
 import { AiDraftDialog } from "../ai/AiDraftDialog";
+import { useDraftJobStore } from "../ai/draftJobStore";
 import { CodegenDialog } from "../codegen/CodegenDialog";
 import { DesignPrintCapture } from "../export/DesignPrintCapture";
 import { buildPrintDocument, type PrintImages } from "../export/buildPrintDocument";
@@ -109,7 +110,36 @@ export function DesignWorkspace() {
   // 없는 문제를 잔뜩 보고할 뿐이다.
   const report = useDesignDoctor(workspaceId, model, state.status !== "loading" && state.status !== "error");
 
-  const [aiOpen, setAiOpen] = useState(false);
+  // 초안 다이얼로그가 열렸는지는 초안 작업 스토어가 든다. 다른 페이지에서
+  // 뜬 "초안 생성이 끝났습니다" 알림이 이 다이얼로그를 열 수 있어야 한다.
+  const aiOpen = useDraftJobStore((s) => s.dialogOpen);
+  const setAiOpen = useDraftJobStore((s) => s.setDialogOpen);
+  const resumeDraftJob = useDraftJobStore((s) => s.resume);
+
+  // 만들어 달라고 해 놓고 자리를 떴다 돌아온 경우. 서버에 남은 작업을
+  // 되살리고, 다 만들어져 있으면 검토 화면을 바로 보여 준다.
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    let cancelled = false;
+
+    void resumeDraftJob(workspaceId).then(() => {
+      const job = useDraftJobStore.getState();
+
+      if (!cancelled && job.workspaceId === workspaceId && job.status === "done") {
+        setAiOpen(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, resumeDraftJob, setAiOpen]);
+
+  // 이 화면을 떠나면 다이얼로그도 사라진다. 열림 표시를 남겨 두면 다른
+  // 페이지에서 완료 알림이 뜨지 않는다.
+  useEffect(() => () => setAiOpen(false), [setAiOpen]);
+
   const [codegenOpen, setCodegenOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [printing, setPrinting] = useState(false);

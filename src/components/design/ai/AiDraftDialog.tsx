@@ -24,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { generateDetailApi, generateSkeletonApi } from "../api/designAiApi";
+import { useDraftJobStore } from "./draftJobStore";
 import type { Awareness } from "y-protocols/awareness";
 
 import { createSafetyCheckpoint } from "../realtime/checkpoint";
@@ -63,9 +63,20 @@ export function AiDraftDialog({
   awareness,
   myName,
 }: AiDraftDialogProps) {
-  const [step, setStep] = useState<Step>("input");
-  const [progress, setProgress] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  // 만드는 일은 서버가 하고 진행 상태는 스토어가 든다. 이 창을 닫거나 다른
+  // 페이지로 가도 계속 만들어지고, 다시 열면 그 자리에서 이어진다.
+  const job = useDraftJobStore();
+  // 스토어에는 한 번에 한 워크스페이스의 작업만 있다. 남의 것을 내 것처럼 보이면 안 된다.
+  const mine = job.workspaceId === workspaceId;
+  const draft = mine && job.status === "done" ? job.draft : null;
+  const report = draft ? job.report : null;
+  const step: Step =
+    mine && job.status === "running" ? "generating" : draft ? "review" : "input";
+  const progress =
+    job.stage >= 2 ? "표와 API를 설계하는 중 (2/2)" : "요구사항과 화면을 정리하는 중 (1/2)";
+
+  const [localError, setErrorMessage] = useState("");
+  const errorMessage = localError || (mine && job.status === "failed" ? job.errorMessage : "");
 
   const [summary, setSummary] = useState("");
   const [backend, setBackend] = useState("Spring Boot");
@@ -73,31 +84,41 @@ export function AiDraftDialog({
   const [db, setDb] = useState("MySQL");
   const [instruction, setInstruction] = useState("");
 
-  const [draft, setDraft] = useState<DesignModel | null>(null);
-  const [report, setReport] = useState<DoctorReport | null>(null);
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [peerChangeCount, setPeerChangeCount] = useState(0);
   const [checkpointFailed, setCheckpointFailed] = useState(false);
 
-  const reset = () => {
-    setStep("input");
-    setProgress("");
-    setErrorMessage("");
-    setDraft(null);
-    setReport(null);
-    setExcluded(new Set());
-    setApplying(false);
-    setCheckpointFailed(false);
-  };
-
+  // 닫아도 만들던 초안과 다 만든 초안은 버리지 않는다. 버리는 것은
+  // "버리기" 와 문서에 넣었을 때뿐이다.
   const close = (next: boolean) => {
     if (!next) {
-      reset();
-      awareness?.setLocalStateField("designAiDraft", null);
+      setErrorMessage("");
+      setExcluded(new Set());
+      setApplying(false);
+      setCheckpointFailed(false);
+
+      // 실패 안내는 한 번 봤으면 됐다. 남겨 두면 다음에 열 때 또 뜬다.
+      if (mine && job.status === "failed") job.clear();
     }
     onOpenChange(next);
   };
+
+  /** 문서에 넣었거나 버리기로 했을 때. */
+  const finish = () => {
+    job.discard();
+    close(false);
+  };
+
+  // 팀원에게 지금 초안을 만드는 중이라고 알린다. 둘이 동시에 만들어
+  // 각자 넣으면 요구사항이 두 벌 들어간다. 창을 닫아도 만드는 중이면 켜 둔다.
+  const generating = step === "generating";
+
+  useEffect(() => {
+    if (!awareness) return;
+
+    awareness.setLocalStateField("designAiDraft", generating ? { name: myName } : null);
+  }, [awareness, generating, myName]);
 
   // 다른 사람이 지금 초안을 만드는 중인가.
   //
@@ -131,52 +152,23 @@ export function AiDraftDialog({
     return () => awareness.off("change", handler);
   }, [awareness]);
 
-  const generate = async () => {
+  const generate = () => {
     if (!summary.trim()) {
       setErrorMessage("어떤 서비스를 만들지 한 줄로 적어 주세요.");
       return;
     }
 
-    setStep("generating");
     setErrorMessage("");
 
-    // 팀원에게 지금 초안을 만드는 중이라고 알린다. 둘이 동시에 만들어
-    // 각자 넣으면 요구사항이 두 벌 들어간다.
-    awareness?.setLocalStateField("designAiDraft", { name: myName });
-
-    // 이미 있는 내용을 알려 준다. 안 알려 주면 AI 가 빈 문서인 줄 알고
-    // 이미 있는 요구사항과 화면을 다시 내놓는다.
-    const existing = hasExisting ? model : null;
-
-    try {
-      setProgress("요구사항과 화면을 정리하는 중 (1/2)");
-      const skeleton = await generateSkeletonApi(
-        workspaceId,
-        summary.trim(),
-        { backend, frontend, db },
-        instruction.trim(),
-        existing,
-      );
-
-      setProgress("표와 API를 설계하는 중 (2/2)");
-      const detail = await generateDetailApi(
-        workspaceId,
-        skeleton.model,
-        instruction.trim(),
-        existing,
-      );
-
-      setDraft(detail.model);
-      setReport(detail.report);
-      setStep("review");
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "초안을 만들지 못했습니다.",
-      );
-      setStep("input");
-    } finally {
-      awareness?.setLocalStateField("designAiDraft", null);
-    }
+    void job.start(
+      workspaceId,
+      summary.trim(),
+      { backend, frontend, db },
+      instruction.trim(),
+      // 이미 있는 내용을 알려 준다. 안 알려 주면 AI 가 빈 문서인 줄 알고
+      // 이미 있는 요구사항과 화면을 다시 내놓는다.
+      hasExisting ? model : null,
+    );
   };
 
   const toggle = (id: string) => {
@@ -214,8 +206,7 @@ export function AiDraftDialog({
     }
 
     mutations.applyDraft(filterDraft(draft, excluded));
-    setApplying(false);
-    close(false);
+    finish();
   };
 
   /** 기록 남기기에 실패한 뒤 그래도 진행하겠다고 한 경우. */
@@ -223,7 +214,7 @@ export function AiDraftDialog({
     if (!draft) return;
 
     mutations.applyDraft(filterDraft(draft, excluded));
-    close(false);
+    finish();
   };
 
   return (
@@ -246,7 +237,7 @@ export function AiDraftDialog({
             <Loader2 className="h-6 w-6 animate-spin text-[#5873F9]" />
             <p className="text-sm text-[var(--waivs-text-sub)]">{progress}</p>
             <p className="text-xs text-[var(--waivs-text-muted)]">
-              20초에서 1분쯤 걸립니다. 창을 닫지 말아 주세요.
+              창을 닫거나 다른 페이지로 가도 계속 만들어집니다. 끝나면 알림으로 알려 드립니다.
             </p>
           </div>
         ) : step === "review" && draft ? (
@@ -319,7 +310,7 @@ export function AiDraftDialog({
         <DialogFooter>
           {step === "review" ? (
             <>
-              <Button variant="outline" onClick={() => close(false)}>
+              <Button variant="outline" onClick={finish}>
                 버리기
               </Button>
               <Button
@@ -338,7 +329,7 @@ export function AiDraftDialog({
           ) : (
             <>
               <Button variant="outline" onClick={() => close(false)}>
-                취소
+                {step === "generating" ? "닫고 계속 만들기" : "취소"}
               </Button>
               <Button onClick={generate} disabled={step === "generating"} className="gap-1.5">
                 <Sparkles className="h-4 w-4" />
