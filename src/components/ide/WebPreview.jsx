@@ -12,6 +12,7 @@ import {
   VscChromeRestore,
   VscChromeMaximize,
 } from "react-icons/vsc";
+import { buildProxiedPreviewUrl } from "@/lib/ide/previewUrl";
 
 const PREVIEW_HOST = process.env.NEXT_PUBLIC_PREVIEW_HOST || "";
 const PREVIEW_PROTOCOL = process.env.NEXT_PUBLIC_PREVIEW_PROTOCOL || "http";
@@ -39,6 +40,14 @@ const normalizePreviewUrl = (rawUrl) => {
       url.hostname === "localhost" || url.hostname === "127.0.0.1";
 
     if (isLocalPreviewHost) {
+      // https 배포에서는 임시 포트에 직접 붙지 못한다. 서버를 거치는 주소로 바꾼다.
+      // 주소창에 localhost:포트 를 직접 쳤을 때도 여기를 지난다.
+      const proxiedUrl = url.port
+        ? buildProxiedPreviewUrl(url.port, `${url.pathname}${url.search}${url.hash}`)
+        : null;
+
+      if (proxiedUrl) return proxiedUrl;
+
       const replacementHost = PREVIEW_HOST || getCurrentBrowserHost();
 
       if (replacementHost) {

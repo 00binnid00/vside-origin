@@ -17,6 +17,7 @@ import {
 import { RunSocket } from "@/lib/ide/runSocket";
 import { DebugSocket } from "@/lib/ide/debugSocket";
 import Terminal from "@/components/ide/Terminal";
+import { buildGuiPreviewUrl } from "@/lib/ide/previewUrl";
 
 export default function BottomPanel() {
   const dispatch = useDispatch();
@@ -48,6 +49,8 @@ useEffect(() => {
 
     if (match && match[1]) {
       const port = match[1];
+      // 여기서는 포트만 실은 주소로 둔다. 접속한 환경에 맞는 주소(시연 IP, 또는 배포의
+      // /preview/{포트}/)로 바꾸는 일은 WebPreview 의 normalizePreviewUrl 이 한다.
       const url = `http://localhost:${port}`;
 
       pendingPreviewUrlRef.current = url;
@@ -62,11 +65,7 @@ useEffect(() => {
     const match = text.match(/\[GUI_STARTED_PORT:(\d+)\]/);
 
     if (match && match[1]) {
-      dispatch(
-        setGuiPreviewUrl(
-          `http://localhost:${match[1]}/vnc.html?autoconnect=true&resize=scale`,
-        ),
-      );
+      dispatch(setGuiPreviewUrl(buildGuiPreviewUrl(match[1])));
       dispatch(setIsPreviewVisible(true));
     }
   }
