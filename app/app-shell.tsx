@@ -85,7 +85,7 @@ export default function AppShell({
       isAdminPath &&
       !isAdmin
     ) {
-      router.replace("/main");
+      router.replace("/projects");
     }
   }, [
     loading,
@@ -118,4 +118,4 @@ export default function AppShell({
       </div>
     </MessageProvider>
   );
-}
+}

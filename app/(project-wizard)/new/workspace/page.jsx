@@ -68,7 +68,7 @@ export default function Page() {
   const canCreate = Boolean(mode && projectName.trim() && path.trim());
 
   const goBack = () => {
-    router.push("/main");
+    router.push("/projects");
   };
 
   const copyKey = async () => {

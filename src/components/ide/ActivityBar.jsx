@@ -206,19 +206,19 @@ export default function ActivityBar() {
       } = getWorkspaceInfo();
 
       if (!workspaceId) {
-        return "/main";
+        return "/dashboard";
       }
 
       if (
         mode === "personal" ||
         mode === "team"
       ) {
-        return `/main/${encodeURIComponent(
+        return `/dashboard/${encodeURIComponent(
           workspaceId,
         )}?mode=${mode}`;
       }
 
-      return `/main/${encodeURIComponent(
+      return `/dashboard/${encodeURIComponent(
         workspaceId,
       )}`;
     };
@@ -233,7 +233,7 @@ export default function ActivityBar() {
 
     const confirmed =
       window.confirm(
-        `"${displayName}" 프로젝트 작업 화면에서 나가시겠습니까?\n\n프로젝트 메인 화면으로 이동합니다.`,
+        `"${displayName}" 프로젝트 작업 화면에서 나가시겠습니까?\n\n프로젝트 대시보드 화면으로 이동합니다.`,
       );
 
     if (!confirmed) {
