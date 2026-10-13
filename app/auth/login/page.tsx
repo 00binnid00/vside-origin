@@ -175,11 +175,11 @@ export default function LoginPage() {
         ================================== */
 
         console.log(
-          "[일반 사용자 로그인] /main 이동",
+          "[일반 사용자 로그인] /projects 이동",
         );
 
         router.replace(
-          "/main",
+          "/projects",
         );
 
       } catch (err) {
