@@ -27,6 +27,10 @@ export interface SafeRunStatus {
   greenUpdatedAt: number | null;
   /** 정상 버전 이후 무언가 고친 사람만 나온다. */
   authors: SafeRunAuthor[];
+  /** 지금 문법 오류가 있는 파일. 누가 고쳤는지는 authors 의 files 로 찾는다. */
+  brokenFiles: string[];
+  /** 파일마다 마지막으로 고친 사람(파일경로 → 회원번호). */
+  lastEditors: Record<string, number>;
 }
 
 /** 실행 한 번의 결과. 서버가 [SAFE_RUN_INFO] 줄에 실어 보낸다. */

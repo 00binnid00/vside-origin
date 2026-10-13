@@ -846,6 +846,8 @@ export default function Sidebar() {
               branchName: message.branchName || "master",
               greenUpdatedAt: message.greenUpdatedAt ?? null,
               authors: Array.isArray(message.authors) ? message.authors : [],
+              brokenFiles: Array.isArray(message.brokenFiles) ? message.brokenFiles : [],
+              lastEditors: message.lastEditors || {},
             }),
           );
 
