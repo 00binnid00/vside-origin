@@ -381,7 +381,7 @@ export default function Page() {
       dispatch(setActiveProject(templateName));
 
       if (isCreatedFromDashboard) {
-        router.replace("/main");
+        router.replace("/dashboard");
         return;
       }
 
