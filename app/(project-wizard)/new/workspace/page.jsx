@@ -140,7 +140,7 @@ export default function Page() {
     dispatch(setWorkspaceTree(null));
     dispatch(setActiveProject(null));
 
-    router.replace("/main");
+    router.replace("/projects");
   } catch (error) {
     console.error("프로젝트 생성 실패:", error);
 

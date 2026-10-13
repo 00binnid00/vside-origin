@@ -79,7 +79,7 @@ export default function AppShell({
 
     if (isAuthPage) {
       router.replace(
-        isAdmin ? "/admin" : "/main",
+        isAdmin ? "/admin" : "/projects",
       );
     } else if (
       isAdminPath &&

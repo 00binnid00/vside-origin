@@ -196,7 +196,7 @@ export default function WevaisLandingPage() {
 
               <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
                 <Link
-                  href="/main"
+                  href="/projects"
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border-gray-300 bg-white px-6 py-2 text-sm font-bold text-gray-900 transition hover:bg-gray-50"
                 >
                   대시보드로 이동
@@ -432,7 +432,7 @@ export default function WevaisLandingPage() {
               </div>
 
               <Link
-                href="/main"
+                href="/projects"
                 className="inline-flex w-fit items-center gap-2 rounded-2xl border border-gray-300 bg-white px-5 py-3 text-sm font-bold text-gray-900 transition hover:bg-gray-100"
               >
                 프로젝트 선택 화면으로 이동
@@ -545,7 +545,7 @@ export default function WevaisLandingPage() {
               </div>
 
               <Link
-                href="/main"
+                href="/projects"
                 className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-sm font-bold text-white transition hover:bg-blue-700"
               >
                 대시보드로 이동

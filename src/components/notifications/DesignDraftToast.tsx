@@ -57,7 +57,7 @@ export function DesignDraftToast() {
 
   const open = () => {
     useDraftJobStore.getState().setDialogOpen(true);
-    router.push(`/design?workspaceId=${encodeURIComponent(shown.workspaceId)}`);
+    router.push(`/design/${encodeURIComponent(shown.workspaceId)}`);
   };
 
   return (
