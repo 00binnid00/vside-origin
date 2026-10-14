@@ -454,7 +454,7 @@ function SetupPane({
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-1.5 text-sm">
-          <span className="font-medium text-[var(--waivs-text-sub)]">어느 프로젝트에 넣을까요</span>
+          <span className="font-medium text-[var(--waivs-text-sub)]">어느 작업폴더에 넣을까요</span>
           <select
             value={projectName}
             onChange={(event) => onProjectChange(event.target.value)}
