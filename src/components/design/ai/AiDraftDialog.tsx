@@ -1,5 +1,4 @@
 "use client";
-
 // 경로: src/components/design/ai/AiDraftDialog.tsx
 //
 // 한 줄 설명에서 설계 초안을 만드는 흐름.
@@ -7,10 +6,8 @@
 // AI가 만든 것이 문서에 곧바로 들어가지 않는다. 무엇이 만들어졌는지 보고
 // 필요 없는 것을 빼고 나서야 반영된다. 반영은 덮어쓰기가 아니라 더하기라,
 // 손으로 적어 둔 내용은 그대로 남는다.
-
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Loader2, Sparkles } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,18 +20,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
 import { useDraftJobStore } from "./draftJobStore";
 import type { Awareness } from "y-protocols/awareness";
-
 import { createSafetyCheckpoint } from "../realtime/checkpoint";
 import type { DesignDocSession } from "../realtime/designDocProvider";
 import type { DoctorReport } from "../api/designDoctorApi";
 import type { DesignModel } from "../model/schema";
 import type { DesignMutations } from "../realtime/mutations";
-
 type Step = "input" | "generating" | "review";
-
 export interface AiDraftDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -51,7 +44,6 @@ export interface AiDraftDialogProps {
   /** 알림에 쓸 내 이름. */
   myName: string;
 }
-
 export function AiDraftDialog({
   open,
   onOpenChange,
@@ -74,21 +66,17 @@ export function AiDraftDialog({
     mine && job.status === "running" ? "generating" : draft ? "review" : "input";
   const progress =
     job.stage >= 2 ? "표와 API를 설계하는 중 (2/2)" : "요구사항과 화면을 정리하는 중 (1/2)";
-
   const [localError, setErrorMessage] = useState("");
   const errorMessage = localError || (mine && job.status === "failed" ? job.errorMessage : "");
-
   const [summary, setSummary] = useState("");
   const [backend, setBackend] = useState("Spring Boot");
   const [frontend, setFrontend] = useState("React");
   const [db, setDb] = useState("MySQL");
   const [instruction, setInstruction] = useState("");
-
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [peerChangeCount, setPeerChangeCount] = useState(0);
   const [checkpointFailed, setCheckpointFailed] = useState(false);
-
   // 닫아도 만들던 초안과 다 만든 초안은 버리지 않는다. 버리는 것은
   // "버리기" 와 문서에 넣었을 때뿐이다.
   const close = (next: boolean) => {
@@ -97,69 +85,54 @@ export function AiDraftDialog({
       setExcluded(new Set());
       setApplying(false);
       setCheckpointFailed(false);
-
       // 실패 안내는 한 번 봤으면 됐다. 남겨 두면 다음에 열 때 또 뜬다.
       if (mine && job.status === "failed") job.clear();
     }
     onOpenChange(next);
   };
-
   /** 문서에 넣었거나 버리기로 했을 때. */
   const finish = () => {
     job.discard();
     close(false);
   };
-
   // 팀원에게 지금 초안을 만드는 중이라고 알린다. 둘이 동시에 만들어
   // 각자 넣으면 요구사항이 두 벌 들어간다. 창을 닫아도 만드는 중이면 켜 둔다.
   const generating = step === "generating";
-
   useEffect(() => {
     if (!awareness) return;
-
     awareness.setLocalStateField("designAiDraft", generating ? { name: myName } : null);
   }, [awareness, generating, myName]);
-
   // 다른 사람이 지금 초안을 만드는 중인가.
   //
   // 완전히 막지는 않는다. 상대가 창을 그냥 닫아 버리면 영영 못 만들게 된다.
   // 대신 둘이 각자 넣으면 요구사항이 두 벌 들어간다는 것을 알린다.
   const otherDrafter = useMemo(() => {
     if (!awareness) return null;
-
     let found: string | null = null;
     awareness.getStates().forEach((state, clientId) => {
       if (clientId === awareness.clientID) return;
-
       const drafting = (state as Record<string, unknown>)?.designAiDraft as
         | { name?: string }
         | null
         | undefined;
-
       if (drafting) {
         found = drafting.name ?? "다른 팀원";
       }
     });
-
     return found;
   }, [awareness, peerChangeCount]);
-
   useEffect(() => {
     if (!awareness) return;
-
     const handler = () => setPeerChangeCount((count) => count + 1);
     awareness.on("change", handler);
     return () => awareness.off("change", handler);
   }, [awareness]);
-
   const generate = () => {
     if (!summary.trim()) {
       setErrorMessage("어떤 서비스를 만들지 한 줄로 적어 주세요.");
       return;
     }
-
     setErrorMessage("");
-
     void job.start(
       workspaceId,
       summary.trim(),
@@ -170,7 +143,6 @@ export function AiDraftDialog({
       hasExisting ? model : null,
     );
   };
-
   const toggle = (id: string) => {
     setExcluded((current) => {
       const next = new Set(current);
@@ -179,13 +151,10 @@ export function AiDraftDialog({
       return next;
     });
   };
-
   const apply = async () => {
     if (!draft || applying) return;
-
     setApplying(true);
     setErrorMessage("");
-
     // 넣기 전에 되돌아올 자리를 남긴다. 초안은 한 번에 수십 개 항목을 넣는
     // 동작이라, 마음에 안 들 때 손으로 지우는 것이 사실상 불가능하다.
     const checkpoint = await createSafetyCheckpoint(
@@ -193,7 +162,6 @@ export function AiDraftDialog({
       session,
       "AI 초안 적용 직전",
     );
-
     if (!checkpoint.ok) {
       // 조용히 넘어가면 안전망이 없다는 사실을 모른 채 진행하게 된다.
       setApplying(false);
@@ -204,23 +172,19 @@ export function AiDraftDialog({
       setCheckpointFailed(true);
       return;
     }
-
     mutations.applyDraft(filterDraft(draft, excluded));
     finish();
   };
-
   /** 기록 남기기에 실패한 뒤 그래도 진행하겠다고 한 경우. */
   const applyWithoutCheckpoint = () => {
     if (!draft) return;
-
     mutations.applyDraft(filterDraft(draft, excluded));
     finish();
   };
-
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-[640px]">
-        <DialogHeader>
+      <DialogContent className="z-[100] flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]">
+        <DialogHeader className="shrink-0 px-6 pb-3 pt-6 pr-12">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-[#5873F9]" />
             AI로 설계 초안 만들기
@@ -231,9 +195,9 @@ export function AiDraftDialog({
               : "무엇을 만들지 한 줄로 알려 주면 요구사항과 화면, 표, API를 서로 연결해 만들어 드립니다."}
           </DialogDescription>
         </DialogHeader>
-
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-4">
         {step === "generating" ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-[#5873F9]" />
             <p className="text-sm text-[var(--waivs-text-sub)]">{progress}</p>
             <p className="text-xs text-[var(--waivs-text-muted)]">
@@ -248,7 +212,6 @@ export function AiDraftDialog({
                 {errorMessage}
               </p>
             ) : null}
-
             <ReviewStep draft={draft} report={report} excluded={excluded} onToggle={toggle} />
           </div>
         ) : (
@@ -260,14 +223,12 @@ export function AiDraftDialog({
                 들어갈 수 있습니다.
               </p>
             ) : null}
-
             {hasExisting ? (
               <p className="rounded-xl bg-[var(--waivs-surface-soft)] px-3 py-2 text-xs text-[var(--waivs-text-sub)]">
                 이미 작성된 내용이 있습니다. 지우지 않고 새로 만든 것만 더하며, 이미 있는 것은
                 AI에게 알려 주어 다시 만들지 않게 합니다.
               </p>
             ) : null}
-
             <Field label="어떤 서비스인가요?" hint="예: 학과 학생들이 중고 물품을 사고파는 웹">
               <Input
                 value={summary}
@@ -276,8 +237,7 @@ export function AiDraftDialog({
                 autoFocus
               />
             </Field>
-
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Field label="백엔드">
                 <Input value={backend} onChange={(event) => setBackend(event.target.value)} />
               </Field>
@@ -288,16 +248,14 @@ export function AiDraftDialog({
                 <Input value={db} onChange={(event) => setDb(event.target.value)} />
               </Field>
             </div>
-
             <Field label="더 알려 줄 것이 있나요?" hint="비워 두어도 됩니다">
               <Textarea
                 value={instruction}
                 onChange={(event) => setInstruction(event.target.value)}
                 placeholder="예: 결제는 빼고, 채팅 기능을 꼭 넣어 주세요"
-                className="min-h-[72px]"
+                className="h-[200px] min-h-[120px] max-h-[32vh] resize-y overflow-y-auto"
               />
             </Field>
-
             {errorMessage ? (
               <p className="flex items-start gap-1.5 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -306,8 +264,8 @@ export function AiDraftDialog({
             ) : null}
           </div>
         )}
-
-        <DialogFooter>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-[var(--waivs-border)] px-6 py-4">
           {step === "review" ? (
             <>
               <Button variant="outline" onClick={finish}>
@@ -342,7 +300,6 @@ export function AiDraftDialog({
     </Dialog>
   );
 }
-
 function ReviewStep({
   draft,
   report,
@@ -355,14 +312,13 @@ function ReviewStep({
   onToggle: (id: string) => void;
 }) {
   return (
-    <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
+    <div className="space-y-4">
       <div className="grid grid-cols-4 gap-2 text-center">
         <Count label="요구사항" value={draft.requirements.length} />
         <Count label="화면" value={draft.screens.length} />
         <Count label="표" value={draft.erd.tables.length} />
         <Count label="API" value={draft.apis.length} />
       </div>
-
       {report ? (
         <p
           className={cn(
@@ -381,7 +337,6 @@ function ReviewStep({
               : "설계 점검을 통과했습니다."}
         </p>
       ) : null}
-
       <Section title="요구사항">
         {draft.requirements.map((item) => (
           <Row
@@ -393,7 +348,6 @@ function ReviewStep({
           />
         ))}
       </Section>
-
       <Section title="API 명세">
         {draft.apis.map((item) => (
           <Row
@@ -406,19 +360,16 @@ function ReviewStep({
           />
         ))}
       </Section>
-
       <Section title="화면">
         <p className="px-1 text-xs text-[var(--waivs-text-sub)]">
           {draft.screens.map((screen) => screen.name).join(" · ")}
         </p>
       </Section>
-
       <Section title="표">
         <p className="px-1 font-mono text-xs text-[var(--waivs-text-sub)]">
           {draft.erd.tables.map((table) => table.name).join(" · ")}
         </p>
       </Section>
-
       <p className="text-[11px] text-[var(--waivs-text-muted)]">
         화면과 표는 서로 이어져 있어 낱개로 빼면 연결이 끊깁니다. 넣은 뒤 편집 화면에서
         지우는 편이 안전합니다.
@@ -426,7 +377,6 @@ function ReviewStep({
     </div>
   );
 }
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
@@ -435,7 +385,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </section>
   );
 }
-
 function Row({
   checked,
   onToggle,
@@ -468,7 +417,6 @@ function Row({
     </label>
   );
 }
-
 function Count({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl bg-[var(--waivs-surface-soft)] px-2 py-2">
@@ -477,7 +425,6 @@ function Count({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
-
 function Field({
   label,
   hint,
@@ -495,16 +442,13 @@ function Field({
     </div>
   );
 }
-
 /**
  * 빼기로 한 항목을 덜어 내고, 그것을 가리키던 연결도 함께 정리한다.
  * 남겨 두면 문서에 들어가자마자 설계 점검이 "없는 항목 참조" 오류를 낸다.
  */
 function filterDraft(draft: DesignModel, excluded: Set<string>): DesignModel {
   if (excluded.size === 0) return draft;
-
   const keep = (ids: string[]) => ids.filter((id) => !excluded.has(id));
-
   return {
     ...draft,
     requirements: draft.requirements
