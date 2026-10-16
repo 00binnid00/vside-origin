@@ -1279,7 +1279,7 @@ function getProjectDestinationHref(
   const mode = getProjectMode(project);
 
   if (destination === "dashboard") {
-    return `/main/${workspaceId}?mode=${mode}`;
+    return `/dashboard/${workspaceId}?mode=${mode}`;
   }
 
   if (destination === "schedule") {
