@@ -2729,66 +2729,58 @@ useEffect(() => {
         }
       `}} />
 
-      {/* 샌드박스가 켜져 있을 때, 이 파일이 지금 어느 쪽에 붙어 있는지 크게 보여 준다. */}
+      {/* 샌드박스 상태 안내: 코드 영역을 가리지 않는 36px 단일 행 */}
       {isSandboxViewOnly && (
-        <div className="shrink-0 flex items-center justify-between gap-3 border-b-2 border-sky-300 bg-sky-100 px-4 py-2.5">
-          <span className="text-[13px] font-black text-sky-900">
-            👥 팀 실시간 보기 중
-            <span className="ml-2 font-bold text-sky-700">
-              이 파일은 아직 팀과 같이 보고 있어요. 지금은 읽기 전용입니다.
-            </span>
-          </span>
+        <div className="flex h-9 min-h-9 shrink-0 items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 px-3">
+          <div className="flex min-w-0 items-center gap-2 text-[12px]">
+            <VscLock size={13} className="shrink-0 text-sky-600" />
+            <span className="shrink-0 font-bold text-sky-800">팀 실시간 보기</span>
+            <span className="min-w-0 truncate text-sky-700">· 아직 개인 사본이 없는 파일입니다. 수정하려면 샌드박스로 전환하세요.</span>
+          </div>
           <button
             type="button"
             onClick={() => enterSandboxEdit()}
             disabled={isSandboxSwitching || isDocumentLoading}
-            className="shrink-0 h-9 rounded-lg bg-indigo-600 px-4 text-[13px] font-black text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-7 shrink-0 rounded-md border border-indigo-200 bg-white px-3 text-[11px] font-bold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSandboxSwitching ? "전환하는 중…" : "📝 샌드박스에서 고치기"}
+            {isSandboxSwitching ? "전환하는 중…" : "샌드박스에서 고치기"}
           </button>
         </div>
       )}
 
-      {/* 내가 샌드박스에서 고치는 동안 팀이 이 파일을 고쳤다. 개인 방에서는 그 편집이
-          보이지 않으므로 크게 알리고, 반영 전에 미리 합쳐 둘 수 있게 한다. */}
+      {/* 개인 파일을 편집하는 동안 팀 파일에도 변경이 생긴 경우 */}
       {hasTeamChanges && (
-        <div className="shrink-0 flex items-center justify-between gap-3 border-b-2 border-orange-700 bg-orange-500 px-4 py-2.5">
-          <span className="text-[13px] font-black text-white">
-            👥 팀이 이 파일을 고쳤어요
-            <span className="ml-2 font-bold text-orange-50">
-              샌드박스에서는 팀원의 수정이 보이지 않아요. 반영 전에 미리 합쳐 둘 수 있습니다.
-            </span>
-          </span>
+        <div className="flex h-9 min-h-9 shrink-0 items-center justify-between gap-3 border-b border-orange-200 bg-orange-50 px-3">
+          <div className="flex min-w-0 items-center gap-2 text-[12px]">
+            <VscWarning size={13} className="shrink-0 text-orange-600" />
+            <span className="shrink-0 font-bold text-orange-800">팀 변경 감지</span>
+            <span className="min-w-0 truncate text-orange-700">· 팀원이 같은 파일을 수정했습니다. 반영 전에 팀 변경을 가져올 수 있어요.</span>
+          </div>
           <button
             type="button"
             onClick={handlePullTeamChanges}
             disabled={isSandboxPulling || isDocumentLoading}
-            className="shrink-0 h-9 rounded-lg border-2 border-white bg-white px-4 text-[13px] font-black text-orange-700 shadow-sm transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-7 shrink-0 rounded-md border border-orange-200 bg-white px-3 text-[11px] font-bold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSandboxPulling ? "가져오는 중…" : "⬇ 팀 변경 가져오기"}
+            {isSandboxPulling ? "가져오는 중…" : "팀 변경 가져오기"}
           </button>
         </div>
       )}
 
       {isSandboxEditing && !isSandboxConflict && !hasTeamChanges && (
-        <div className="shrink-0 flex items-center gap-3 border-b-2 border-indigo-800 bg-indigo-600 px-4 py-2.5">
-          <span className="text-[13px] font-black text-white">
-            📝 샌드박스에서 수정 중
-            <span className="ml-2 font-bold text-indigo-100">
-              여기서 고친 내용은 반영하기 전까지 팀원에게 보이지 않아요.
-            </span>
-          </span>
+        <div className="flex h-9 min-h-9 shrink-0 items-center gap-2 overflow-hidden border-b border-indigo-300 border-l-[4px] border-l-indigo-600 bg-[#C7D2FE] pl-2.5 pr-3 text-[12px]">
+          <VscLock size={14} className="shrink-0 text-indigo-700" />
+          <span className="shrink-0 font-extrabold text-indigo-950">개인 샌드박스 작업 중</span>
+          <span className="min-w-0 truncate font-medium text-indigo-800">· 수정 내용은 팀에 반영하기 전까지 공유되지 않습니다.</span>
+          <span className="ml-auto shrink-0 rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">PRIVATE</span>
         </div>
       )}
 
       {isSandboxConflict && (
-        <div className="shrink-0 flex items-center gap-3 border-b-2 border-amber-500 bg-amber-300 px-4 py-2.5">
-          <span className="text-[13px] font-black text-amber-950">
-            ⚠️ 샌드박스 충돌 해결 중
-            <span className="ml-2 font-bold text-amber-900">
-              팀도 같은 곳을 고쳤어요. 아래에서 고른 뒤 &lsquo;샌드박스 충돌 해결 완료&rsquo;를 눌러 주세요. (위쪽이 내 것, 아래쪽이 팀 것)
-            </span>
-          </span>
+        <div className="flex h-9 min-h-9 shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 text-[12px]">
+          <VscWarning size={13} className="shrink-0 text-amber-700" />
+          <span className="shrink-0 font-bold text-amber-900">샌드박스 충돌 해결 중</span>
+          <span className="min-w-0 truncate text-amber-800">· 아래에서 변경 사항을 선택한 뒤 ‘샌드박스 충돌 해결 완료’를 눌러 주세요. (위: 내 것 / 아래: 팀 것)</span>
         </div>
       )}
 
