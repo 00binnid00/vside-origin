@@ -480,7 +480,7 @@ export default function TeamIdeMain() {
         return (
           <div
             ref={editorLayoutRef}
-            className={`flex-1 flex overflow-hidden p-2 gap-2 transition-colors duration-300 ${
+            className={`flex-1 min-h-0 flex overflow-hidden p-2 gap-2 transition-colors duration-300 ${
               isSandboxMode ? "bg-[#E0E7FF]" : "bg-[#f0f2f5]"
             }`}
           >
@@ -539,15 +539,15 @@ export default function TeamIdeMain() {
             )}
 
             {/* 중앙 에디터 영역 */}
-            <div className={`flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 z-0 relative ${
+            <div className={`flex-1 min-h-0 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 z-0 relative ${
               isSandboxMode
                 ? "border-indigo-400 shadow-[0_0_0_1px_rgba(99,102,241,0.14)]"
                 : "border-gray-200"
             }`}>
               <FileTabs />
 
-              <div className="flex-1 flex relative overflow-hidden">
-                <div className="flex-1 flex flex-col min-w-0 relative">
+              <div className="flex-1 min-h-0 flex relative overflow-hidden">
+                <div className="flex-1 min-h-0 flex flex-col min-w-0 relative">
                   <CodeEditor />
                   <CodeMap />
                 </div>
@@ -697,7 +697,7 @@ export default function TeamIdeMain() {
 
   return (
     <div
-      className={`w-full h-[calc(100vh-61px)] flex flex-col text-[#333] overflow-hidden font-sans transition-colors duration-700 ${
+      className={`w-full h-[calc(100dvh-68px)] min-h-0 flex flex-col text-[#333] overflow-hidden font-sans transition-colors duration-700 ${
         isSandboxMode ? "bg-[#E0E7FF]" : "bg-white"
       }`}
     >
@@ -705,7 +705,7 @@ export default function TeamIdeMain() {
 
       <MenuBar mode="team" />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         <ActivityBar />
         {renderMainContent()}
       </div>
