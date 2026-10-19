@@ -8,7 +8,7 @@
 // 보이고, 안 고친 파일은 계속 팀과 실시간으로 같이 본다. 다 됐으면 반영하고, 아니면 버린다.
 //
 //   꺼짐:  [샌드박스]
-//   켜짐:  [● 샌드박스 켜짐 · 3개 ▾]  [반영]  [버리기]  [끄기]
+//   켜짐:  [● 샌드박스 켜짐 · 3개 ▾] [⋯] → 파일 목록 / 작업 메뉴 분리
 //
 // 여기서 하는 일은 서버 호출의 순서를 지키는 것이다. 특히 탭을 닫을 때 나가는 마지막
 // 자동 저장이 반영·버리기보다 늦게 도착하면 방금 처리한 파일이 샌드박스에 다시 생긴다.
@@ -88,6 +88,7 @@ export default function SandboxControls() {
 
   const [isBusy, setIsBusy] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
   /** 마지막 반영의 결과. 다른 브랜치로 넘어가면 보여 주지 않으려고 어느 브랜치 것인지 같이 둔다. */
   const [applyResults, setApplyResults] = useState<{ scopeKey: string | null; items: ApplyResult[] }>({
     scopeKey: null,
@@ -144,17 +145,18 @@ export default function SandboxControls() {
   }, [scope, store]);
 
   useEffect(() => {
-    if (!isPanelOpen) return undefined;
+    if (!isPanelOpen && !isActionsOpen) return undefined;
 
     const close = (event: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
         setIsPanelOpen(false);
+        setIsActionsOpen(false);
       }
     };
 
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [isPanelOpen]);
+  }, [isPanelOpen, isActionsOpen]);
 
   const log = useCallback(
     (message: string) => {
@@ -215,6 +217,7 @@ export default function SandboxControls() {
       const state = await disableSandboxApi(scope);
       store(scope, state);
       setIsPanelOpen(false);
+      setIsActionsOpen(false);
 
       log(
         state.files.length > 0
@@ -242,6 +245,7 @@ export default function SandboxControls() {
       store(scope, await fetchSandboxStateApi(scope));
       setApplyResults({ scopeKey: null, items: [] });
       setIsPanelOpen(false);
+      setIsActionsOpen(false);
       log(`샌드박스를 버렸습니다(${count}개 파일). 팀 파일은 그대로입니다.`);
     });
 
@@ -425,55 +429,90 @@ export default function SandboxControls() {
   );
 
   return (
-    <div className="relative flex items-center gap-1.5" ref={panelRef}>
+    <div className="relative flex shrink-0 items-center gap-1" ref={panelRef}>
+      {/* 기존 버튼은 파일 목록 전용으로 유지 */}
       <button
         type="button"
-        onClick={() => setIsPanelOpen((open) => !open)}
-        className="flex h-8 items-center gap-1.5 rounded-lg border-2 border-indigo-800 bg-indigo-600 px-3 text-[12px] font-black text-white shadow-sm transition-all hover:bg-indigo-700 active:scale-95"
+        onClick={() => {
+          setIsActionsOpen(false);
+          setIsPanelOpen((open) => !open);
+        }}
+        aria-expanded={isPanelOpen}
+        aria-label={`샌드박스 작업 파일 ${pendingCount}개 목록`}
+        className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border-2 border-indigo-800 bg-indigo-600 px-2.5 text-[12px] font-black text-white shadow-sm transition-colors hover:bg-indigo-700"
         title="샌드박스에서 고친 파일 목록"
       >
-        <span className="h-2 w-2 rounded-full bg-emerald-300" />
-        샌드박스 켜짐 · {pendingCount}개
+        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-300" />
+        <span>샌드박스 켜짐 · {pendingCount}개</span>
         {teamChangedCount > 0 && (
-          <span className="rounded bg-orange-500 px-1.5 py-0.5 text-[11px] font-black text-white">
+          <span className="rounded bg-orange-500 px-1 py-0.5 text-[10px] font-black text-white" title={`팀 변경 ${teamChangedCount}개`}>
             팀 변경 {teamChangedCount}
           </span>
         )}
-        ▾
+        <span aria-hidden="true">▾</span>
       </button>
 
+      {/* 반영/버리기/끄기는 작은 메뉴 버튼에 통합 */}
       <button
         type="button"
-        onClick={handleApply}
-        disabled={isBusy || pendingCount === 0}
-        title="고친 파일을 팀 파일에 합칩니다. 충돌이 없는 파일은 바로 들어가고, 충돌 파일만 비교 화면으로 갑니다."
-        className="h-8 rounded-lg border border-emerald-700 bg-emerald-500 px-3 text-[12px] font-black text-white transition-all hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isBusy ? "처리 중…" : "반영"}
-      </button>
-
-      <button
-        type="button"
-        onClick={handleDiscard}
-        disabled={isBusy || pendingCount === 0}
-        title="샌드박스에서 고친 것을 모두 버립니다."
-        className="h-8 rounded-lg border border-rose-200 bg-rose-50 px-3 text-[12px] font-bold text-rose-600 transition-all hover:bg-rose-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        버리기
-      </button>
-
-      <button
-        type="button"
-        onClick={handleDisable}
         disabled={isBusy}
-        title="샌드박스를 끕니다. 고친 파일은 보관되고, 다시 켜면 이어서 작업할 수 있습니다."
-        className="h-8 rounded-lg border border-gray-200 bg-white px-3 text-[12px] font-bold text-gray-700 transition-all hover:bg-gray-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={() => {
+          setIsPanelOpen(false);
+          setIsActionsOpen((open) => !open);
+        }}
+        aria-expanded={isActionsOpen}
+        aria-label="샌드박스 작업 메뉴"
+        title="샌드박스 작업 메뉴 (반영, 버리기, 끄기)"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 text-lg font-bold leading-none text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        끄기
+        ⋯
       </button>
+
+      {isActionsOpen && (
+        <div className="absolute right-0 top-10 z-[1001] w-48 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
+          <div className="px-2.5 py-1.5 text-[11px] font-bold text-gray-400">샌드박스 작업</div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsActionsOpen(false);
+              handleApply();
+            }}
+            disabled={isBusy || pendingCount === 0}
+            title="고친 파일을 팀 파일에 합칩니다. 충돌 파일은 비교 화면으로 이동합니다."
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="w-4 text-center">✓</span> {isBusy ? "처리 중…" : `팀에 반영 (${pendingCount}개)`}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsActionsOpen(false);
+              handleDiscard();
+            }}
+            disabled={isBusy || pendingCount === 0}
+            title="샌드박스에서 고친 것을 모두 버립니다."
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-bold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="w-4 text-center">×</span> 변경 사항 버리기
+          </button>
+          <div className="my-1 border-t border-gray-100" />
+          <button
+            type="button"
+            onClick={() => {
+              setIsActionsOpen(false);
+              handleDisable();
+            }}
+            disabled={isBusy}
+            title="샌드박스를 끕니다. 수정한 파일은 보관되며 다시 켜면 이어서 작업할 수 있습니다."
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-bold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="w-4 text-center">⏻</span> 샌드박스 끄기
+          </button>
+        </div>
+      )}
 
       {isPanelOpen && (
-        <div className="absolute right-0 top-10 z-[1000] w-[420px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+        <div className="absolute right-0 top-10 z-[1000] w-[min(420px,calc(100vw-24px))] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
           <div className="border-b border-indigo-800 bg-indigo-600 px-4 py-2.5 text-[13px] font-black text-white">
             샌드박스에서 고친 파일
             <span className="ml-2 font-bold text-indigo-100">팀원에게는 아직 보이지 않아요</span>
