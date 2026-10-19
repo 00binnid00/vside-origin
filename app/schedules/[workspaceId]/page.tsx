@@ -2621,69 +2621,25 @@ export default function ScheduleManagementPage() {
      DEVLOG
      ===================================================== */
 
-  const goToDevlogWrite = (
-    schedule: ProjectScheduleItem,
-  ) => {
-    const workspace =
-      workspaces.find(
-        (item) =>
-          item.id ===
-          schedule.workspaceId,
-      );
-
-    const mode =
-      workspace?.mode ||
-      currentMode;
-
-    const params =
-      new URLSearchParams();
-
-    params.set(
-      "workspaceId",
-      schedule.workspaceId ||
-        workspaceId,
-    );
-
-    params.set(
-      "mode",
+  const goToDevlogWrite = (schedule: ProjectScheduleItem) => {
+    const targetWorkspaceId = schedule.workspaceId || workspaceId;
+    if (!targetWorkspaceId) return;
+    const workspace = workspaces.find((item) => item.id === targetWorkspaceId);
+    const mode = workspace?.mode || currentMode;
+    const params = new URLSearchParams({
       mode,
-    );
-
-    params.set(
-      "create",
-      "1",
-    );
-
-    params.set(
-      "scheduleId",
-      String(schedule.id),
-    );
-
-    router.push(
-      `/devlogs?${params.toString()}`,
-    );
+      create: "1",
+      scheduleId: String(schedule.id),
+    });
+    router.push(`/devlogs/${encodeURIComponent(targetWorkspaceId)}?${params.toString()}`);
   };
 
-  const goToDevlogs = (
-    schedule: ProjectScheduleItem,
-  ) => {
-    const workspace =
-      workspaces.find(
-        (item) =>
-          item.id ===
-          schedule.workspaceId,
-      );
-
-    const mode =
-      workspace?.mode ||
-      currentMode;
-
-    router.push(
-      `/devlogs?workspaceId=${encodeURIComponent(
-        schedule.workspaceId ||
-          workspaceId,
-      )}&mode=${mode}`,
-    );
+  const goToDevlogs = (schedule: ProjectScheduleItem) => {
+    const targetWorkspaceId = schedule.workspaceId || workspaceId;
+    if (!targetWorkspaceId) return;
+    const workspace = workspaces.find((item) => item.id === targetWorkspaceId);
+    const mode = workspace?.mode || currentMode;
+    router.push(`/devlogs/${encodeURIComponent(targetWorkspaceId)}?mode=${encodeURIComponent(mode)}`);
   };
 
   /* =====================================================
