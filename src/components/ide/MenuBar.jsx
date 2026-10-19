@@ -1103,14 +1103,7 @@ if (tree && tree.children) {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => setIsTeamModalOpen(true)}
-                  className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-bold text-blue-600 transition-all hover:bg-blue-100 active:scale-95 min-[1120px]:px-3 min-[1120px]:text-[12px]"
-                  title="팀원 관리"
-                >
-                  <span className="min-[1000px]:hidden">T</span>
-                  <span className="hidden min-[1000px]:inline">TEAM</span>
-                </button>
+            
                 <button
                   onClick={() => setIsVoiceChatModalOpen(true)}
                   className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-[12px] font-bold transition-all active:scale-95 min-[1320px]:px-3 ${
