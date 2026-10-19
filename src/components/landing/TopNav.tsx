@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchMyProfile } from "@/components/mypage/api";
 import MessageButton from "@/components/messages/MessageButton";
+import { resolveNotificationHref } from "@/lib/notification/notificationRoute";
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -537,10 +538,11 @@ export default function TopNav() {
         }
       }
       if (notification.targetUrl) {
-        router.push(
-          notification.targetUrl,
-        );
-        return;
+        const targetHref = resolveNotificationHref(notification.targetUrl);
+        if (targetHref) {
+          router.push(targetHref);
+          return;
+        }
       }
       router.push("/notifications");
     };
