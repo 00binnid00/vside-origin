@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import { useSelector, useDispatch } from "react-redux";
 import { setIsPreviewVisible } from "@/store/slices/uiSlice";
@@ -13,6 +14,7 @@ import {
   VscChromeMaximize,
 } from "react-icons/vsc";
 import { buildProxiedPreviewUrl } from "@/lib/ide/previewUrl";
+import { RunSocket } from "@/lib/ide/runSocket";
 
 const PREVIEW_HOST = process.env.NEXT_PUBLIC_PREVIEW_HOST || "";
 const PREVIEW_PROTOCOL = process.env.NEXT_PUBLIC_PREVIEW_PROTOCOL || "http";
@@ -61,6 +63,48 @@ const normalizePreviewUrl = (rawUrl) => {
     return withProtocol;
   }
 };
+
+// 앱 화면(noVNC)은 누른 키만 보내서 한글이 조합되지 않는다(실행 환경에 한글 입력기가 없다).
+// 여기서 내 PC 의 입력기로 조합을 끝낸 글자를 보내면, 서버가 앱 화면에서 지금 선택된 칸에 대신 친다.
+function KoreanInputBar() {
+  const [text, setText] = useState("");
+
+  const send = () => {
+    if (!text) return;
+    RunSocket.sendGuiText(text);
+    setText("");
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t-2 border-blue-500 bg-blue-50 px-3 py-2">
+      <span className="shrink-0 rounded-md bg-blue-600 px-2 py-1 text-[12px] font-black text-white">
+        한글 입력
+      </span>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          // 한글을 조합하는 중에 누른 Enter 는 조합을 끝내는 키다. 그때 보내면 마지막 글자가 빠진다.
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        placeholder="앱 화면에서 입력할 칸을 먼저 클릭한 뒤, 여기에 쓰고 Enter"
+        className="min-w-0 flex-1 rounded-md border-2 border-blue-300 bg-white px-3 py-1.5 text-[13px] text-gray-800 outline-none focus:border-blue-500"
+      />
+      <button
+        type="button"
+        onClick={send}
+        disabled={!text}
+        className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+      >
+        보내기
+      </button>
+    </div>
+  );
+}
 
 export default function WebPreview() {
   const dispatch = useDispatch();
@@ -175,7 +219,12 @@ export default function WebPreview() {
     ? { x: window.innerWidth * 0.075, y: window.innerHeight * 0.075 }
     : { x: rndState.x, y: rndState.y };
 
-  return (
+  // IDE 화면은 헤더(61px) 아래에서 시작해서, 그 안에 두면 창 좌표의 기준이 헤더 밑이 되어
+  // 헤더 위로 끌어 올릴 수 없었다. 화면 전체를 덮는 투명한 층을 body 에 붙이고 그 안을
+  // 움직이게 해서 브라우저 화면 어디로든(맨 위 포함) 옮길 수 있게 한다.
+  // 층은 클릭을 통과시키고(pointer-events-none) 창만 클릭을 받는다.
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] pointer-events-none">
     <Rnd
       size={currentSize}
       position={currentPosition}
@@ -203,8 +252,8 @@ export default function WebPreview() {
       disableDragging={isMaximized}
       enableResizing={!isMaximized && !isMinimized}
       dragHandleClassName="preview-header"
-      bounds="window"
-      className="z-[9999]"
+      bounds="parent"
+      className="pointer-events-auto"
       style={{
         transition: isMaximized ? "all 0.25s ease-in-out" : "none",
       }}
@@ -324,26 +373,30 @@ export default function WebPreview() {
               {/* 탭을 오가도 화면이 다시 연결되지 않게 둘 다 붙여 두고 가리기만 한다. */}
               {hasAppScreen && (
                 <div
-                  className={`absolute inset-0 z-10 bg-[#1f2937] ${
-                    isAppTab ? "block" : "hidden"
+                  className={`absolute inset-0 z-10 flex-col bg-[#1f2937] ${
+                    isAppTab ? "flex" : "hidden"
                   }`}
                 >
-                  <iframe
-                    key={`app-${appScreenUrl}-${refreshKey}`}
-                    src={appScreenUrl}
-                    className="absolute inset-0 w-full h-full border-none"
-                    title="App Screen"
-                  />
+                  <div className="relative flex-1">
+                    <iframe
+                      key={`app-${appScreenUrl}-${refreshKey}`}
+                      src={appScreenUrl}
+                      className="absolute inset-0 w-full h-full border-none"
+                      title="App Screen"
+                    />
 
-                  {/* 앱이 켜지기 전에는 빈 화면만 보인다. 고장으로 오해하지 않게 덮어 둔다. */}
-                  {!isGuiAppReady && isRunning && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 text-gray-500">
-                      <p className="text-[13px] font-bold">앱이 켜지는 중이에요…</p>
-                      <p className="mt-1 text-[11px] text-gray-400">
-                        다 켜지면 여기에 창이 나타나요.
-                      </p>
-                    </div>
-                  )}
+                    {/* 앱이 켜지기 전에는 빈 화면만 보인다. 고장으로 오해하지 않게 덮어 둔다. */}
+                    {!isGuiAppReady && isRunning && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 text-gray-500">
+                        <p className="text-[13px] font-bold">앱이 켜지는 중이에요…</p>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          다 켜지면 여기에 창이 나타나요.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <KoreanInputBar />
                 </div>
               )}
 
@@ -373,5 +426,7 @@ export default function WebPreview() {
         )}
       </div>
     </Rnd>
+    </div>,
+    document.body,
   );
 }

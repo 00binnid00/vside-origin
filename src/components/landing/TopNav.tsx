@@ -664,7 +664,12 @@ export default function TopNav() {
     router.push("/projects");
   };
   return (
-    <header className="sticky top-0 z-40 w-full min-w-0 border-b border-gray-200 bg-white/90 backdrop-blur">
+    // sticky + z-index 가 쌓임 맥락을 만들어 드롭다운의 z-[5100] 도 헤더 높이 안에 갇힌다.
+    // 평소엔 z-40 이어야 AI 초안 모달(z-[100])이 헤더 위에 뜨고, 알림·유저 메뉴를 펼쳤을 때만
+    // IDE 메뉴바(z-[2000])보다 위로 올려 드롭다운이 에디터 뒤로 숨지 않게 한다.
+    <header
+      className={`sticky top-0 ${openNotif || openUserMenu ? "z-[5000]" : "z-40"} w-full min-w-0 border-b border-gray-200 bg-white/90 backdrop-blur`}
+    >
       <div className="mx-auto flex min-h-[64px] w-full min-w-0 max-w-[1720px] items-center gap-2 px-4 py-2 sm:px-5 min-[1180px]:px-6 min-[1500px]:px-8 2xl:px-10 3xl:max-w-[1920px]">
         <Link
           href="/"

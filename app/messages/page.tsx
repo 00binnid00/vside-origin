@@ -105,6 +105,26 @@ function formatTime(value: string) {
   });
 }
 
+// 헤더(TopNav)는 주소의 workspace 를 현재 워크스페이스로 읽고, mode 가 없으면 개인 모드로 기억한다.
+// 팀 워크스페이스 채팅에서 mode 를 빠뜨리면 그 뒤 설계관리·AIVS 를 거쳐 에디터가 개인 모드로 열렸다.
+function getWorkspaceThreadHref(
+  workspaceId: string,
+  workspaceMode?: WorkspaceMode,
+  memberId?: string,
+) {
+  let href = `/messages?workspace=${encodeURIComponent(workspaceId)}`;
+
+  if (memberId) {
+    href += `&member=${encodeURIComponent(memberId)}`;
+  }
+
+  if (workspaceMode === "team") {
+    href += "&mode=team";
+  }
+
+  return href;
+}
+
 function getInitial(value?: string) {
   return (
     value
@@ -403,12 +423,13 @@ function Inbox() {
   ======================================================= */
 
   const openWorkspace = (
-    targetWorkspaceId: string,
+    targetWorkspace: WorkspaceItem,
   ) => {
     router.push(
-      `/messages?workspace=${encodeURIComponent(
-        targetWorkspaceId,
-      )}`,
+      getWorkspaceThreadHref(
+        targetWorkspace.id,
+        targetWorkspace.mode,
+      ),
     );
   };
 
@@ -570,7 +591,7 @@ function Inbox() {
                           type="button"
                           onClick={() =>
                             openWorkspace(
-                              workspace.id,
+                              workspace,
                             )
                           }
                           className={cn(
@@ -773,6 +794,10 @@ function Inbox() {
                     ?.name ||
                   "프로젝트"
                 }
+                workspaceMode={
+                  selectedWorkspace
+                    ?.mode
+                }
                 targetMemberId={
                   memberId
                 }
@@ -827,10 +852,12 @@ function EmptyConversation() {
 function WorkspaceThread({
   workspaceId,
   workspaceName,
+  workspaceMode,
   targetMemberId,
 }: {
   workspaceId: string;
   workspaceName: string;
+  workspaceMode?: WorkspaceMode;
   targetMemberId: string | null;
 }) {
   const router = useRouter();
@@ -1224,9 +1251,10 @@ function WorkspaceThread({
     setMemberMenuOpen(false);
 
     router.push(
-      `/messages?workspace=${encodeURIComponent(
+      getWorkspaceThreadHref(
         workspaceId,
-      )}`,
+        workspaceMode,
+      ),
     );
   };
 
@@ -1236,13 +1264,13 @@ function WorkspaceThread({
     setMemberMenuOpen(false);
 
     router.push(
-      `/messages?workspace=${encodeURIComponent(
+      getWorkspaceThreadHref(
         workspaceId,
-      )}&member=${encodeURIComponent(
+        workspaceMode,
         String(
           member.userId,
         ),
-      )}`,
+      ),
     );
   };
 

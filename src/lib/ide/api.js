@@ -612,6 +612,8 @@ export const createProjectApi = async ({
   description = "",
   gitUrl = "",
   templateType = "CONSOLE",
+  // 스프링부트 템플릿에서 고른 의존성 이름(SpringDependencyPicker). 서버가 build.gradle 에 넣는다.
+  dependencies = [],
 }) => {
   const response = await authFetch(`${API_BASE}/project`, {
     method: "POST",
@@ -622,6 +624,7 @@ export const createProjectApi = async ({
       description,
       gitUrl,
       templateType,
+      dependencies,
     }),
   });
 
@@ -640,6 +643,7 @@ export const createProjectInWorkspaceApi = async ({
   description = "",
   gitUrl = "",
   templateType = "CONSOLE",
+  dependencies = [],
 }) => {
   return createProjectApi({
     workspaceId,
@@ -648,6 +652,7 @@ export const createProjectInWorkspaceApi = async ({
     description,
     gitUrl,
     templateType,
+    dependencies,
   });
 };
 

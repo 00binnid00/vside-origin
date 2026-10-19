@@ -41,6 +41,13 @@ export const RunSocket = {
     }
   },
 
+  // 앱 화면(Swing)에 한글을 대신 쳐 달라고 한다. 서버가 실행 컨테이너에서 xdotool 로 친다.
+  sendGuiText: (text) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "GUI_TYPE", text }));
+    }
+  },
+
   stop: () => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "STOP" }));
