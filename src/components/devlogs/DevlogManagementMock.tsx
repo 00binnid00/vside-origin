@@ -1653,8 +1653,8 @@ export default function DevlogManagementMock() {
 
   return (
     <>
-      <main className="waivs-page flex min-h-0 flex-1 p-4 font-sans md:p-5">
-        <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 gap-4">
+      <main className="waivs-page flex min-h-[calc(100dvh-72px)] h-auto flex-none p-4 font-sans md:p-5">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 items-stretch gap-4">
           {/* =================================================
               PROJECT SIDEBAR
           ================================================= */}
@@ -1672,7 +1672,7 @@ export default function DevlogManagementMock() {
           ================================================= */}
 
           <div className="flex min-w-0 flex-1">
-            <section className="waivs-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+            <section className="waivs-panel flex min-h-full flex-1 flex-col">
               {/* =================================================
                   COMPACT HEADER
                   일정관리와 동일한 크기

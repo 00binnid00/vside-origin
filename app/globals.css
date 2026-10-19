@@ -37,49 +37,24 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-
-    /* =========================
-     WAIVS 공통 디자인 시스템
-     ========================= */
-
-  /* 페이지 */
   --waivs-page-bg: #f8f9fa;
-
-  /* 흰색 영역 */
   --waivs-surface: #ffffff;
-
-  /* 아주 연한 보조 영역 */
   --waivs-surface-soft: #f8fafc;
-
-  /* 테두리 */
   --waivs-border: #e5e7eb;
   --waivs-border-soft: #eef1f4;
-
-  /* 메인 컬러 */
   --waivs-primary: #5873f9;
   --waivs-primary-hover: #4863e8;
-
-  /* 텍스트 */
   --waivs-text: #111827;
   --waivs-text-sub: #6b7280;
   --waivs-text-muted: #9ca3af;
-
-  /* radius */
   --waivs-radius-panel: 16px;
   --waivs-radius-control: 12px;
-
-  /* 그림자 */
-  --waivs-shadow-panel:
-    0 1px 2px rgba(15, 23, 42, 0.06),
-    0 1px 3px rgba(15, 23, 42, 0.04);
-
-  /* 레이아웃 */
+  --waivs-shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
   --waivs-page-padding: 20px;
   --waivs-sidebar-width: 288px;
   --waivs-sidebar-collapsed-width: 64px;
-
   --waivs-header-height: 72px;
---waivs-page-gap: 20px;
+  --waivs-page-gap: 20px;
 }
 
 @theme inline {
@@ -173,53 +148,33 @@ body {
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  
-}
-@layer components {
-  /* WAIVS 전체 페이지 배경 */
- .waivs-page {
-  min-height: calc(100dvh - 72px);
-  background: var(--waivs-page-bg);
-  color: var(--waivs-text);
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
 }
 
-  /* WAIVS 기본 큰 패널 */
+@layer components {
+  /* 콘텐츠가 짧으면 화면을 채우고, 길어지면 문서 높이가 자동으로 늘어납니다. */
+  .waivs-page {
+    min-height: calc(100dvh - var(--waivs-header-height));
+    height: auto;
+    background: var(--waivs-page-bg);
+    color: var(--waivs-text);
+  }
   .waivs-panel {
     background: var(--waivs-surface);
     border: 1px solid var(--waivs-border);
     border-radius: var(--waivs-radius-panel);
     box-shadow: var(--waivs-shadow-panel);
   }
-
-  /* WAIVS 기본 사이드바 */
-.waivs-sidebar {
-  background: var(--waivs-surface);
-  border: 1px solid var(--waivs-border);
-  border-radius: var(--waivs-radius-panel);
-  box-shadow: var(--waivs-shadow-panel);
-}
-  /* 큰 패널 내부에 들어가는 카드 */
+  .waivs-sidebar {
+    background: var(--waivs-surface);
+    border: 1px solid var(--waivs-border);
+    border-radius: var(--waivs-radius-panel);
+    box-shadow: var(--waivs-shadow-panel);
+  }
   .waivs-inner-card {
     background: var(--waivs-surface);
     border: 1px solid var(--waivs-border);
     border-radius: var(--waivs-radius-control);
   }
-
-  /* .waivs-sidebar-frame {
-  height: calc(
-    100dvh - var(--waivs-header-height) - (var(--waivs-page-gap) * 2)
-  );
-
-  background: var(--waivs-surface);
-  border: 1px solid var(--waivs-border);
-  border-radius: var(--waivs-radius-panel);
-  box-shadow: var(--waivs-shadow-panel);
-  overflow: hidden;
-} */
 }

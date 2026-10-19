@@ -2804,8 +2804,8 @@ export default function ScheduleManagementPage() {
      ===================================================== */
 
   return (
-    <main className="waivs-page flex min-h-0 flex-1 bg-[#F7F8FA] p-4 text-slate-950 md:p-5">
-      <div className="mx-auto flex min-h-0 w-full max-w-[1880px] flex-1 gap-4">
+    <main className="waivs-page flex min-h-[calc(100dvh-72px)] h-auto flex-none bg-[#F7F8FA] p-4 text-slate-950 md:p-5">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1880px] flex-1 items-stretch gap-4">
         <ProjectSidebar
           workspaces={workspaces}
           selectedWorkspaceId={workspaceId}
@@ -2818,7 +2818,7 @@ export default function ScheduleManagementPage() {
             MAIN WORKSPACE
            ================================================= */}
         <section className="flex min-h-0 min-w-0 flex-1">
-          <div className="waivs-panel flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="waivs-panel flex min-h-full w-full flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
             {/* ===============================================
                 COMPACT HEADER
                =============================================== */}
