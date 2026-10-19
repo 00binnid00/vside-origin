@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   VscAdd,
   VscCheck,
@@ -774,16 +775,17 @@ export default function GitBranchControls({
         </div>
       </div>
 
-      {isCreateBranchModalOpen && (
+      {isCreateBranchModalOpen && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in"
+          className="fixed inset-0 z-[2147483000] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
           onClick={() => setIsCreateBranchModalOpen(false)}
         >
+          <div className="flex min-h-full items-center justify-center">
           <div
-            className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-[460px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5"
+            className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-[460px] flex flex-col animate-slide-up ring-1 ring-black/5"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="bg-gradient-to-r from-blue-50 to-sky-50 p-6 border-b border-blue-100 flex justify-between items-start">
+            <div className="bg-gradient-to-r from-blue-50 to-sky-50 p-6 rounded-t-2xl border-b border-blue-100 flex justify-between items-start">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <div className="bg-blue-100 p-1.5 rounded-lg">
@@ -806,7 +808,7 @@ export default function GitBranchControls({
               </button>
             </div>
 
-            <div className="p-6 bg-white space-y-4">
+            <div className="rounded-b-2xl p-6 bg-white space-y-4">
               <div className="space-y-2">
                 <label className="text-[13px] font-extrabold text-gray-800">
                   기준 브랜치
@@ -889,19 +891,21 @@ export default function GitBranchControls({
               </button>
             </div>
           </div>
+          </div>
         </div>
-      )}
+      , document.body)}
 
-      {isMergeBranchModalOpen && (
+      {isMergeBranchModalOpen && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in"
+          className="fixed inset-0 z-[2147483000] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
           onClick={() => setIsMergeBranchModalOpen(false)}
         >
+          <div className="flex min-h-full items-center justify-center">
           <div
-            className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-[480px] overflow-hidden flex flex-col animate-slide-up ring-1 ring-black/5"
+            className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] w-full max-w-[480px] flex flex-col animate-slide-up ring-1 ring-black/5"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 border-b border-emerald-100 flex justify-between items-start">
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-t-2xl border-b border-emerald-100 flex justify-between items-start">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <div className="bg-emerald-100 p-1.5 rounded-lg">
@@ -924,7 +928,7 @@ export default function GitBranchControls({
               </button>
             </div>
 
-            <div className="p-6 bg-white space-y-4">
+            <div className="rounded-b-2xl p-6 bg-white space-y-4">
               <div className="space-y-2">
                 <label className="text-[13px] font-extrabold text-gray-800">
                   병합할 브랜치
@@ -1046,8 +1050,9 @@ export default function GitBranchControls({
               </button>
             </div>
           </div>
+          </div>
         </div>
-      )}
+      , document.body)}
 
     </>
   );
