@@ -3,7 +3,7 @@ const WORKSPACE_ROUTES = new Set([
   "/dashboard", "/design", "/schedules", "/devlogs", "/aivs", "/archive",
 ]);
 
-export function resolveNotificationHref(targetUrl?: string | null): string | null {
+export function resolveNotificationHref(targetUrl?: string | null, notificationType?: string | null): string | null {
   if (!targetUrl) return null;
   const input = targetUrl.trim();
   // 외부 URL, 프로토콜 상대 URL 및 제어 문자 거부
@@ -30,6 +30,21 @@ export function resolveNotificationHref(targetUrl?: string | null): string | nul
       url.searchParams.delete("workspaceId");
       url.searchParams.delete("workspaceid");
       url.searchParams.delete("workspace");
+    }
+    // 커밋·푸시 알림은 기존 /projects/:workspaceId URL이어도 AIVS Git 패널로 이동한다.
+    // 다른 알림 및 일반 프로젝트 URL에는 영향을 주지 않는다.
+    if (notificationType === "GIT_COMMIT" || notificationType === "GIT_PUSH") {
+      const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
+      const aivsMatch = pathname.match(/^\/aivs\/([^/]+)$/);
+      const gitWorkspaceId = projectMatch?.[1] || aivsMatch?.[1] ||
+        (pathname === "/projects" || pathname === "/aivs" ? workspaceId : null);
+      if (gitWorkspaceId) {
+        pathname = `/aivs/${gitWorkspaceId}`;
+        url.searchParams.delete("workspaceId");
+        url.searchParams.delete("workspaceid");
+        url.searchParams.delete("workspace");
+        url.searchParams.set("panel", "git");
+      }
     }
     // 외부 도메인으로 향하는 URL로 오인될 여지를 제거
     if (!pathname.startsWith("/") || pathname.startsWith("//")) return null;

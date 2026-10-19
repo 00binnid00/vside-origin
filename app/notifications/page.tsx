@@ -237,7 +237,7 @@ export default function NotificationsPage() {
     }
   };
   const openNotification = async (item: NotificationResponse) => {
-    const href = resolveNotificationHref(item.targetUrl);
+    const href = resolveNotificationHref(item.targetUrl, item.type);
     if (!href) return;
     if (!item.read) {
       await markRead(item.id);
@@ -414,7 +414,7 @@ export default function NotificationsPage() {
                 </div>
                 <button
                   type="button"
-                  disabled={!resolveNotificationHref(item.targetUrl)}
+                  disabled={!resolveNotificationHref(item.targetUrl, item.type)}
                   onClick={() => void openNotification(item)}
                   className="min-w-0 flex-1 text-left disabled:cursor-default"
                   title={item.targetUrl ? "관련 화면으로 이동" : undefined}
