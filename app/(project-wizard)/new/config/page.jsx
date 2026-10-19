@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
 import {
@@ -17,6 +17,7 @@ import {
 
 import WizardShell from "@/components/new/WizardShell";
 import FolderPickerDialog from "@/components/new/FolderPickerDialog";
+import SpringDependencyPicker from "@/components/ide/SpringDependencyPicker";
 import { useWorkspaceWizard } from "@/store/workspaceWizardStore";
 import {
   setWorkspaceId,
@@ -161,6 +162,13 @@ function openGithubAccountOAuth() {
   window.location.assign(authUrl.toString());
 }
 
+// 앞 단계(언어 선택)에서 고른 템플릿. 저장소는 서버 렌더링 때 없으므로 그때는 빈 값으로 그린다.
+const subscribeNothing = () => () => {};
+const readWizardTemplateType = () =>
+  sessionStorage.getItem("wizard_template_type") ||
+  localStorage.getItem("wizard_template_type") ||
+  "";
+
 export default function Page() {
   const router = useRouter();
   const dispatch = useDispatch();
@@ -172,6 +180,13 @@ export default function Page() {
   const [githubLoading, setGithubLoading] = useState(true);
   const [githubError, setGithubError] = useState("");
   const [gitConnectMode, setGitConnectMode] = useState("later");
+  const [springDependencies, setSpringDependencies] = useState([]);
+
+  const wizardTemplateType = useSyncExternalStore(
+    subscribeNothing,
+    readWizardTemplateType,
+    () => "",
+  );
 
   const mode = useWorkspaceWizard((s) => s.mode);
   const language = useWorkspaceWizard((s) => s.language);
@@ -343,6 +358,8 @@ export default function Page() {
         language,
         gitUrl: normalizedGitUrl || null,
         templateType: storedTemplateType,
+        dependencies:
+          storedTemplateType === "SPRING_BOOT" ? springDependencies : [],
       });
 
       if (normalizedGitUrl) {
@@ -490,6 +507,14 @@ export default function Page() {
                     placeholder="이 프로젝트에서 구현할 기능을 입력하세요."
                   />
                 </label>
+
+                {wizardTemplateType === "SPRING_BOOT" && (
+                  <SpringDependencyPicker
+                    value={springDependencies}
+                    onChange={setSpringDependencies}
+                    disabled={isCreating}
+                  />
+                )}
 
                 <label className="block">
                   <div className="mb-1.5 text-sm font-black text-slate-700">

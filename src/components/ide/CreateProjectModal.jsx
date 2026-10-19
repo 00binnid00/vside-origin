@@ -33,6 +33,7 @@ import {
   updateGitUrlApi,
 } from "@/lib/ide/api";
 import { getAivsHref } from "@/components/main-dashboard/dashboard.utils";
+import SpringDependencyPicker from "@/components/ide/SpringDependencyPicker";
 
 const OAUTH_RESULT_STORAGE_KEY = "wevaisGithubOAuthResult";
 const OAUTH_PENDING_STORAGE_KEY = "wevaisPendingGitRemoteAction";
@@ -324,6 +325,7 @@ export default function CreateProjectModal({
   const [githubError, setGithubError] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [springDependencies, setSpringDependencies] = useState([]);
 
   const selectedTemplate = useMemo(() => {
     return TEMPLATES.find((template) => template.id === selectedTemplateId);
@@ -443,6 +445,7 @@ export default function CreateProjectModal({
     });
     setGitUrl("");
     setGitConnectMode("later");
+    setSpringDependencies([]);
     setGithubStatus(null);
     setGithubLoading(false);
     setGithubError("");
@@ -510,6 +513,9 @@ export default function CreateProjectModal({
         description: trimmedDescription,
         gitUrl: normalizedGitUrl || null,
         templateType: selectedTemplate.type,
+        // 템플릿을 바꿔 가며 고른 경우에도 스프링부트일 때만 보낸다.
+        dependencies:
+          selectedTemplate.type === "SPRING_BOOT" ? springDependencies : [],
       });
 
       if (normalizedGitUrl) {
@@ -911,6 +917,14 @@ export default function CreateProjectModal({
                       }
                     />
                   </label>
+
+                  {selectedTemplate?.type === "SPRING_BOOT" && (
+                    <SpringDependencyPicker
+                      value={springDependencies}
+                      onChange={setSpringDependencies}
+                      disabled={isSubmitting}
+                    />
+                  )}
 
                   <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
                     <div className="mb-4 flex items-start justify-between gap-3">

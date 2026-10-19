@@ -249,8 +249,14 @@ export function CodegenDialog({
 
       // 이미 있는 파일은 기본으로 고르지 않는다. 덮어쓰기는 사람이 보고
       // 직접 정해야 하는 일이다.
+      // 실행 준비(build.gradle 의존성 · DB 설정)는 예외다. 서버가 지금 내용에 빠진 줄만 덧붙여
+      // 만들어 덮어쓰기가 아니고, 빠뜨리면 생성된 코드가 컴파일되지 않거나 서버가 뜨지 않는다.
       setSelected(
-        new Set(result.files.filter((file) => file.status === "NEW").map((file) => file.path)),
+        new Set(
+          result.files
+            .filter((file) => file.status === "NEW" || (file.target === "SPRING_SETUP" && file.status !== "IDENTICAL"))
+            .map((file) => file.path),
+        ),
       );
 
       setOpenedPath(result.files[0]?.path ?? "");
@@ -642,7 +648,11 @@ function PreviewPane({
                           STATUS_CLASS[file.status],
                         )}
                       >
-                        {STATUS_LABEL[file.status]} · {file.sourceLabel}
+                        {/* 실행 준비 파일은 지금 내용에 덧붙인 것이라 "덮어씀"이라 하면 오해한다. */}
+                        {file.target === "SPRING_SETUP" && file.status === "CONFLICT"
+                          ? "덧붙임"
+                          : STATUS_LABEL[file.status]}{" "}
+                        · {file.sourceLabel}
                       </span>
 
                       {/* 무엇이 준비됐는지 한눈에. 표준 CRUD 는 몸통까지 들어 있다. */}

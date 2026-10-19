@@ -50,20 +50,22 @@ export default function AgentPanel() {
 
     try {
       let finalQuery = textToSend;
+      // 답변 형식(EXPLANATION / CODE 블록)은 서버(AiAssistService)가 정한다. 예전에는 여기서
+      // "JSON 으로 답하라"고 덧붙였는데, 코드를 JSON 글자 안에 넣으면 줄바꿈이 깨져 응답을 자주 못 읽었다.
       let strictRule =
-        "\n\n(명령어: 답변은 마크다운 불릿(-)으로 3문장 이내로 핵심만 요약해. 코드 수정/리팩토링이면 suggestedCode 필드에 수정된 파일 전체 코드를 넣고, 단순 질문이면 빈 문자열로 둬.)";
+        "\n\n(명령어: 답변은 마크다운 불릿(-)으로 3문장 이내로 핵심만 요약해. 코드 수정/리팩토링이면 CODE 블록에 수정된 파일 전체 코드를 넣고, 단순 질문이면 CODE 블록을 비워 둬.)";
 
       // 💡 [NEW] 자동 Import 버튼을 눌렀을 때 적용되는 강력한 프롬프트 룰
       if (isAutoImport) {
         finalQuery = `현재 파일의 전체 코드를 분석해서, 누락된 Java/Spring Boot 'import' 문을 찾아 최상단에 모두 추가한 완벽한 전체 코드로 다시 작성해줘. 기존 로직은 절대 건드리지 마.`;
         strictRule = 
-          '\n\n(🚨 CRITICAL RULE: DO NOT output raw Java code directly! You MUST wrap your response strictly in the requested JSON format { "explanation": "...", "suggestedCode": "..." }. The suggestedCode MUST contain the ENTIRE file content including the new imports!)';
+          "\n\n(🚨 CRITICAL RULE: The CODE block MUST contain the ENTIRE file content including the new imports!)";
       } 
       // 일반 선택 텍스트 질문일 경우
       else if (selectedText && selectedText.trim() !== "") {
         finalQuery = `[사용자가 현재 선택(드래그)한 타겟 코드]\n${selectedText}\n\n[사용자 요청 사항]\n${textToSend}`;
         strictRule =
-          '\n\n(🚨 CRITICAL RULE: DO NOT output raw Java code directly! You MUST wrap your response strictly in the requested JSON format { "explanation": "...", "suggestedCode": "..." }. If you output raw code outside of JSON, the server will crash!)';
+          "\n\n(🚨 CRITICAL RULE: The CODE block MUST contain the ENTIRE modified file, not only the selected part.)";
       }
 
       const response = await fetchAiAssistApi({
