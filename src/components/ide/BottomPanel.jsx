@@ -2,9 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-// 💡 VscGlobe 아이콘 추가 임포트
 import { VscAdd, VscChromeClose, VscTrash, VscGlobe } from "react-icons/vsc";
-
 import {
   setActiveBottomTab,
   toggleTerminal,
@@ -17,84 +15,71 @@ import {
 import { RunSocket } from "@/lib/ide/runSocket";
 import { DebugSocket } from "@/lib/ide/debugSocket";
 import Terminal from "@/components/ide/Terminal";
+import { SafeRunVersionPanel } from "@/components/ide/SafeRunStatusBar";
 import { buildGuiPreviewUrl } from "@/lib/ide/previewUrl";
 
 export default function BottomPanel() {
   const dispatch = useDispatch();
-  // 💡 previewUrl 상태를 가져오도록 추가
   const { activeBottomTab, terminalOutput, isRunning, isDebugMode, previewUrl } =
     useSelector((state) => state.ui);
-
   const [outputContent, setOutputContent] = useState("");
   const [runInput, setRunInput] = useState("");
   const outputEndRef = useRef(null);
   const pendingPreviewUrlRef = useRef(null);
-
-useEffect(() => {
-  if (!terminalOutput) return;
-
-  const text = terminalOutput.text || "";
-
-  if (text === "__CLEAR__") {
-    setOutputContent("");
-    pendingPreviewUrlRef.current = null;
-    return;
-  }
-
-  setOutputContent((prev) => prev + text);
-
-  // 1. 백엔드가 mappedPort를 알려주면 URL만 저장한다.
-  if (text.includes("[SERVER_STARTED_PORT:")) {
-    const match = text.match(/\[SERVER_STARTED_PORT:(\d+)\]/);
-
-    if (match && match[1]) {
-      const port = match[1];
-      // 여기서는 포트만 실은 주소로 둔다. 접속한 환경에 맞는 주소(시연 IP, 또는 배포의
-      // /preview/{포트}/)로 바꾸는 일은 WebPreview 의 normalizePreviewUrl 이 한다.
-      const url = `http://localhost:${port}`;
-
-      pendingPreviewUrlRef.current = url;
-      dispatch(setPreviewUrl(url));
-    }
-  }
-
-  // 창(Swing)을 쓰는 프로그램이면 서버가 화면 중계 포트를 따로 알려 준다.
-  // 화면 중계는 앱보다 먼저 켜지므로 기다리지 않고 바로 연다. 앱이 켜지는 동안은
-  // 미리보기가 "켜지는 중" 안내를 덮어 둔다.
-  if (text.includes("[GUI_STARTED_PORT:")) {
-    const match = text.match(/\[GUI_STARTED_PORT:(\d+)\]/);
-
-    if (match && match[1]) {
-      dispatch(setGuiPreviewUrl(buildGuiPreviewUrl(match[1])));
-      dispatch(setIsPreviewVisible(true));
-    }
-  }
-
-  // 2. 실제 개발 서버가 준비된 뒤 미리보기를 연다.
-  const isServerReady =
-    text.includes("ready in") ||
-    text.includes("Ready in") ||
-    text.includes("Local:") ||
-    text.includes("VITE") ||
-    text.includes("Compiled") ||
-    text.includes("compiled") ||
-    text.includes("Tomcat started on port") ||
-    text.includes("Started");
-
-  if (isServerReady) {
-    dispatch(setGuiAppReady(true));
-  }
-
-  if (pendingPreviewUrlRef.current && isServerReady) {
-    dispatch(setPreviewUrl(pendingPreviewUrlRef.current));
-    dispatch(setIsPreviewVisible(true));
-    pendingPreviewUrlRef.current = null;
-  }
-}, [terminalOutput, dispatch]);
+  const { workspaceId, activeProject, activeBranch } = useSelector((state) => state.fileSystem);
+  const safeRunStatus = useSelector((state) => state.safeRun.status);
+  const branchName = activeBranch || "master";
+  const currentStatus = safeRunStatus && activeProject &&
+    safeRunStatus.projectName === activeProject && safeRunStatus.branchName === branchName
+    ? safeRunStatus : null;
+  const brokenCount = currentStatus?.brokenFiles?.length || 0;
 
   useEffect(() => {
-    outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [outputContent]);
+    if (!terminalOutput) return;
+    const text = terminalOutput.text || "";
+    if (text === "__CLEAR__") {
+      setOutputContent("");
+      pendingPreviewUrlRef.current = null;
+      return;
+    }
+    setOutputContent((prev) => prev + text);
+
+    if (text.includes("[SERVER_STARTED_PORT:")) {
+      const match = text.match(/\[SERVER_STARTED_PORT:(\d+)\]/);
+      if (match && match[1]) {
+        const url = `http://localhost:${match[1]}`;
+        pendingPreviewUrlRef.current = url;
+        dispatch(setPreviewUrl(url));
+      }
+    }
+    if (text.includes("[GUI_STARTED_PORT:")) {
+      const match = text.match(/\[GUI_STARTED_PORT:(\d+)\]/);
+      if (match && match[1]) {
+        dispatch(setGuiPreviewUrl(buildGuiPreviewUrl(match[1])));
+        dispatch(setIsPreviewVisible(true));
+      }
+    }
+    const isServerReady =
+      text.includes("ready in") ||
+      text.includes("Ready in") ||
+      text.includes("Local:") ||
+      text.includes("VITE") ||
+      text.includes("Compiled") ||
+      text.includes("compiled") ||
+      text.includes("Tomcat started on port") ||
+      text.includes("Started");
+
+    if (isServerReady) dispatch(setGuiAppReady(true));
+    if (pendingPreviewUrlRef.current && isServerReady) {
+      dispatch(setPreviewUrl(pendingPreviewUrlRef.current));
+      dispatch(setIsPreviewVisible(true));
+      pendingPreviewUrlRef.current = null;
+    }
+  }, [terminalOutput, dispatch]);
+
+  useEffect(() => {
+    if (activeBottomTab === "output") outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [outputContent, activeBottomTab]);
 
   const handleRunInput = (e) => {
     if (e.key === "Enter") {
@@ -105,34 +90,41 @@ useEffect(() => {
     }
   };
 
+  const tabs = [
+    { id: "terminal", label: "TERMINAL" },
+    { id: "output", label: "OUTPUT" },
+    { id: "run-version", label: "실행 버전" },
+  ];
+
   return (
     <div className="h-full flex flex-col bg-white font-sans text-[#333]">
-      <div className="flex items-center justify-between bg-white h-9 border-b border-gray-200 select-none px-4">
-        <div className="flex gap-5 h-full">
-          {["TERMINAL", "OUTPUT"].map((tab) => {
-            const id = tab.toLowerCase();
-            const isActive = activeBottomTab === id;
-
+      <div className="flex items-center justify-between bg-white h-9 border-b border-gray-200 select-none px-4 shrink-0">
+        <div className="flex gap-5 h-full min-w-0">
+          {tabs.map((tab) => {
+            const isActive = activeBottomTab === tab.id;
             return (
               <button
-                key={id}
-                className={`h-full flex items-center text-[11px] font-medium border-b-[2px] transition-colors outline-none px-1 uppercase tracking-wide ${
-                  isActive
-                    ? "border-gray-800 text-gray-800 font-bold"
-                    : "border-transparent text-gray-400 hover:text-gray-600"
+                key={tab.id}
+                type="button"
+                className={`h-full shrink-0 flex items-center gap-1.5 text-[11px] font-medium border-b-[2px] transition-colors outline-none px-1 tracking-wide ${
+                  isActive ? "border-gray-800 text-gray-800 font-bold" : "border-transparent text-gray-400 hover:text-gray-600"
                 }`}
-                onClick={() => dispatch(setActiveBottomTab(id))}
+                onClick={() => dispatch(setActiveBottomTab(tab.id))}
               >
-                {tab}
+                {tab.label}
+                {tab.id === "run-version" && brokenCount > 0 && (
+                  <span className="rounded-full bg-rose-100 px-1.5 text-[10px] font-bold text-rose-700" title={`문법 오류 파일 ${brokenCount}개`}>
+                    {brokenCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
-
-        <div className="flex gap-3 items-center">
-          {/* 💡 [NEW] 미리보기 다시 열기 버튼 */}
-          <VscGlobe
-            className="text-gray-500 hover:text-blue-600 cursor-pointer w-4 h-4 transition-colors"
+        <div className="flex gap-3 items-center shrink-0">
+          <button
+            type="button"
+            className="text-gray-500 hover:text-blue-600 transition-colors"
             onClick={() => {
               if (!previewUrl) {
                 alert("아직 실행된 웹 서버가 없습니다. 코드를 먼저 실행해주세요!");
@@ -141,46 +133,27 @@ useEffect(() => {
               dispatch(setIsPreviewVisible(true));
             }}
             title="웹 미리보기 창 다시 열기"
-          />
-          <div className="w-[1px] h-3 bg-gray-300 mx-1"></div> {/* 구분선 */}
-          
-          <VscAdd
-            className="text-gray-500 hover:text-black cursor-pointer w-4 h-4 transition-colors"
-            title="New Terminal"
-          />
-          <VscTrash
-            className="text-gray-500 hover:text-black cursor-pointer w-4 h-4 transition-colors"
-            onClick={() => setOutputContent("")}
-            title="Clear Output"
-          />
-          <VscChromeClose
-            className="text-gray-500 hover:text-black cursor-pointer w-4 h-4 transition-colors"
-            onClick={() => dispatch(toggleTerminal())}
-            title="Close Panel"
-          />
+            aria-label="웹 미리보기 창 다시 열기"
+          ><VscGlobe size={16} /></button>
+          <div className="w-px h-3 bg-gray-300 mx-1" />
+          <VscAdd className="text-gray-500 hover:text-black cursor-pointer w-4 h-4 transition-colors" title="New Terminal" />
+          <button type="button" onClick={() => setOutputContent("")} title="Clear Output" aria-label="Clear Output">
+            <VscTrash className="text-gray-500 hover:text-black w-4 h-4 transition-colors" />
+          </button>
+          <button type="button" onClick={() => dispatch(toggleTerminal())} title="Close Panel" aria-label="Close Panel">
+            <VscChromeClose className="text-gray-500 hover:text-black w-4 h-4 transition-colors" />
+          </button>
         </div>
       </div>
-
-      <div className="flex-1 overflow-hidden relative bg-white">
-        <div
-          className={`h-full flex flex-col p-2 ${
-            activeBottomTab === "output" ? "flex" : "hidden"
-          }`}
-        >
+      <div className="flex-1 min-h-0 overflow-hidden relative bg-white">
+        <div className={`h-full flex-col p-2 ${activeBottomTab === "output" ? "flex" : "hidden"}`}>
           <div className="flex-1 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#333]">
-            {outputContent || (
-              <span className="text-gray-400 italic pl-1">
-                Run code to see output...
-              </span>
-            )}
+            {outputContent || <span className="text-gray-400 italic pl-1">Run code to see output...</span>}
             <div ref={outputEndRef} />
           </div>
-
           {(isRunning || isDebugMode) && (
             <div className="flex items-center border-t border-gray-100 pt-2 mt-1">
-              <span className="text-blue-600 mr-2 text-xs font-mono font-bold">
-                ❯
-              </span>
+              <span className="text-blue-600 mr-2 text-xs font-mono font-bold">❯</span>
               <input
                 className="flex-1 bg-transparent outline-none text-[#333] text-xs font-mono placeholder-gray-300"
                 value={runInput}
@@ -192,14 +165,11 @@ useEffect(() => {
             </div>
           )}
         </div>
-
-        <div
-          className={`h-full w-full ${
-            activeBottomTab === "terminal" ? "block" : "hidden"
-          }`}
-        >
+        {/* Terminal은 탭 이동 시 언마운트하지 않아 기존 소켓 세션을 유지한다. */}
+        <div className={`h-full w-full ${activeBottomTab === "terminal" ? "block" : "hidden"}`}>
           <Terminal />
         </div>
+        {activeBottomTab === "run-version" && <SafeRunVersionPanel />}
       </div>
     </div>
   );

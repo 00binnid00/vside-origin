@@ -25,10 +25,12 @@ import { useDispatch, useSelector } from "react-redux";
 import { getCurrentUserId } from "@/lib/auth/tokenStore";
 import { fetchSafeRunStatusApi, type SafeRunStatus } from "@/lib/ide/safeRun";
 import { setSafeRunStatus, type SafeRunState } from "@/store/slices/safeRunSlice";
+import { setActiveBottomTab, toggleTerminal } from "@/store/slices/uiSlice";
 
 interface RootState {
   safeRun: SafeRunState;
   fileSystem: { workspaceId: string | null; activeProject: string | null; activeBranch: string | null };
+  ui: { isTerminalVisible: boolean };
 }
 
 /** "2분 전" 같은 표시. 시각은 서버가 주고, 얼마나 지났는지는 여기서 센다. */
@@ -162,7 +164,7 @@ export default function SafeRunStatusBar() {
 
   // "몇 분 전"이 저절로 넘어가게 30초마다 다시 그린다.
   const [now, setNow] = useState(() => Date.now());
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const isTerminalVisible = useSelector((state: RootState) => state.ui.isTerminalVisible);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -212,124 +214,130 @@ export default function SafeRunStatusBar() {
   // 당연하고, 어차피 실행에 들어가지 않는다.
   const brokenLatestFiles = plan ? plan.latestFiles.filter((file) => file.isBroken) : [];
 
-  return (
-    <div className="relative shrink-0">
-      {isDetailOpen && (
-        <div className="absolute bottom-full left-3 z-50 mb-1 w-[440px] max-w-[calc(100vw-24px)] rounded-lg border border-slate-200 bg-white p-4 text-[12px] text-slate-700 shadow-xl">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[13px] font-bold text-slate-900">실행에 쓰이는 코드 버전</span>
-            <button
-              type="button"
-              onClick={() => setIsDetailOpen(false)}
-              className="rounded px-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="닫기"
-            >
-              ✕
-            </button>
-          </div>
+  const openDetails = () => {
+    if (!isTerminalVisible) dispatch(toggleTerminal());
+    dispatch(setActiveBottomTab("run-version"));
+  };
 
-          <p className="mb-3 leading-relaxed text-slate-500">
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-2 border-t border-gray-200 bg-gray-50 px-3 text-[12px] font-medium text-gray-600">
+      <span className="shrink-0 font-semibold text-slate-700">▶ 실행 버전</span>
+      {!current && <span className="truncate text-gray-400">실행 상태 확인 중…</span>}
+      {current && (
+        <>
+          <span className="truncate text-gray-600">
+            {!hasGreen
+              ? "정상 버전 없음 · 최신 코드로 실행"
+              : plan && plan.staleFiles.length > 0
+                ? `정상 버전 대체 ${plan.staleFiles.length}개 · 나머지 최신 코드`
+                : "모든 파일 최신 코드로 실행"}
+          </span>
+          {brokenLatestFiles.length > 0 && (
+            <span className="shrink-0 rounded bg-rose-50 px-2 py-0.5 text-rose-700">
+              문법 오류 {brokenLatestFiles.length}개
+            </span>
+          )}
+        </>
+      )}
+      <button
+        type="button"
+        onClick={openDetails}
+        className="ml-auto shrink-0 rounded border border-gray-200 bg-white px-2 py-0.5 text-gray-700 hover:bg-indigo-50 hover:text-indigo-700"
+        title="하단 실행 버전 탭 열기"
+      >
+        자세히 보기 ↑
+      </button>
+    </div>
+  );
+}
+
+/** 하단 패널의 실행 버전 탭. 상태바가 조회한 동일 Redux 데이터를 사용한다. */
+export function SafeRunVersionPanel() {
+  const { workspaceId, activeProject, activeBranch } = useSelector((state: RootState) => state.fileSystem);
+  const status = useSelector((state: RootState) => state.safeRun.status);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const branchName = activeBranch || "master";
+  const current = workspaceId && activeProject && status?.projectName === activeProject && status?.branchName === branchName
+    ? status : null;
+  const plan = current ? planRun(current, getCurrentUserId()) : null;
+  const hasGreen = current?.greenUpdatedAt != null;
+  const staleLabel = current?.greenUpdatedAt
+    ? `${formatElapsed(current.greenUpdatedAt, now)} 정상 버전` : "정상 버전";
+  const brokenLatestFiles = plan?.latestFiles.filter((file) => file.isBroken) || [];
+
+  return (
+    <div className="h-full overflow-y-auto bg-white px-4 py-3 text-[12px] text-slate-700">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-[13px] font-bold text-slate-900">실행에 쓰이는 코드 버전</h3>
+          <p className="mt-1.5 max-w-[820px] text-[12px] leading-relaxed text-slate-600">
             팀원이 아직 작성 중이라 오류가 있는 파일은, 마지막으로 실행에 성공했던 버전(
             <b className="text-slate-700">정상 버전</b>)으로 바꿔서 실행해요. 그래서 팀원이 작업
             중이어도 내 코드를 바로 테스트할 수 있어요. 팀원의 파일 자체는 바뀌지 않아요.
           </p>
-
-          <div className="mb-1 font-bold text-slate-900">▶ 지금 실행하면</div>
-
-          {!current && <p className="text-slate-500">상태를 불러오지 못했어요.</p>}
-
-          {current && plan && (
-            <>
-              {!hasGreen && (
-                <p className="mb-2 rounded bg-slate-100 px-2 py-1.5 leading-relaxed text-slate-600">
-                  아직 실행에 성공한 적이 없어 정상 버전이 없어요. 이번에는 모든 파일을 최신
-                  그대로 실행하고, 한 번 성공하면 그때부터 정상 버전이 만들어져요.
-                </p>
-              )}
-
-              {brokenLatestFiles.length > 0 && (
-                <p className="mb-2 rounded bg-rose-50 px-2 py-1.5 leading-relaxed text-rose-700">
-                  <span className="font-mono">
-                    {brokenLatestFiles.map((file) => fileNameOf(file.path)).join(", ")}
-                  </span>{" "}
-                  에 문법 오류가 있는데 최신 코드로 실행돼요
-                  {hasGreen ? " (내가 마지막으로 고친 파일은 이전 버전으로 바꾸지 않아요)" : ""}. 이대로 실행하면
-                  컴파일 오류가 나요.
-                </p>
-              )}
-
-              <ul className="max-h-52 overflow-y-auto">
+        </div>
+        <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px]">{branchName}</span>
+      </div>
+      <div className="mb-2 mt-3 font-bold text-slate-900">▶ 지금 실행하면</div>
+      {!current && <p className="py-4 text-slate-500">실행 상태를 불러오는 중이거나 확인할 수 없습니다.</p>}
+      {current && plan && (
+        <>
+          {!hasGreen && (
+            <p className="mb-2 rounded bg-slate-100 px-3 py-2 text-slate-600">
+              아직 실행에 성공한 적이 없어 정상 버전이 없어요. 이번에는 모든 파일을 최신
+              그대로 실행하고, 한 번 성공하면 그때부터 정상 버전이 만들어져요.
+            </p>
+          )}
+          {brokenLatestFiles.length > 0 && (
+            <p className="mb-2 rounded border border-rose-100 bg-rose-50 px-3 py-2 text-rose-700">
+              <span className="font-mono">{brokenLatestFiles.map((file) => fileNameOf(file.path)).join(", ")}</span>{" "}
+              에 문법 오류가 있는데 최신 코드로 실행돼요
+              {hasGreen ? " (내가 마지막으로 고친 파일은 이전 버전으로 바꾸지 않아요)" : ""}.
+              이대로 실행하면 컴파일 오류가 나요.
+            </p>
+          )}
+          {hasGreen && plan.staleFiles.length > 0 && (
+            <p className="mb-2 rounded border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">
+              작성 중인 파일 {plan.staleFiles.length}개는 {staleLabel}으로 대체해 실행합니다.
+            </p>
+          )}
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full min-w-[480px] text-left text-[12px]">
+              <thead className="bg-gray-50 text-[11px] font-bold text-slate-500">
+                <tr><th className="px-3 py-2">파일명</th><th className="px-3 py-2">실행 버전</th><th className="px-3 py-2">상태</th></tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
                 {plan.staleFiles.map((file) => (
-                  <FileRow key={file.path} file={file} isLatest={false} label={staleLabel} />
+                  <tr key={file.path} title={file.path}>
+                    <td className="max-w-[240px] truncate px-3 py-2 font-mono">{fileNameOf(file.path)}</td>
+                    <td className="px-3 py-2"><VersionBadge isLatest={false} label={staleLabel} /></td>
+                    <td className="px-3 py-2 text-slate-500">{file.editingNames.join(", ")} 님 작성 중{file.authorNames.includes("나") ? " · 내 수정도 함께 제외" : ""}</td>
+                  </tr>
                 ))}
                 {plan.latestFiles.map((file) => (
-                  <FileRow key={file.path} file={file} isLatest label="최신 코드" />
+                  <tr key={file.path} title={file.path}>
+                    <td className="max-w-[240px] truncate px-3 py-2 font-mono">{fileNameOf(file.path)}</td>
+                    <td className="px-3 py-2"><VersionBadge isLatest label="최신 코드" /></td>
+                    <td className="px-3 py-2">
+                      {file.isBroken && <span className="mr-2 rounded bg-rose-50 px-1.5 py-0.5 font-bold text-rose-700">문법 오류</span>}
+                      <span className="text-slate-500">{file.authorNames.join(", ")} 수정</span>
+                    </td>
+                  </tr>
                 ))}
-                <li className="flex items-center gap-2 py-1">
-                  <VersionBadge isLatest label="최신 코드" />
-                  <span className="text-slate-500">
-                    {plan.staleFiles.length + plan.latestFiles.length > 0
-                      ? "그 밖의 모든 파일"
-                      : "모든 파일 (정상 버전 이후 고친 사람이 없어요)"}
-                  </span>
-                </li>
-              </ul>
-            </>
-          )}
-
-        </div>
+                <tr>
+                  <td className="px-3 py-2 text-slate-500">그 밖의 모든 파일</td>
+                  <td className="px-3 py-2"><VersionBadge isLatest label="최신 코드" /></td>
+                  <td className="px-3 py-2 text-slate-400">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
-
-      <div className="flex h-8 items-center gap-2 overflow-x-auto border-t border-gray-200 bg-gray-50 px-3 text-[12px] font-medium text-gray-600">
-        <span className="shrink-0 font-semibold text-gray-500">▶ 지금 실행하면</span>
-
-        {!current && <span className="shrink-0 text-gray-400">상태를 불러오는 중…</span>}
-
-        {current && !hasGreen && (
-          <span className="shrink-0 rounded border border-gray-200 bg-white px-2 py-0.5 text-gray-600">
-            모든 파일을 최신 그대로 실행해요 (아직 실행에 성공한 정상 버전이 없어요)
-          </span>
-        )}
-
-        {current && hasGreen && plan && plan.staleFiles.length === 0 && (
-          <span className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-            ✅ 모든 파일이 최신 코드로 실행돼요
-          </span>
-        )}
-
-        {current && hasGreen && plan && plan.staleFiles.length > 0 && (
-          <>
-            <span className="shrink-0 rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">
-              🕘 {staleNames.join(", ")} 님이 작성 중인 파일 {plan.staleFiles.length}개는 {staleLabel}으로
-            </span>
-            <span className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-              ✅ 나머지는 최신 코드로
-            </span>
-          </>
-        )}
-
-        {brokenLatestFiles.length > 0 && (
-          <span
-            className="shrink-0 rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700"
-            title={brokenLatestFiles.map((file) => file.path).join("\n")}
-          >
-            ⚠ 문법 오류:{" "}
-            {brokenLatestFiles
-              .slice(0, 3)
-              .map((file) => fileNameOf(file.path))
-              .join(", ")}
-            {brokenLatestFiles.length > 3 ? ` 외 ${brokenLatestFiles.length - 3}개` : ""}
-          </span>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setIsDetailOpen((open) => !open)}
-          className="ml-auto shrink-0 rounded border border-gray-200 bg-white px-2 py-0.5 text-gray-600 hover:bg-gray-100"
-        >
-          {isDetailOpen ? "닫기" : "파일별로 보기"}
-        </button>
-      </div>
     </div>
   );
 }
