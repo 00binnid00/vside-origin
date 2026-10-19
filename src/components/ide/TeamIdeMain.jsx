@@ -480,7 +480,9 @@ export default function TeamIdeMain() {
         return (
           <div
             ref={editorLayoutRef}
-            className="flex-1 flex overflow-hidden bg-[#f0f2f5] p-2 gap-2"
+            className={`flex-1 flex overflow-hidden p-2 gap-2 transition-colors duration-300 ${
+              isSandboxMode ? "bg-[#E0E7FF]" : "bg-[#f0f2f5]"
+            }`}
           >
             {/* 왼쪽 탐색기 패널 */}
             <div
@@ -490,7 +492,7 @@ export default function TeamIdeMain() {
                   : "transition-all duration-300 ease-in-out"
               } ${
                 isSandboxMode
-                  ? "bg-slate-900 border border-indigo-900/50"
+                  ? "bg-white border border-indigo-400 shadow-[0_0_0_1px_rgba(99,102,241,0.14)]"
                   : "bg-white border border-gray-200"
               } ${
                 isSidebarVisible
@@ -537,7 +539,11 @@ export default function TeamIdeMain() {
             )}
 
             {/* 중앙 에디터 영역 */}
-            <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 z-0 relative">
+            <div className={`flex-1 flex flex-col min-w-0 bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 z-0 relative ${
+              isSandboxMode
+                ? "border-indigo-400 shadow-[0_0_0_1px_rgba(99,102,241,0.14)]"
+                : "border-gray-200"
+            }`}>
               <FileTabs />
 
               <div className="flex-1 flex relative overflow-hidden">
@@ -549,7 +555,9 @@ export default function TeamIdeMain() {
 
               {isTerminalVisible && (
                 <div
-                  className="relative border-t border-gray-200 bg-white shrink-0 z-[600]"
+                  className={`relative border-t bg-white shrink-0 z-[600] ${
+                    isSandboxMode ? "border-indigo-100" : "border-gray-200"
+                  }`}
                   style={{
                     height: `${terminalHeight}px`,
                   }}
@@ -591,7 +599,7 @@ export default function TeamIdeMain() {
                     : "transition-all duration-300 ease-in-out"
                 } ${
                   isSandboxMode
-                    ? "bg-slate-900 border border-indigo-900/50"
+                    ? "bg-white border border-indigo-400 shadow-[0_0_0_1px_rgba(99,102,241,0.14)]"
                     : "bg-white border border-gray-200"
                 } ${
                   isRightPanelVisible
@@ -625,20 +633,14 @@ export default function TeamIdeMain() {
                   ) : (
                     <div className="flex flex-col h-full">
                       <div
-                        className={`flex items-center justify-between h-11 border-b shrink-0 transition-colors duration-700 px-2 pt-1 ${
-                          isSandboxMode
-                            ? "bg-slate-900 border-indigo-900/50"
-                            : "bg-[#f8f9fa] border-gray-200"
-                        }`}
+                        className="flex items-center justify-between h-11 border-b border-gray-200 bg-[#f8f9fa] shrink-0 px-2 pt-1"
                       >
                         <div className="flex h-full flex-1">
                           <button
                             onClick={() => setRightTab("ai")}
                             className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
                               rightTab === "ai"
-                                ? isSandboxMode
-                                  ? "text-indigo-400 bg-white shadow-sm"
-                                  : "text-blue-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                ? "text-blue-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
                                 : "text-gray-500 hover:bg-gray-100"
                             }`}
                           >
@@ -649,9 +651,7 @@ export default function TeamIdeMain() {
                             onClick={() => setRightTab("chat")}
                             className={`flex-1 h-full text-[13px] font-bold transition-colors rounded-t-lg ${
                               rightTab === "chat"
-                                ? isSandboxMode
-                                  ? "text-indigo-400 bg-white shadow-sm"
-                                  : "text-green-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
+                                ? "text-green-600 bg-white shadow-[0_-2px_5px_rgba(0,0,0,0.03)]"
                                 : "text-gray-500 hover:bg-gray-100"
                             }`}
                           >
@@ -698,7 +698,7 @@ export default function TeamIdeMain() {
   return (
     <div
       className={`w-full h-[calc(100vh-61px)] flex flex-col text-[#333] overflow-hidden font-sans transition-colors duration-700 ${
-        isSandboxMode ? "bg-slate-900" : "bg-white"
+        isSandboxMode ? "bg-[#E0E7FF]" : "bg-white"
       }`}
     >
       <CommandPalette />
