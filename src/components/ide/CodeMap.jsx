@@ -382,6 +382,24 @@ export default function CodeMap() {
   }, [workspaceId, activeProject, resetCodeMapState]);
 
   useEffect(() => {
+    // 새 클래스는 시작 클래스(@SpringBootApplication) 옆에 두는 것이 기본이다.
+    // 언어 판정보다 먼저 본다. 프로젝트 목록에 템플릿 종류가 실려 오지 않아
+    // 이름에 spring 이 없는 Spring Boot 프로젝트도 JAVA 로 판정되어 "src/" 가 나왔다.
+    // XxxApplication.java 로 찾는 것은 백엔드 코드 생성(ProjectStackDetector)과 같은 기준이다.
+    const applicationNode = rfNodes.find(
+      (node) =>
+        node.id &&
+        node.id.includes("src/main/java/") &&
+        node.id.endsWith("Application.java"),
+    );
+
+    if (applicationNode) {
+      const parts = applicationNode.id.split("/");
+      parts.pop();
+      setBasePath(`${parts.join("/")}/`);
+      return;
+    }
+
     if (currentLang === "SPRING_BOOT") {
       const mainNode = rfNodes.find(
         (node) => (node.data?.role || "").toLowerCase() === "main",
