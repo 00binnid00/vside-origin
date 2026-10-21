@@ -70,8 +70,8 @@ export function AiDraftDialog({
   const errorMessage = localError || (mine && job.status === "failed" ? job.errorMessage : "");
   const [summary, setSummary] = useState("");
   const [backend, setBackend] = useState("Spring Boot");
-  const [frontend, setFrontend] = useState("React");
-  const [db, setDb] = useState("MySQL");
+  const [frontend, setFrontend] = useState("Java Swing");
+  const [db, setDb] = useState("H2");
   const [instruction, setInstruction] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
